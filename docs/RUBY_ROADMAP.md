@@ -16,8 +16,9 @@ Status: complete.
 - The official tree-sitter Ruby grammar extracts explicit `Module`, `Class`,
   `Constant`, instance-method, singleton-method, and `class << self` declarations.
 - `config/routes.rb` emits `Route` nodes for receiverless literal `get`, `post`,
-  `put`, `patch`, `delete`, `head`, and `options` DSL calls inside
-  `Rails.application.routes.draw`.
+  `put`, `patch`, `delete`, and `options` calls inside `Rails.application.routes.draw`.
+  The extractor also recognizes source-level `head` calls, but Rails 8 does not expose
+  `head` as a direct routing DSL method and it is outside the Rails fixture oracle.
 - A route path must be a non-empty, non-interpolated string. Receiver-based calls such
   as `client.get "/health"` do not become Rails routes.
 - Ruby has its own incremental scope and does not trigger Go or TypeScript call
@@ -89,9 +90,8 @@ for every emitted route.
   dynamic form.
 - In progress: `internal/index/testdata/rails_routes_oracle` pins Rails 8.0.2 and
   records a normalized `rails routes` oracle for literal verbs, scopes, resources,
-  and rejected dynamic forms. Expand this corpus before declaring the exit gate met.
-- Before the R2 exit gate, add oracle coverage for `scope "prefix"` and
-  `namespace :name, path: "override"`.
+  path overrides, and rejected dynamic forms. Expand this corpus before declaring the
+  exit gate met.
 
 Exit gate: compare extracted literal routes against `rails routes` output captured
 from versioned fixture applications. The graph must contain no route absent from the

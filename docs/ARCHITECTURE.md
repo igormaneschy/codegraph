@@ -116,9 +116,11 @@ Ruby source (`.rb`, `.rake`, `.ru`, `.rbi`) uses the official tree-sitter Ruby g
 The definitions pass emits explicit `Module`, `Class`, `Constant`, and instance
 (`Owner#method`) or singleton (`Owner.method`) `Method` nodes. It does not infer
 Rails-generated methods or metaprogrammed declarations. Literal `get`/`post`/`put`/
-`patch`/`delete`/`head`/`options` calls in `config/routes.rb` emit `Route` nodes;
-only calls inside `Rails.application.routes.draw` with non-empty, non-interpolated
-literal paths are accepted. Literal `namespace` and `scope` path prefixes compose with
+`patch`/`delete`/`options` calls in `config/routes.rb` emit `Route` nodes; only calls
+inside `Rails.application.routes.draw` with non-empty, non-interpolated literal paths
+are accepted. The extractor also recognizes raw `head` calls, but Rails 8 exposes that
+verb through `match ... via:` rather than a direct DSL method, which remains out of
+scope. Literal `namespace` and `scope` path prefixes compose with
 nested routes. Resourceful, interpolated, and dynamically prefixed routes are
 deliberately skipped until a Rails-aware resolver can validate them. Non-nested
 `resources` and `resource` declarations expand their literal `only`, `except`, `path`,
