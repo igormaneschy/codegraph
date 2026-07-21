@@ -11,3 +11,6 @@ The unreachable branch contains interpolation, dynamic namespace/scope prefixes,
 dynamic resource options. They must not appear in the oracle or in extracted route
 nodes; it exists to preserve the dynamic rejection boundary without altering Rails'
 captured route output.
+
+Expanded `resources` and `resource` routes all use the declaration line as their
+source span; individual REST actions do not have separate source locations.

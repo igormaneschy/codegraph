@@ -10,6 +10,7 @@ Rails.application.routes.draw do
   end
 
   resources :photos, only: [:index, :show, :new], path: "images", path_names: { new: "browse" }
+  # `except: :destroy` deliberately omits DELETE /profile from the oracle.
   resource :profile, except: :destroy
 
   # These syntactically valid dynamic forms must remain excluded by codegraph.

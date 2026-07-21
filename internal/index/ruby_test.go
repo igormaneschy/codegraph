@@ -53,18 +53,22 @@ func TestRoutes_RailsFixtureOracle(t *testing.T) {
 		"GET /images":          {"GET", "/images", 12},
 		"GET /images/browse":   {"GET", "/images/browse", 12},
 		"GET /images/:id":      {"GET", "/images/:id", 12},
-		"GET /profile/new":     {"GET", "/profile/new", 13},
-		"GET /profile/edit":    {"GET", "/profile/edit", 13},
-		"GET /profile":         {"GET", "/profile", 13},
-		"PATCH /profile":       {"PATCH", "/profile", 13},
-		"PUT /profile":         {"PUT", "/profile", 13},
-		"POST /profile":        {"POST", "/profile", 13},
+		"GET /profile/new":     {"GET", "/profile/new", 14},
+		"GET /profile/edit":    {"GET", "/profile/edit", 14},
+		"GET /profile":         {"GET", "/profile", 14},
+		"PATCH /profile":       {"PATCH", "/profile", 14},
+		"PUT /profile":         {"PUT", "/profile", 14},
+		"POST /profile":        {"POST", "/profile", 14},
 	}
 	for _, node := range nodes {
 		if node.Label != graph.LabelRoute {
 			continue
 		}
-		expected := wantMetadata[node.Name]
+		expected, listed := wantMetadata[node.Name]
+		if !listed {
+			t.Errorf("route %q is missing metadata expectations", node.Name)
+			continue
+		}
 		if node.Props["method"] != expected.method || node.Props["path"] != expected.path || node.Props["framework"] != "rails" {
 			t.Errorf("route %q metadata = %#v, want method=%q path=%q framework=rails", node.Name, node.Props, expected.method, expected.path)
 		}

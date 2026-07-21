@@ -90,6 +90,8 @@ for every emitted route.
 - In progress: `internal/index/testdata/rails_routes_oracle` pins Rails 8.0.2 and
   records a normalized `rails routes` oracle for literal verbs, scopes, resources,
   and rejected dynamic forms. Expand this corpus before declaring the exit gate met.
+- Before the R2 exit gate, add oracle coverage for `scope "prefix"` and
+  `namespace :name, path: "override"`.
 
 Exit gate: compare extracted literal routes against `rails routes` output captured
 from versioned fixture applications. The graph must contain no route absent from the
