@@ -175,11 +175,15 @@ func TestRoutes_RailsResources(t *testing.T) {
 	src := `Rails.application.routes.draw do
   resources :photos, only: [:index, :show, :new], path: "images", path_names: { new: "make" }
   resource :profile, except: :destroy
+  resource :settings, only: :edit, path_names: { edit: "change" }
   resources :posts, only: :edit, path_names: { edit: "change" }
   resources :articles, only: :index do
     resources :comments
   end
   resources dynamic_resources
+  resources :invalid_except, except: [:destroy, :unknown]
+  resources :dynamic_path_names, path_names: { new: dynamic_name }
+  resources :empty_path, path: ""
 end
 `
 	nodes, _ := extractDefsFromSource("p", "config/routes.rb", LangRuby, []byte(src))
@@ -192,6 +196,7 @@ end
 	want := map[string]struct{}{
 		"GET /images": {}, "GET /images/:id": {}, "GET /images/make": {},
 		"POST /profile": {}, "GET /profile": {}, "GET /profile/new": {}, "GET /profile/edit": {}, "PATCH /profile": {}, "PUT /profile": {},
+		"GET /settings/change":  {},
 		"GET /posts/:id/change": {}, "GET /articles": {},
 	}
 	if len(routes) != len(want) {
@@ -201,5 +206,8 @@ end
 		if _, ok := routes[name]; !ok {
 			t.Errorf("missing route %q", name)
 		}
+	}
+	if _, ok := routes["GET /comments"]; ok {
+		t.Error("nested resources must be skipped until parent parameters are modeled")
 	}
 }

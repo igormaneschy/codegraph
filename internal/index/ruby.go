@@ -262,6 +262,9 @@ func rubyResourceRoutes(n *tree_sitter.Node, src []byte, prefix string) ([]rubyR
 			if suffix == "/new" {
 				suffix = "/" + newName
 			}
+			if suffix == "/edit" {
+				suffix = "/" + editName
+			}
 			if suffix == "/:id/edit" {
 				suffix = "/:id/" + editName
 			}
@@ -279,6 +282,7 @@ func rubyResourceName(n *tree_sitter.Node, src []byte) (string, bool) {
 }
 
 func rubyResourceOption(args *tree_sitter.Node, src []byte, name string) *tree_sitter.Node {
+	// Named child 0 is the resource name; options begin at child 1.
 	for i := uint(1); i < args.NamedChildCount(); i++ {
 		pair := args.NamedChild(i)
 		if pair.Kind() == "pair" && rubyRouteOptionKey(pair.ChildByFieldName("key"), src) == name {
@@ -307,6 +311,7 @@ func rubyResourceActions(args *tree_sitter.Node, src []byte, available map[strin
 		}
 		for _, action := range actions {
 			if _, ok := available[action]; !ok {
+				// An unknown action makes the declaration ambiguous; skip it entirely.
 				return nil, false
 			}
 			selected[action] = option == "only"
@@ -349,6 +354,7 @@ func rubyResourcePathNames(args *tree_sitter.Node, src []byte) (newName, editNam
 		pair := value.NamedChild(i)
 		key := rubyRouteOptionKey(pair.ChildByFieldName("key"), src)
 		if key != "new" && key != "edit" {
+			// Other path_names entries do not affect REST paths emitted here.
 			continue
 		}
 		name, valid := rubyLiteralStringNode(pair.ChildByFieldName("value"), src)
@@ -365,7 +371,12 @@ func rubyResourcePathNames(args *tree_sitter.Node, src []byte) (newName, editNam
 }
 
 func addRubyRoute(method, path string, n *tree_sitter.Node, add addFn) {
-	add(graph.LabelRoute, method+" "+path, "route."+method+"."+strings.ReplaceAll(strings.Trim(path, "/"), "/", ".")+"."+strconv.Itoa(int(n.StartPosition().Row)+1), n.StartPosition().Row, n.EndPosition().Row, map[string]any{"method": method, "path": path, "framework": "rails"})
+	qn := "route." + method + "." +
+		strings.ReplaceAll(strings.Trim(path, "/"), "/", ".") + "." +
+		strconv.Itoa(int(n.StartPosition().Row)+1)
+	add(graph.LabelRoute, method+" "+path, qn,
+		n.StartPosition().Row, n.EndPosition().Row,
+		map[string]any{"method": method, "path": path, "framework": "rails"})
 }
 
 // rubyRouteScopePath recognizes only route DSL scopes with a statically known URL
