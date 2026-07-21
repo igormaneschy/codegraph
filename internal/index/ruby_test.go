@@ -170,3 +170,36 @@ end
 		}
 	}
 }
+
+func TestRoutes_RailsResources(t *testing.T) {
+	src := `Rails.application.routes.draw do
+  resources :photos, only: [:index, :show, :new], path: "images", path_names: { new: "make" }
+  resource :profile, except: :destroy
+  resources :posts, only: :edit, path_names: { edit: "change" }
+  resources :articles, only: :index do
+    resources :comments
+  end
+  resources dynamic_resources
+end
+`
+	nodes, _ := extractDefsFromSource("p", "config/routes.rb", LangRuby, []byte(src))
+	routes := map[string]struct{}{}
+	for _, node := range nodes {
+		if node.Label == graph.LabelRoute {
+			routes[node.Name] = struct{}{}
+		}
+	}
+	want := map[string]struct{}{
+		"GET /images": {}, "GET /images/:id": {}, "GET /images/make": {},
+		"POST /profile": {}, "GET /profile": {}, "GET /profile/new": {}, "GET /profile/edit": {}, "PATCH /profile": {}, "PUT /profile": {},
+		"GET /posts/:id/change": {}, "GET /articles": {},
+	}
+	if len(routes) != len(want) {
+		t.Errorf("routes = %#v, want %#v", routes, want)
+	}
+	for name := range want {
+		if _, ok := routes[name]; !ok {
+			t.Errorf("missing route %q", name)
+		}
+	}
+}

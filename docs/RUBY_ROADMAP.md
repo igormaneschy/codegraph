@@ -77,8 +77,12 @@ for every emitted route.
 - Completed: literal `namespace`, `scope "prefix"`, and `scope path: "prefix"`
   compose URL paths when nesting and the optional `path:` override are static. Dynamic
   namespace or scope prefixes skip their subtrees.
-- Add `resources` and `resource` expansion only after a table-driven implementation
-  covers `only`, `except`, `path`, `path_names`, and shallow nesting semantics.
+- Completed: non-nested `resources` and `resource` use a table-driven expansion for
+  literal `only`, `except`, `path`, and `path_names` options. Dynamic declarations
+  and nested resource subtrees are skipped.
+- Deferred: shallow nesting needs Rails-compatible parent parameter names such as
+  `:article_id`. Do not add a hand-written singularization heuristic; first establish
+  a source-compatible inflection strategy and a captured `rails routes` oracle.
 - Keep `draw`, dynamic `send`, variables, interpolation, constraints backed by code,
   engine mounts, and application-defined route macros out of scope.
 - Add fixture tests for every accepted form and a negative test for every rejected

@@ -175,15 +175,18 @@ func walkRubyRouteCalls(root *tree_sitter.Node, src []byte, prefix string, add a
 			}
 			return
 		}
+		if routes, handled := rubyResourceRoutes(n, src, prefix); handled {
+			for _, route := range routes {
+				addRubyRoute(route.method, route.path, n, add)
+			}
+			return
+		}
 		if n.Kind() == "call" && n.ChildByFieldName("receiver") == nil {
 			verb := rubyNodeName(n.ChildByFieldName("method"), src)
 			if routeVerb, ok := rubyHTTPVerbs[verb]; ok {
 				if path, ok := rubyLiteralRoutePath(n.ChildByFieldName("arguments"), src); ok {
 					path = rubyJoinRoutePath(prefix, path)
-					add(graph.LabelRoute, routeVerb+" "+path,
-						"route."+routeVerb+"."+strings.ReplaceAll(strings.Trim(path, "/"), "/", ".")+"."+strconv.Itoa(int(n.StartPosition().Row)+1),
-						n.StartPosition().Row, n.EndPosition().Row,
-						map[string]any{"method": routeVerb, "path": path, "framework": "rails"})
+					addRubyRoute(routeVerb, path, n, add)
 				}
 			}
 		}
@@ -192,6 +195,177 @@ func walkRubyRouteCalls(root *tree_sitter.Node, src []byte, prefix string, add a
 		}
 	}
 	walk(root)
+}
+
+type rubyResourceRoute struct{ method, path string }
+
+var rubyPluralResourceActions = map[string][]rubyResourceRoute{
+	"index": {{"GET", ""}}, "create": {{"POST", ""}}, "new": {{"GET", "/new"}},
+	"show": {{"GET", "/:id"}}, "edit": {{"GET", "/:id/edit"}},
+	"update": {{"PATCH", "/:id"}, {"PUT", "/:id"}}, "destroy": {{"DELETE", "/:id"}},
+}
+
+var rubySingularResourceActions = map[string][]rubyResourceRoute{
+	"create": {{"POST", ""}}, "new": {{"GET", "/new"}}, "show": {{"GET", ""}},
+	"edit": {{"GET", "/edit"}}, "update": {{"PATCH", ""}, {"PUT", ""}}, "destroy": {{"DELETE", ""}},
+}
+
+// rubyResourceRoutes expands only a single, literal, non-nested Rails resource.
+// Unknown or dynamic options skip the subtree rather than emit a wrong route.
+func rubyResourceRoutes(n *tree_sitter.Node, src []byte, prefix string) ([]rubyResourceRoute, bool) {
+	if n.Kind() != "call" || n.ChildByFieldName("receiver") != nil {
+		return nil, false
+	}
+	method := rubyNodeName(n.ChildByFieldName("method"), src)
+	if method != "resources" && method != "resource" {
+		return nil, false
+	}
+	args := n.ChildByFieldName("arguments")
+	if args == nil || args.NamedChildCount() == 0 {
+		return nil, true
+	}
+	name, ok := rubyResourceName(args.NamedChild(0), src)
+	if !ok {
+		return nil, true
+	}
+	for i := uint(1); i < args.NamedChildCount(); i++ {
+		if args.NamedChild(i).Kind() != "pair" {
+			return nil, true
+		}
+	}
+	path := name
+	if value := rubyResourceOption(args, src, "path"); value != nil {
+		path, ok = rubyLiteralStringNode(value, src)
+		if !ok || path == "" {
+			return nil, true
+		}
+	}
+	actions := rubyPluralResourceActions
+	if method == "resource" {
+		actions = rubySingularResourceActions
+	}
+	selected, ok := rubyResourceActions(args, src, actions)
+	if !ok {
+		return nil, true
+	}
+	newName, editName, ok := rubyResourcePathNames(args, src)
+	if !ok {
+		return nil, true
+	}
+	var out []rubyResourceRoute
+	for action, routes := range actions {
+		if !selected[action] {
+			continue
+		}
+		for _, route := range routes {
+			suffix := route.path
+			if suffix == "/new" {
+				suffix = "/" + newName
+			}
+			if suffix == "/:id/edit" {
+				suffix = "/:id/" + editName
+			}
+			out = append(out, rubyResourceRoute{route.method, rubyJoinRoutePath(prefix, "/"+path+suffix)})
+		}
+	}
+	return out, true
+}
+
+func rubyResourceName(n *tree_sitter.Node, src []byte) (string, bool) {
+	if n != nil && n.Kind() == "simple_symbol" {
+		return strings.TrimPrefix(rubyNodeName(n, src), ":"), true
+	}
+	return rubyLiteralStringNode(n, src)
+}
+
+func rubyResourceOption(args *tree_sitter.Node, src []byte, name string) *tree_sitter.Node {
+	for i := uint(1); i < args.NamedChildCount(); i++ {
+		pair := args.NamedChild(i)
+		if pair.Kind() == "pair" && rubyRouteOptionKey(pair.ChildByFieldName("key"), src) == name {
+			return pair.ChildByFieldName("value")
+		}
+	}
+	return nil
+}
+
+func rubyResourceActions(args *tree_sitter.Node, src []byte, available map[string][]rubyResourceRoute) (map[string]bool, bool) {
+	selected := map[string]bool{}
+	for action := range available {
+		selected[action] = true
+	}
+	for _, option := range []string{"only", "except"} {
+		value := rubyResourceOption(args, src, option)
+		if value == nil {
+			continue
+		}
+		actions, ok := rubyResourceActionList(value, src)
+		if !ok {
+			return nil, false
+		}
+		if option == "only" {
+			selected = map[string]bool{}
+		}
+		for _, action := range actions {
+			if _, ok := available[action]; !ok {
+				return nil, false
+			}
+			selected[action] = option == "only"
+		}
+	}
+	return selected, true
+}
+
+func rubyResourceActionList(n *tree_sitter.Node, src []byte) ([]string, bool) {
+	if n == nil {
+		return nil, false
+	}
+	if n.Kind() == "simple_symbol" {
+		return []string{strings.TrimPrefix(rubyNodeName(n, src), ":")}, true
+	}
+	if n.Kind() != "array" {
+		return nil, false
+	}
+	var actions []string
+	for i := uint(0); i < n.NamedChildCount(); i++ {
+		action, ok := rubyResourceActionList(n.NamedChild(i), src)
+		if !ok || len(action) != 1 {
+			return nil, false
+		}
+		actions = append(actions, action[0])
+	}
+	return actions, true
+}
+
+func rubyResourcePathNames(args *tree_sitter.Node, src []byte) (newName, editName string, ok bool) {
+	newName, editName = "new", "edit"
+	value := rubyResourceOption(args, src, "path_names")
+	if value == nil {
+		return newName, editName, true
+	}
+	if value.Kind() != "hash" {
+		return "", "", false
+	}
+	for i := uint(0); i < value.NamedChildCount(); i++ {
+		pair := value.NamedChild(i)
+		key := rubyRouteOptionKey(pair.ChildByFieldName("key"), src)
+		if key != "new" && key != "edit" {
+			continue
+		}
+		name, valid := rubyLiteralStringNode(pair.ChildByFieldName("value"), src)
+		if !valid || name == "" {
+			return "", "", false
+		}
+		if key == "new" {
+			newName = name
+		} else {
+			editName = name
+		}
+	}
+	return newName, editName, true
+}
+
+func addRubyRoute(method, path string, n *tree_sitter.Node, add addFn) {
+	add(graph.LabelRoute, method+" "+path, "route."+method+"."+strings.ReplaceAll(strings.Trim(path, "/"), "/", ".")+"."+strconv.Itoa(int(n.StartPosition().Row)+1), n.StartPosition().Row, n.EndPosition().Row, map[string]any{"method": method, "path": path, "framework": "rails"})
 }
 
 // rubyRouteScopePath recognizes only route DSL scopes with a statically known URL
