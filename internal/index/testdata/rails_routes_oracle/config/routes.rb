@@ -13,6 +13,19 @@ Rails.application.routes.draw do
   # `except: :destroy` deliberately omits DELETE /profile from the oracle.
   resource :profile, except: :destroy
 
+  scope "public" do
+    get "status", to: "health#show"
+  end
+
+  namespace :admin, path: "control" do
+    get "reports", to: "reports#index"
+  end
+
+  delete "sessions/:id", to: "sessions#destroy"
+  options "health", to: "health#show"
+  put "settings", to: "settings#update"
+  patch "settings", to: "settings#update"
+
   # These syntactically valid dynamic forms must remain excluded by codegraph.
   # Keeping them unreachable lets `rails routes` produce the same supported oracle.
   if false

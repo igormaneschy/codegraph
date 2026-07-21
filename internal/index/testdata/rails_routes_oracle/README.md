@@ -2,9 +2,9 @@
 
 This fixture pins Rails 8.0.2 and exercises only the literal route forms supported
 by codegraph. It is a minimal bootable Rails application: from this directory, run
-`bundle install` followed by `bundle exec bin/rails routes --expanded`. Normalize the
-application routes to `VERB PATH`, then compare the result to `routes.oracle` before
-updating that file. Controller names, route helpers, and internal routes are excluded
+`bundle install` followed by `bundle exec ruby script/verify_oracle.rb`. The verifier
+boots Rails, normalizes application routes to `VERB PATH`, and compares them with
+`routes.oracle`. Controller names, route helpers, and internal routes are excluded
 because codegraph models only HTTP method and path.
 
 The unreachable branch contains interpolation, dynamic namespace/scope prefixes, and
