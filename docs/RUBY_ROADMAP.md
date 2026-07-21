@@ -88,10 +88,10 @@ for every emitted route.
   engine mounts, and application-defined route macros out of scope.
 - Add fixture tests for every accepted form and a negative test for every rejected
   dynamic form.
-- In progress: `internal/index/testdata/rails_routes_oracle` pins Rails 8.0.2 and
-  records a normalized `rails routes` oracle for literal verbs, scopes, resources,
-  path overrides, and rejected dynamic forms. Expand this corpus before declaring the
-  exit gate met.
+- Completed: `internal/index/testdata/rails_routes_oracle` pins Rails 8.0.2 and
+  verifies a normalized `rails routes` oracle for supported literal verbs, scopes,
+  resource options, path overrides, and rejected dynamic forms without booting Rails
+  during Go tests.
 
 Exit gate: compare extracted literal routes against `rails routes` output captured
 from versioned fixture applications. The graph must contain no route absent from the
@@ -104,8 +104,10 @@ Goal: add graph relationships whose endpoints are explicit source declarations.
 
 - Completed: literal `require_relative` paths resolve to existing repository-local
   `.rb` files as `IMPORTS` edges in a Ruby-only pass.
-- Evaluate literal `require` only for repository-local load paths that can be proven
-  from project configuration; package and ambiguous load-path imports stay dropped.
+- Completed: literal `require` paths resolve only when `config/application.rb`
+  explicitly enables `config.add_autoload_paths_to_load_path` and appends a literal
+  `Rails.root.join(...)` path to `config.autoload_paths`; package and ambiguous
+  load-path imports stay dropped.
 - Completed: literal `to: "users#show"` targets emit `HANDLES` edges to conventionally
   located controller methods when the target exists. Dynamic, malformed, and missing
   targets drop; these relationships are not `CALLS`.

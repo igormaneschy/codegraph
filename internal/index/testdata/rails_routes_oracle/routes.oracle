@@ -1,4 +1,6 @@
 GET /admin/dashboard
+GET /also_unprefixed
+GET /admin/audits
 GET /control/reports
 DELETE /sessions/:id
 GET /health
@@ -11,6 +13,9 @@ GET /profile
 GET /profile/edit
 GET /profile/new
 GET /public/status
+GET /posts/:id/change
+GET /settings/change
+GET /unprefixed
 PATCH /profile
 POST /api/sessions
 POST /profile

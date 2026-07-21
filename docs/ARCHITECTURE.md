@@ -128,8 +128,11 @@ and `path_names` options through a fixed REST table. Nested and shallow resource
 out of scope because their parent parameter names require Rails-compatible inflection.
 Ruby `CALLS` resolution remains a future optional resolver.
 Literal Ruby `require_relative` calls resolve to existing repository-local `.rb` files
-as `IMPORTS` edges in a Ruby-specific pass. Ordinary `require` remains excluded because
-its load path cannot be proven from source alone.
+as `IMPORTS` edges in a Ruby-specific pass. Literal `require` resolves only through
+paths explicitly proven in `config/application.rb`: Rails must enable
+`config.add_autoload_paths_to_load_path` and append a literal `Rails.root.join(...)`
+path to `config.autoload_paths`. Package, dynamic, and ambiguous load paths remain
+excluded.
 Literal Rails `to: "controller#action"` values emit `HANDLES` edges from Route nodes to
 conventionally located controller methods. Missing, dynamic, and malformed targets drop.
 

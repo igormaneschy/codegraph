@@ -27,6 +27,21 @@ Rails.application.routes.draw do
   put "settings", to: "settings#update"
   patch "settings", to: "settings#update"
 
+  namespace :admin, "path" => "backoffice" do
+    get "audits", to: "audits#index"
+  end
+
+  scope module: "api" do
+    get "unprefixed", to: "health#show"
+  end
+
+  scope do
+    get "also_unprefixed", to: "health#show"
+  end
+
+  resources :posts, only: :edit, path_names: { edit: "change" }
+  resource :settings, only: :edit, path_names: { edit: "change" }
+
   # These syntactically valid dynamic forms must remain excluded by codegraph.
   # Keeping them unreachable lets `rails routes` produce the same supported oracle.
   if false

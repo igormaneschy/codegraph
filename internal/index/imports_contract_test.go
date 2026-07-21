@@ -100,3 +100,121 @@ func TestImports_RubyRequireRelative(t *testing.T) {
 		t.Fatalf("only one resolved non-self require_relative edge expected; got %+v", edges)
 	}
 }
+
+func TestImports_RubyRequireConfiguredLoadPath(t *testing.T) {
+	edges := resolveImports("p", []fileSrc{
+		{RelPath: "config/application.rb", Lang: LangRuby, Data: []byte(`config.add_autoload_paths_to_load_path = true
+config.autoload_paths << Rails.root.join("lib")
+`)},
+		{RelPath: "app/services/runner.rb", Lang: LangRuby, Data: []byte(`require "widgets/profile"
+require "json"
+require dynamic_path
+require "./local"
+`)},
+		{RelPath: "lib/widgets/profile.rb", Lang: LangRuby, Data: []byte("class Profile; end\n")},
+	})
+	if !hasImport(edges, "p:app/services/runner.rb", "p:lib/widgets/profile.rb") {
+		t.Fatalf("missing configured Ruby require edge; got %+v", edges)
+	}
+	if len(edges) != 1 {
+		t.Fatalf("only the configured local require should resolve; got %+v", edges)
+	}
+}
+
+func TestImports_RubyRequireNeedsProvenLoadPath(t *testing.T) {
+	files := []fileSrc{
+		{RelPath: "config/application.rb", Lang: LangRuby, Data: []byte(`config.autoload_paths << Rails.root.join("lib")
+`)},
+		{RelPath: "app/services/runner.rb", Lang: LangRuby, Data: []byte(`require "widgets/profile"`)},
+		{RelPath: "lib/widgets/profile.rb", Lang: LangRuby, Data: []byte("class Profile; end\n")},
+	}
+	if edges := resolveImports("p", files); len(edges) != 0 {
+		t.Fatalf("require without a proven Ruby load path must drop; got %+v", edges)
+	}
+
+	files[0].Data = []byte(`config.add_autoload_paths_to_load_path = true
+config.add_autoload_paths_to_load_path = false
+config.autoload_paths << Rails.root.join("lib")
+`)
+	if edges := resolveImports("p", files); len(edges) != 0 {
+		t.Fatalf("ambiguous load-path config must drop; got %+v", edges)
+	}
+}
+
+func TestImports_RubyRequireHeredocMustNotMatch(t *testing.T) {
+	files := []fileSrc{
+		{RelPath: "config/application.rb", Lang: LangRuby, Data: []byte(`<<~CONFIG
+config.add_autoload_paths_to_load_path = true
+config.autoload_paths << Rails.root.join("lib")
+CONFIG
+`)},
+		{RelPath: "lib/widgets/profile.rb", Lang: LangRuby, Data: []byte("class Profile; end\n")},
+		{RelPath: "app/services/runner.rb", Lang: LangRuby, Data: []byte(`require "widgets/profile"`)},
+	}
+	if edges := resolveImports("p", files); len(edges) != 0 {
+		t.Fatalf("heredoc content must not enable require; got %+v", edges)
+	}
+}
+
+func TestImports_RubyRequireConditionalFalseMustDisable(t *testing.T) {
+	files := []fileSrc{
+		{RelPath: "config/application.rb", Lang: LangRuby, Data: []byte(`if some_condition
+  config.add_autoload_paths_to_load_path = true
+  config.autoload_paths << Rails.root.join("lib")
+end
+if other_condition
+  config.add_autoload_paths_to_load_path = false
+end
+`)},
+		{RelPath: "lib/widgets/profile.rb", Lang: LangRuby, Data: []byte("class Profile; end\n")},
+		{RelPath: "app/services/runner.rb", Lang: LangRuby, Data: []byte(`require "widgets/profile"`)},
+	}
+	if edges := resolveImports("p", files); len(edges) != 0 {
+		t.Fatalf("conditional false guards must disable require; got %+v", edges)
+	}
+}
+
+func TestImports_RubyRequireStringLiteralMustNotMatch(t *testing.T) {
+	files := []fileSrc{
+		{RelPath: "config/application.rb", Lang: LangRuby, Data: []byte(`str = "config.add_autoload_paths_to_load_path = true"
+str = 'config.autoload_paths << Rails.root.join("lib")'
+`)},
+		{RelPath: "lib/widgets/profile.rb", Lang: LangRuby, Data: []byte("class Profile; end\n")},
+		{RelPath: "app/services/runner.rb", Lang: LangRuby, Data: []byte(`require "widgets/profile"`)},
+	}
+	if edges := resolveImports("p", files); len(edges) != 0 {
+		t.Fatalf("string literal content must not enable require; got %+v", edges)
+	}
+}
+
+func TestImports_RubyRequireConditionalAutoloadPathDropped(t *testing.T) {
+	files := []fileSrc{
+		{RelPath: "config/application.rb", Lang: LangRuby, Data: []byte(`config.add_autoload_paths_to_load_path = true
+if some_guard
+  config.autoload_paths << Rails.root.join("lib")
+end
+`)},
+		{RelPath: "lib/widgets/profile.rb", Lang: LangRuby, Data: []byte("class Profile; end\n")},
+		{RelPath: "app/services/runner.rb", Lang: LangRuby, Data: []byte(`require "widgets/profile"`)},
+	}
+	if edges := resolveImports("p", files); len(edges) != 0 {
+		t.Fatalf("conditional autoload path must be dropped; got %+v", edges)
+	}
+}
+
+func TestImports_RubyRequireConditionalElseMustAlsoDrop(t *testing.T) {
+	files := []fileSrc{
+		{RelPath: "config/application.rb", Lang: LangRuby, Data: []byte(`config.add_autoload_paths_to_load_path = true
+if cond
+  config.autoload_paths << Rails.root.join("lib1")
+else
+  config.autoload_paths << Rails.root.join("lib2")
+end
+`)},
+		{RelPath: "lib/widgets/profile.rb", Lang: LangRuby, Data: []byte("class Profile; end\n")},
+		{RelPath: "app/services/runner.rb", Lang: LangRuby, Data: []byte(`require "widgets/profile"`)},
+	}
+	if edges := resolveImports("p", files); len(edges) != 0 {
+		t.Fatalf("conditional autoload path in else must be dropped; got %+v", edges)
+	}
+}
