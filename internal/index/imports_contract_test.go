@@ -88,12 +88,15 @@ func TestImports_TS_UnresolvedRelativeDropped(t *testing.T) {
 	}
 }
 
-func TestImports_RubyRequireIsNotParsedAsTSImport(t *testing.T) {
+func TestImports_RubyRequireRelative(t *testing.T) {
 	edges := resolveImports("p", []fileSrc{
-		{RelPath: "app/user.rb", Lang: LangRuby, Data: []byte("require_relative 'profile'\n")},
-		{RelPath: "app/profile.rb", Lang: LangRuby, Data: []byte("class Profile; end\n")},
+		{RelPath: "app/models/user.rb", Lang: LangRuby, Data: []byte("require_relative '../services/profile'\nrequire_relative '../services/profile.rb'\nrequire_relative '../missing/file'\nrequire_relative './user'\nrequire 'json'\nrequire_relative dynamic_path\n")},
+		{RelPath: "app/services/profile.rb", Lang: LangRuby, Data: []byte("class Profile; end\n")},
 	})
-	if len(edges) != 0 {
-		t.Fatalf("Ruby requires are not part of the TS/JS import pass; got %+v", edges)
+	if !hasImport(edges, "p:app/models/user.rb", "p:app/services/profile.rb") {
+		t.Fatalf("missing Ruby require_relative edge; got %+v", edges)
+	}
+	if len(edges) != 1 {
+		t.Fatalf("only one resolved non-self require_relative edge expected; got %+v", edges)
 	}
 }

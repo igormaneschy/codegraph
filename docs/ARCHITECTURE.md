@@ -125,6 +125,9 @@ deliberately skipped until a Rails-aware resolver can validate them. Non-nested
 and `path_names` options through a fixed REST table. Nested and shallow resources stay
 out of scope because their parent parameter names require Rails-compatible inflection.
 Ruby `CALLS` resolution remains a future optional resolver.
+Literal Ruby `require_relative` calls resolve to existing repository-local `.rb` files
+as `IMPORTS` edges in a Ruby-specific pass. Ordinary `require` remains excluded because
+its load path cannot be proven from source alone.
 
 ## Query layer (internal/query)
 
