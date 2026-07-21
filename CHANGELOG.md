@@ -25,6 +25,8 @@ versions may include breaking changes).
 - **Ruby relative imports** - literal `require_relative` calls now emit `IMPORTS`
   edges only when their repository-local `.rb` target exists. Dynamic arguments and
   load-path-dependent `require` calls remain excluded.
+- **Rails route handlers** - literal `to: "controller#action"` targets emit `HANDLES`
+  edges to conventionally located controller methods when the target exists in the graph.
 
 ### Changed
 

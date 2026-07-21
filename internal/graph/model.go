@@ -37,6 +37,7 @@ const (
 	EdgeImplements    EdgeType = "IMPLEMENTS"    // class -> interface
 	EdgeDecorates     EdgeType = "DECORATES"     // decorator -> target (Nest @Injectable etc.)
 	EdgeHTTPCalls     EdgeType = "HTTP_CALLS"    // call-site -> route (cross-service)
+	EdgeHandles       EdgeType = "HANDLES"       // route -> controller action
 	EdgeSimilarTo     EdgeType = "SIMILAR_TO"    // near-clone (MinHash + LSH)
 	EdgeSemanticalRel EdgeType = "SEMANTICALLY_RELATED"
 )

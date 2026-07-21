@@ -136,12 +136,12 @@ func rubyConstantName(name string) bool {
 // walkRubyRoutes emits only direct Rails routing calls with a literal string
 // path. Resourceful and dynamically constructed routes remain deliberately out
 // of scope until a Rails-aware resolver can validate them.
-func walkRubyRoutes(root *tree_sitter.Node, src []byte, relPath string, add addFn) {
+func walkRubyRoutes(root *tree_sitter.Node, src []byte, relPath, project string, add addFn, addHandler func(string, string)) {
 	if relPath != "config/routes.rb" {
 		return
 	}
 	for _, block := range rubyRoutesDrawBlocks(root, src) {
-		walkRubyRouteCalls(block, src, "", add)
+		walkRubyRouteCalls(block, src, "", project, add, addHandler)
 	}
 }
 
@@ -164,13 +164,13 @@ func rubyRoutesDrawBlocks(root *tree_sitter.Node, src []byte) []*tree_sitter.Nod
 	return blocks
 }
 
-func walkRubyRouteCalls(root *tree_sitter.Node, src []byte, prefix string, add addFn) {
+func walkRubyRouteCalls(root *tree_sitter.Node, src []byte, prefix, project string, add addFn, addHandler func(string, string)) {
 	var walk func(*tree_sitter.Node)
 	walk = func(n *tree_sitter.Node) {
 		if path, handled, ok := rubyRouteScopePath(n, src); handled {
 			if ok {
 				if block := n.ChildByFieldName("block"); block != nil {
-					walkRubyRouteCalls(block, src, rubyJoinRoutePath(prefix, path), add)
+					walkRubyRouteCalls(block, src, rubyJoinRoutePath(prefix, path), project, add, addHandler)
 				}
 			}
 			return
@@ -186,7 +186,10 @@ func walkRubyRouteCalls(root *tree_sitter.Node, src []byte, prefix string, add a
 			if routeVerb, ok := rubyHTTPVerbs[verb]; ok {
 				if path, ok := rubyLiteralRoutePath(n.ChildByFieldName("arguments"), src); ok {
 					path = rubyJoinRoutePath(prefix, path)
-					addRubyRoute(routeVerb, path, n, add)
+					routeSuffix := addRubyRoute(routeVerb, path, n, add)
+					if target, ok := rubyRouteHandlerTarget(n.ChildByFieldName("arguments"), src, project); ok {
+						addHandler(routeSuffix, target)
+					}
 				}
 			}
 		}
@@ -370,13 +373,52 @@ func rubyResourcePathNames(args *tree_sitter.Node, src []byte) (newName, editNam
 	return newName, editName, true
 }
 
-func addRubyRoute(method, path string, n *tree_sitter.Node, add addFn) {
+func addRubyRoute(method, path string, n *tree_sitter.Node, add addFn) string {
 	qn := "route." + method + "." +
 		strings.ReplaceAll(strings.Trim(path, "/"), "/", ".") + "." +
 		strconv.Itoa(int(n.StartPosition().Row)+1)
 	add(graph.LabelRoute, method+" "+path, qn,
 		n.StartPosition().Row, n.EndPosition().Row,
 		map[string]any{"method": method, "path": path, "framework": "rails"})
+	return qn
+}
+
+func rubyRouteHandlerTarget(args *tree_sitter.Node, src []byte, project string) (string, bool) {
+	if args == nil {
+		return "", false
+	}
+	for i := uint(0); i < args.NamedChildCount(); i++ {
+		pair := args.NamedChild(i)
+		if pair.Kind() != "pair" || rubyRouteOptionKey(pair.ChildByFieldName("key"), src) != "to" {
+			continue
+		}
+		target, ok := rubyLiteralStringNode(pair.ChildByFieldName("value"), src)
+		if !ok {
+			return "", false
+		}
+		parts := strings.Split(target, "#")
+		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+			return "", false
+		}
+		segments := strings.Split(parts[0], "/")
+		var classes []string
+		for _, segment := range segments {
+			classes = append(classes, rubyControllerClass(segment))
+		}
+		file := "app/controllers/" + strings.Join(segments, "/") + "_controller.rb"
+		return project + ":" + file + "." + strings.Join(classes, "::") + "Controller#" + parts[1], true
+	}
+	return "", false
+}
+
+func rubyControllerClass(name string) string {
+	var parts []string
+	for _, part := range strings.Split(name, "_") {
+		if part != "" {
+			parts = append(parts, strings.ToUpper(part[:1])+part[1:])
+		}
+	}
+	return strings.Join(parts, "")
 }
 
 // rubyRouteScopePath recognizes only route DSL scopes with a statically known URL
