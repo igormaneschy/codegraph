@@ -120,8 +120,11 @@ Rails-generated methods or metaprogrammed declarations. Literal `get`/`post`/`pu
 only calls inside `Rails.application.routes.draw` with non-empty, non-interpolated
 literal paths are accepted. Literal `namespace` and `scope` path prefixes compose with
 nested routes. Resourceful, interpolated, and dynamically prefixed routes are
-deliberately skipped until a Rails-aware resolver can validate them. Ruby `CALLS`
-resolution remains a future optional resolver.
+deliberately skipped until a Rails-aware resolver can validate them. Non-nested
+`resources` and `resource` declarations expand their literal `only`, `except`, `path`,
+and `path_names` options through a fixed REST table. Nested and shallow resources stay
+out of scope because their parent parameter names require Rails-compatible inflection.
+Ruby `CALLS` resolution remains a future optional resolver.
 
 ## Query layer (internal/query)
 

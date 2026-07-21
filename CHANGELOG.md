@@ -18,6 +18,10 @@ versions may include breaking changes).
   paths are accepted. Literal `namespace` and `scope` path prefixes are supported;
   resource routes, dynamic prefixes, and receiver-based calls remain excluded to
   preserve precision.
+- **Resourceful Rails route nodes** - non-nested `resources` and `resource`
+  declarations expand from a fixed REST table, including literal `only`, `except`,
+  `path`, and `path_names` options. Dynamic and nested resource declarations remain
+  excluded.
 
 ### Changed
 
