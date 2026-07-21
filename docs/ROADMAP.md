@@ -161,6 +161,13 @@ Production fixes shipped after dogfooding on large repos and long-running MCP se
 - **`Store`/`Engine` `Reopen`** — canonical reopen after atomic commit; `ScopesRun`
   counts only successful scip scopes.
 
+## Current focus - Ruby and Rails
+
+Ruby and Rails are the next product priority. The completed M1 structural baseline,
+the staged implementation plan, evaluation gates, and non-goals are maintained in
+[`RUBY_ROADMAP.md`](RUBY_ROADMAP.md). M6 remains deferred until that roadmap reaches
+its release gate.
+
 ## M6 — deferred from M5 (do when proven)
 
 - ⬜ **`HTTP_CALLS`** (client call-site → `Route`). Deferred deliberately: unlike the
@@ -170,6 +177,17 @@ Production fixes shipped after dogfooding on large repos and long-running MCP se
   violates honest precision ("a missing edge beats a wrong one"). Revisit only if a
   high-precision, literal-anchored version proves worth it.
 - ⬜ Optional: committable `graph.db.zst` team artifact (zstd snapshot + bootstrap).
+
+## Ruby M1 — structural indexing ✅
+
+- Ruby discovery covers `.rb`, `.rake`, `.ru`, and `.rbi`.
+- The official tree-sitter Ruby grammar emits explicit `Module`, `Class`, `Constant`,
+  instance-method, and singleton-method definitions. Ruby metaprogramming remains out
+  of scope for this structural pass.
+- Literal HTTP verb routes in `config/routes.rb` become `Route` nodes. Resourceful,
+  namespaced, and interpolated routes are deferred rather than guessed.
+- Ruby `CALLS` edges are not emitted until an optional semantic resolver can provide
+  evidence for them.
 
 ## Stretch / maybe-never (YAGNI unless proven)
 

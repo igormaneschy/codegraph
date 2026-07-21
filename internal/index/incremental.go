@@ -80,6 +80,11 @@ func scopeOf(rel string, tsconfigDirs []string) string {
 	if strings.HasSuffix(rel, ".go") {
 		return "go"
 	}
+	for _, ext := range []string{".rb", ".rake", ".ru", ".rbi"} {
+		if strings.HasSuffix(rel, ext) {
+			return "ruby"
+		}
+	}
 	best, bestLen := "", -1
 	for _, d := range tsconfigDirs {
 		if d != "" && (rel == d || strings.HasPrefix(rel, d+"/")) && len(d) > bestLen {

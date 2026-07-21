@@ -38,6 +38,29 @@ func TestDiscover_RespectsGitignore(t *testing.T) {
 	}
 }
 
+func TestDiscover_RubyExtensions(t *testing.T) {
+	dir := t.TempDir()
+	for _, path := range []string{"app/models/user.rb", "lib/tasks/report.rake", "config.ru", "sorbet/rbi/user.rbi"} {
+		writeFile(t, dir, path, "# source")
+	}
+
+	files, err := Discover(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"app/models/user.rb", "lib/tasks/report.rake", "config.ru", "sorbet/rbi/user.rbi"} {
+		found := false
+		for _, file := range files {
+			if file.RelPath == path && file.Lang == LangRuby {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("Ruby source %q was not discovered as LangRuby: %+v", path, files)
+		}
+	}
+}
+
 func writeFile(t *testing.T, root, rel, content string) {
 	t.Helper()
 	p := filepath.Join(root, filepath.FromSlash(rel))

@@ -103,6 +103,12 @@ func TestChangedScopes(t *testing.T) {
 	if !sameSet(root, map[string]bool{"": true}) {
 		t.Errorf("root scope: got %v, want {\"\"}", root)
 	}
+
+	// Ruby has no CALLS resolver in M1, so it must not invalidate a TS scope.
+	ruby := changedScopes(Changes{Changed: []string{"app/models/invoice.rb"}}, tsdirs)
+	if !sameSet(ruby, map[string]bool{"ruby": true}) {
+		t.Errorf("Ruby scope: got %v, want {ruby}", ruby)
+	}
 }
 
 // TestRun_ReusesUnchangedScopeCalls pins scope-gated CALLS: changing a file in one

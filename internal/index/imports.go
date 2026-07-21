@@ -49,7 +49,9 @@ func collectImportsStreaming(project string, files []SourceFile) ([]graph.Edge, 
 	}
 	var edges []graph.Edge
 	for _, f := range files {
-		if langFor(f.Lang) == nil || f.Lang == LangGo {
+		switch f.Lang {
+		case LangTS, LangTSX, LangJS:
+		default:
 			continue
 		}
 		data, err := os.ReadFile(f.AbsPath)
@@ -89,10 +91,12 @@ func resolveImports(project string, files []fileSrc) []graph.Edge {
 
 	var edges []graph.Edge
 	for _, f := range files {
-		grammar := langFor(f.Lang)
-		if grammar == nil || f.Lang == LangGo {
+		switch f.Lang {
+		case LangTS, LangTSX, LangJS:
+		default:
 			continue // TS/JS only for now
 		}
+		grammar := langFor(f.Lang)
 		fileQN := project + ":" + f.RelPath
 		for _, spec := range extractImportSpecifiers(grammar, f.Data) {
 			target, ok := resolveTSImport(f.RelPath, spec, exists)

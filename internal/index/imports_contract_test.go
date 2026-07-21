@@ -87,3 +87,13 @@ func TestImports_TS_UnresolvedRelativeDropped(t *testing.T) {
 		t.Fatalf("unresolved relative import must drop; got %+v", edges)
 	}
 }
+
+func TestImports_RubyRequireIsNotParsedAsTSImport(t *testing.T) {
+	edges := resolveImports("p", []fileSrc{
+		{RelPath: "app/user.rb", Lang: LangRuby, Data: []byte("require_relative 'profile'\n")},
+		{RelPath: "app/profile.rb", Lang: LangRuby, Data: []byte("class Profile; end\n")},
+	})
+	if len(edges) != 0 {
+		t.Fatalf("Ruby requires are not part of the TS/JS import pass; got %+v", edges)
+	}
+}
