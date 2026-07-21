@@ -15,8 +15,9 @@ versions may include breaking changes).
 - **Literal Rails route nodes** - receiverless `get`, `post`, `put`, `patch`,
   `delete`, `head`, and `options` calls in `config/routes.rb` emit `Route` nodes.
   Only calls within `Rails.application.routes.draw` with non-empty, non-interpolated
-  paths are accepted; resource routes, namespaced routes, and receiver-based calls
-  remain excluded to preserve precision.
+  paths are accepted. Literal `namespace` and `scope` path prefixes are supported;
+  resource routes, dynamic prefixes, and receiver-based calls remain excluded to
+  preserve precision.
 
 ### Changed
 

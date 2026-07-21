@@ -74,9 +74,9 @@ for every emitted route.
 
 - Completed: route extraction is restricted to the `Rails.application.routes.draw` DSL
   context. Receiverless verbs elsewhere in `config/routes.rb` are not routes.
-- Add literal `namespace` and `scope` handling only when the nesting and path options
-  are statically known. This work starts only after the `draw` boundary has dedicated
-  positive and negative fixtures.
+- Completed: literal `namespace`, `scope "prefix"`, and `scope path: "prefix"`
+  compose URL paths when nesting and the optional `path:` override are static. Dynamic
+  namespace or scope prefixes skip their subtrees.
 - Add `resources` and `resource` expansion only after a table-driven implementation
   covers `only`, `except`, `path`, `path_names`, and shallow nesting semantics.
 - Keep `draw`, dynamic `send`, variables, interpolation, constraints backed by code,
