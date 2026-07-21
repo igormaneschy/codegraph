@@ -10,7 +10,7 @@ records completed platform milestones and deferred work outside this focus.
 
 ## Current Baseline: R1 Structural Indexing
 
-Status: complete locally, pending the Ruby/Rails feature commit.
+Status: complete.
 
 - Discovery recognizes `.rb`, `.rake`, `.ru`, and `.rbi` files as Ruby.
 - The official tree-sitter Ruby grammar extracts explicit `Module`, `Class`,
@@ -87,6 +87,9 @@ for every emitted route.
   engine mounts, and application-defined route macros out of scope.
 - Add fixture tests for every accepted form and a negative test for every rejected
   dynamic form.
+- In progress: `internal/index/testdata/rails_routes_oracle` pins Rails 8.0.2 and
+  records a normalized `rails routes` oracle for literal verbs, scopes, resources,
+  and rejected dynamic forms. Expand this corpus before declaring the exit gate met.
 
 Exit gate: compare extracted literal routes against `rails routes` output captured
 from versioned fixture applications. The graph must contain no route absent from the
