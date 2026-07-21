@@ -117,8 +117,10 @@ The definitions pass emits explicit `Module`, `Class`, `Constant`, and instance
 (`Owner#method`) or singleton (`Owner.method`) `Method` nodes. It does not infer
 Rails-generated methods or metaprogrammed declarations. Literal `get`/`post`/`put`/
 `patch`/`delete`/`head`/`options` calls in `config/routes.rb` emit `Route` nodes;
-resourceful and interpolated routes are deliberately skipped until a Rails-aware
-resolver can validate them. Ruby `CALLS` resolution remains a future optional resolver.
+only calls inside `Rails.application.routes.draw` with non-empty, non-interpolated
+literal paths are accepted. Resourceful and interpolated routes are deliberately
+skipped until a Rails-aware resolver can validate them. Ruby `CALLS` resolution remains
+a future optional resolver.
 
 ## Query layer (internal/query)
 

@@ -14,7 +14,8 @@ versions may include breaking changes).
   explicit modules, classes, constants, instance methods, and singleton methods.
 - **Literal Rails route nodes** - receiverless `get`, `post`, `put`, `patch`,
   `delete`, `head`, and `options` calls in `config/routes.rb` emit `Route` nodes.
-  Interpolated paths, resource routes, namespaced routes, and receiver-based calls
+  Only calls within `Rails.application.routes.draw` with non-empty, non-interpolated
+  paths are accepted; resource routes, namespaced routes, and receiver-based calls
   remain excluded to preserve precision.
 
 ### Changed

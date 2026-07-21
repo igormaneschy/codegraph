@@ -70,6 +70,11 @@ func TestRoutes_RailsLiteralVerbs(t *testing.T) {
   post "/sessions", to: "sessions#create"
   get "/users/#{id}", to: "users#show"
   client.get "/health"
+  get ""
+end
+
+def helper
+  get "/not-a-route"
 end
 `
 	nodes, _ := extractDefsFromSource("p", "config/routes.rb", LangRuby, []byte(src))

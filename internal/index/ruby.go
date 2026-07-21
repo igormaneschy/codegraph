@@ -140,6 +140,31 @@ func walkRubyRoutes(root *tree_sitter.Node, src []byte, relPath string, add addF
 	if relPath != "config/routes.rb" {
 		return
 	}
+	for _, block := range rubyRoutesDrawBlocks(root, src) {
+		walkRubyRouteCalls(block, src, add)
+	}
+}
+
+func rubyRoutesDrawBlocks(root *tree_sitter.Node, src []byte) []*tree_sitter.Node {
+	var blocks []*tree_sitter.Node
+	var walk func(*tree_sitter.Node)
+	walk = func(n *tree_sitter.Node) {
+		if n.Kind() == "call" && rubyNodeName(n.ChildByFieldName("method"), src) == "draw" &&
+			rubyNodeName(n.ChildByFieldName("receiver"), src) == "Rails.application.routes" {
+			if block := n.ChildByFieldName("block"); block != nil {
+				blocks = append(blocks, block)
+			}
+			return
+		}
+		for i := uint(0); i < n.NamedChildCount(); i++ {
+			walk(n.NamedChild(i))
+		}
+	}
+	walk(root)
+	return blocks
+}
+
+func walkRubyRouteCalls(root *tree_sitter.Node, src []byte, add addFn) {
 	var walk func(*tree_sitter.Node)
 	walk = func(n *tree_sitter.Node) {
 		if n.Kind() == "call" && n.ChildByFieldName("receiver") == nil {
@@ -175,7 +200,7 @@ func rubyLiteralRoutePath(args *tree_sitter.Node, src []byte) (string, bool) {
 	}
 	value := path.NamedChild(0).Utf8Text(src)
 	if value == "" {
-		return "/", true
+		return "", false
 	}
 	return "/" + strings.TrimPrefix(value, "/"), true
 }

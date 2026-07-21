@@ -16,9 +16,10 @@ Status: complete locally, pending the Ruby/Rails feature commit.
 - The official tree-sitter Ruby grammar extracts explicit `Module`, `Class`,
   `Constant`, instance-method, singleton-method, and `class << self` declarations.
 - `config/routes.rb` emits `Route` nodes for receiverless literal `get`, `post`,
-  `put`, `patch`, `delete`, `head`, and `options` DSL calls.
-- A route path must be a non-interpolated string. Receiver-based calls such as
-  `client.get "/health"` do not become Rails routes.
+  `put`, `patch`, `delete`, `head`, and `options` DSL calls inside
+  `Rails.application.routes.draw`.
+- A route path must be a non-empty, non-interpolated string. Receiver-based calls such
+  as `client.get "/health"` do not become Rails routes.
 - Ruby has its own incremental scope and does not trigger Go or TypeScript call
   resolvers.
 - Ruby files do not enter the TypeScript/JavaScript imports pass.
@@ -71,8 +72,8 @@ Sources: [upstream README](https://github.com/DeusData/codebase-memory-mcp/blob/
 Goal: extend only deterministic route syntax and preserve an auditable source span
 for every emitted route.
 
-- First, restrict route extraction to the `Rails.application.routes.draw` DSL context.
-  The current receiverless-verb check is not sufficient proof that a call is a route.
+- Completed: route extraction is restricted to the `Rails.application.routes.draw` DSL
+  context. Receiverless verbs elsewhere in `config/routes.rb` are not routes.
 - Add literal `namespace` and `scope` handling only when the nesting and path options
   are statically known. This work starts only after the `draw` boundary has dedicated
   positive and negative fixtures.
