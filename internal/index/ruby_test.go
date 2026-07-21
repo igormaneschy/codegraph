@@ -97,3 +97,57 @@ end
 		}
 	}
 }
+
+func TestRoutes_RailsLiteralScopes(t *testing.T) {
+	src := `Rails.application.routes.draw do
+  namespace :admin do
+    get "dashboard", to: "dashboard#index"
+
+    scope path: "api" do
+      post "/sessions", to: "sessions#create"
+    end
+  end
+
+  scope "public" do
+    get "status", to: "status#show"
+  end
+
+  namespace :admin, path: "control" do
+    get "reports", to: "reports#index"
+  end
+
+  namespace dynamic_namespace do
+    get "skipped", to: "skipped#show"
+  end
+
+  namespace :dynamic_path, path: dynamic_prefix do
+    get "also_skipped", to: "skipped#show"
+  end
+
+  scope path: dynamic_prefix do
+    get "still_skipped", to: "skipped#show"
+  end
+end
+`
+	nodes, _ := extractDefsFromSource("p", "config/routes.rb", LangRuby, []byte(src))
+	routes := map[string]struct{}{}
+	for _, node := range nodes {
+		if node.Label == graph.LabelRoute {
+			routes[node.Name] = struct{}{}
+		}
+	}
+	want := map[string]struct{}{
+		"GET /admin/dashboard":     {},
+		"POST /admin/api/sessions": {},
+		"GET /public/status":       {},
+		"GET /control/reports":     {},
+	}
+	if len(routes) != len(want) {
+		t.Errorf("routes = %#v, want exactly %#v", routes, want)
+	}
+	for name := range want {
+		if _, ok := routes[name]; !ok {
+			t.Errorf("missing route %q: %#v", name, routes)
+		}
+	}
+}

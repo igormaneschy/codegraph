@@ -141,7 +141,7 @@ func walkRubyRoutes(root *tree_sitter.Node, src []byte, relPath string, add addF
 		return
 	}
 	for _, block := range rubyRoutesDrawBlocks(root, src) {
-		walkRubyRouteCalls(block, src, add)
+		walkRubyRouteCalls(block, src, "", add)
 	}
 }
 
@@ -164,13 +164,22 @@ func rubyRoutesDrawBlocks(root *tree_sitter.Node, src []byte) []*tree_sitter.Nod
 	return blocks
 }
 
-func walkRubyRouteCalls(root *tree_sitter.Node, src []byte, add addFn) {
+func walkRubyRouteCalls(root *tree_sitter.Node, src []byte, prefix string, add addFn) {
 	var walk func(*tree_sitter.Node)
 	walk = func(n *tree_sitter.Node) {
+		if path, handled, ok := rubyRouteScopePath(n, src); handled {
+			if ok {
+				if block := n.ChildByFieldName("block"); block != nil {
+					walkRubyRouteCalls(block, src, rubyJoinRoutePath(prefix, path), add)
+				}
+			}
+			return
+		}
 		if n.Kind() == "call" && n.ChildByFieldName("receiver") == nil {
 			verb := rubyNodeName(n.ChildByFieldName("method"), src)
 			if routeVerb, ok := rubyHTTPVerbs[verb]; ok {
 				if path, ok := rubyLiteralRoutePath(n.ChildByFieldName("arguments"), src); ok {
+					path = rubyJoinRoutePath(prefix, path)
 					add(graph.LabelRoute, routeVerb+" "+path,
 						"route."+routeVerb+"."+strings.ReplaceAll(strings.Trim(path, "/"), "/", ".")+"."+strconv.Itoa(int(n.StartPosition().Row)+1),
 						n.StartPosition().Row, n.EndPosition().Row,
@@ -185,6 +194,78 @@ func walkRubyRouteCalls(root *tree_sitter.Node, src []byte, add addFn) {
 	walk(root)
 }
 
+// rubyRouteScopePath recognizes only route DSL scopes with a statically known URL
+// prefix. A dynamic prefix makes every nested path ambiguous, so its subtree is skipped.
+func rubyRouteScopePath(n *tree_sitter.Node, src []byte) (path string, handled, ok bool) {
+	if n.Kind() != "call" || n.ChildByFieldName("receiver") != nil || n.ChildByFieldName("block") == nil {
+		return "", false, false
+	}
+	method := rubyNodeName(n.ChildByFieldName("method"), src)
+	args := n.ChildByFieldName("arguments")
+	switch method {
+	case "namespace":
+		if path, present, ok := rubyRoutePathOption(args, src); present {
+			return path, true, ok
+		}
+		if args == nil || args.NamedChildCount() == 0 {
+			return "", true, false
+		}
+		return rubyLiteralRouteScopeName(args.NamedChild(0), src)
+	case "scope":
+		return rubyScopeRoutePath(args, src)
+	default:
+		return "", false, false
+	}
+}
+
+func rubyLiteralRouteScopeName(n *tree_sitter.Node, src []byte) (string, bool, bool) {
+	if path, ok := rubyLiteralRoutePathNode(n, src); ok {
+		return path, true, true
+	}
+	if n != nil && n.Kind() == "simple_symbol" {
+		name := strings.TrimPrefix(rubyNodeName(n, src), ":")
+		if name != "" {
+			return "/" + name, true, true
+		}
+	}
+	return "", true, false
+}
+
+func rubyScopeRoutePath(args *tree_sitter.Node, src []byte) (string, bool, bool) {
+	if args == nil || args.NamedChildCount() == 0 {
+		return "", true, true
+	}
+	if path, present, ok := rubyRoutePathOption(args, src); present {
+		return path, true, ok
+	}
+	first := args.NamedChild(0)
+	if first.Kind() != "pair" {
+		return rubyLiteralRouteScopeName(first, src)
+	}
+	return "", true, true
+}
+
+func rubyRoutePathOption(args *tree_sitter.Node, src []byte) (path string, present, ok bool) {
+	if args == nil {
+		return "", false, false
+	}
+	for i := uint(0); i < args.NamedChildCount(); i++ {
+		pair := args.NamedChild(i)
+		if pair.Kind() != "pair" || rubyNodeName(pair.ChildByFieldName("key"), src) != "path" {
+			continue
+		}
+		if path, ok := rubyLiteralRoutePathNode(pair.ChildByFieldName("value"), src); ok {
+			return path, true, true
+		}
+		return "", true, false
+	}
+	return "", false, false
+}
+
+func rubyJoinRoutePath(prefix, path string) string {
+	return "/" + strings.Trim(strings.Trim(prefix, "/")+"/"+strings.Trim(path, "/"), "/")
+}
+
 var rubyHTTPVerbs = map[string]string{
 	"get": "GET", "post": "POST", "put": "PUT", "patch": "PATCH",
 	"delete": "DELETE", "head": "HEAD", "options": "OPTIONS",
@@ -194,8 +275,11 @@ func rubyLiteralRoutePath(args *tree_sitter.Node, src []byte) (string, bool) {
 	if args == nil || args.NamedChildCount() == 0 {
 		return "", false
 	}
-	path := args.NamedChild(0)
-	if path.Kind() != "string" || path.NamedChildCount() != 1 || path.NamedChild(0).Kind() != "string_content" {
+	return rubyLiteralRoutePathNode(args.NamedChild(0), src)
+}
+
+func rubyLiteralRoutePathNode(path *tree_sitter.Node, src []byte) (string, bool) {
+	if path == nil || path.Kind() != "string" || path.NamedChildCount() != 1 || path.NamedChild(0).Kind() != "string_content" {
 		return "", false
 	}
 	value := path.NamedChild(0).Utf8Text(src)
