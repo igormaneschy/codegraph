@@ -63,8 +63,8 @@ func TestRoutes_RailsFixtureOracle(t *testing.T) {
 		"GET /control/reports": {"GET", "/control/reports", 21},
 		"DELETE /sessions/:id": {"DELETE", "/sessions/:id", 24},
 		"OPTIONS /health":      {"OPTIONS", "/health", 25},
-		"PUT /settings":        {"PUT", "/settings", 26},
-		"PATCH /settings":      {"PATCH", "/settings", 27},
+		"PUT /settings":        {"PUT", "/settings", 27},
+		"PATCH /settings":      {"PATCH", "/settings", 28},
 	}
 	for _, node := range nodes {
 		if node.Label != graph.LabelRoute {

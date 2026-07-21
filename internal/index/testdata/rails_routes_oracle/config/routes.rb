@@ -23,6 +23,7 @@ Rails.application.routes.draw do
 
   delete "sessions/:id", to: "sessions#destroy"
   options "health", to: "health#show"
+  # Keep these separate: `match ... via:` is deliberately outside extractor scope.
   put "settings", to: "settings#update"
   patch "settings", to: "settings#update"
 
