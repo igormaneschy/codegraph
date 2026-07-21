@@ -7,10 +7,27 @@ versions may include breaking changes).
 
 ## [Unreleased]
 
+### Added
+
+- **Ruby and Rails structural indexing (M1)** - discovery now includes `.rb`,
+  `.rake`, `.ru`, and `.rbi`; the official tree-sitter Ruby grammar extracts
+  explicit modules, classes, constants, instance methods, and singleton methods.
+- **Literal Rails route nodes** - receiverless `get`, `post`, `put`, `patch`,
+  `delete`, `head`, and `options` calls in `config/routes.rb` emit `Route` nodes.
+  Only calls within `Rails.application.routes.draw` with non-empty, non-interpolated
+  paths are accepted; resource routes, namespaced routes, and receiver-based calls
+  remain excluded to preserve precision.
+
+### Changed
+
+- **Roadmap priority** - Ruby and Rails support is now the active roadmap focus;
+  its staged plan, quality gates, and explicit non-goals live in
+  [`docs/RUBY_ROADMAP.md`](docs/RUBY_ROADMAP.md).
+
 ### Planned
 
-- `HTTP_CALLS` (client call-site → route) and a committable `graph.db.zst` team
-  artifact are planned for a future release (M6); see `docs/ROADMAP.md`.
+- `HTTP_CALLS` (client call-site to route) and a committable `graph.db.zst` team
+  artifact remain deferred until Ruby and Rails support reaches its release gate.
 
 ## [0.2.0] — 2026-06-23
 

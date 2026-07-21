@@ -7,6 +7,7 @@ import (
 
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 	tree_sitter_go "github.com/tree-sitter/tree-sitter-go/bindings/go"
+	tree_sitter_ruby "github.com/tree-sitter/tree-sitter-ruby/bindings/go"
 	tree_sitter_ts "github.com/tree-sitter/tree-sitter-typescript/bindings/go"
 
 	"github.com/Lordymine/codegraph/internal/graph"
@@ -17,9 +18,10 @@ import (
 // (the pipeline already runs one goroutine per file); a parser pool is a later
 // optimization if profiling shows churn.
 var (
-	goLang  = tree_sitter.NewLanguage(tree_sitter_go.Language())
-	tsLang  = tree_sitter.NewLanguage(tree_sitter_ts.LanguageTypescript())
-	tsxLang = tree_sitter.NewLanguage(tree_sitter_ts.LanguageTSX())
+	goLang   = tree_sitter.NewLanguage(tree_sitter_go.Language())
+	rubyLang = tree_sitter.NewLanguage(tree_sitter_ruby.Language())
+	tsLang   = tree_sitter.NewLanguage(tree_sitter_ts.LanguageTypescript())
+	tsxLang  = tree_sitter.NewLanguage(tree_sitter_ts.LanguageTSX())
 )
 
 // langFor maps a detected language to its tree-sitter grammar. JS/JSX use the TSX
@@ -29,6 +31,8 @@ func langFor(lang Lang) *tree_sitter.Language {
 	switch lang {
 	case LangGo:
 		return goLang
+	case LangRuby:
+		return rubyLang
 	case LangTS:
 		return tsLang
 	case LangTSX, LangJS:

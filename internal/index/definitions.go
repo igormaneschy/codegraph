@@ -74,9 +74,13 @@ func extractDefsFromSource(project, relPath string, lang Lang, data []byte) ([]g
 		edges = append(edges, graph.Edge{Project: project, SourceQN: fileQN, TargetQN: qn, Type: graph.EdgeDefines})
 	}
 
-	if lang == LangGo {
+	switch lang {
+	case LangGo:
 		walkGoDefs(root, data, add)
-	} else {
+	case LangRuby:
+		walkRubyDefs(root, data, add)
+		walkRubyRoutes(root, data, relPath, add)
+	default:
 		walkTSDefs(root, data, add)
 	}
 	return nodes, edges

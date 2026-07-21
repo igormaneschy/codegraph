@@ -18,6 +18,7 @@ const (
 	LabelInterface NodeLabel = "Interface" // TS interface
 	LabelType      NodeLabel = "Type"      // TS type alias
 	LabelEnum      NodeLabel = "Enum"      // TS enum
+	LabelConstant  NodeLabel = "Constant"  // Ruby constant
 	LabelVariable  NodeLabel = "Variable"  // exported/top-level binding
 	LabelRoute     NodeLabel = "Route"     // HTTP endpoint (later pass)
 )

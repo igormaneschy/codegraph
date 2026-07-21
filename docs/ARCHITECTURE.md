@@ -112,6 +112,16 @@ into a one-shot repo map (languages, node/edge counts, top packages, complexity/
 hotspots) — the orientation call. `HTTP_CALLS` (client → route) is deferred to M6: it
 would be heuristic string matching, not type-checker-delegated.
 
+Ruby source (`.rb`, `.rake`, `.ru`, `.rbi`) uses the official tree-sitter Ruby grammar.
+The definitions pass emits explicit `Module`, `Class`, `Constant`, and instance
+(`Owner#method`) or singleton (`Owner.method`) `Method` nodes. It does not infer
+Rails-generated methods or metaprogrammed declarations. Literal `get`/`post`/`put`/
+`patch`/`delete`/`head`/`options` calls in `config/routes.rb` emit `Route` nodes;
+only calls inside `Rails.application.routes.draw` with non-empty, non-interpolated
+literal paths are accepted. Resourceful and interpolated routes are deliberately
+skipped until a Rails-aware resolver can validate them. Ruby `CALLS` resolution remains
+a future optional resolver.
+
 ## Query layer (internal/query)
 
 `Engine` exposes the agent-facing operations: `Search`, `Callers`, `Callees`,

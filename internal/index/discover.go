@@ -11,10 +11,11 @@ import (
 type Lang string
 
 const (
-	LangGo  Lang = "go"
-	LangTS  Lang = "ts"
-	LangTSX Lang = "tsx"
-	LangJS  Lang = "js"
+	LangGo   Lang = "go"
+	LangTS   Lang = "ts"
+	LangTSX  Lang = "tsx"
+	LangJS   Lang = "js"
+	LangRuby Lang = "ruby"
 )
 
 // SourceFile is a discovered file worth indexing.
@@ -25,13 +26,17 @@ type SourceFile struct {
 }
 
 var langByExt = map[string]Lang{
-	".go":  LangGo,
-	".ts":  LangTS,
-	".tsx": LangTSX,
-	".js":  LangJS,
-	".jsx": LangJS,
-	".mjs": LangJS,
-	".cjs": LangJS,
+	".go":   LangGo,
+	".ts":   LangTS,
+	".tsx":  LangTSX,
+	".js":   LangJS,
+	".jsx":  LangJS,
+	".mjs":  LangJS,
+	".cjs":  LangJS,
+	".rb":   LangRuby,
+	".rake": LangRuby,
+	".ru":   LangRuby,
+	".rbi":  LangRuby,
 }
 
 // hardcoded ignores, same spirit as upstream (.git, node_modules, build dirs).
