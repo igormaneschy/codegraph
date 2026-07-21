@@ -1,0 +1,12 @@
+GET /admin/dashboard
+GET /health
+GET /images
+GET /images/:id
+GET /images/browse
+GET /profile
+GET /profile/edit
+GET /profile/new
+PATCH /profile
+POST /api/sessions
+POST /profile
+PUT /profile

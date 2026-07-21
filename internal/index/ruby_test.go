@@ -1,10 +1,82 @@
 package index
 
 import (
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/Lordymine/codegraph/internal/graph"
 )
+
+func TestRoutes_RailsFixtureOracle(t *testing.T) {
+	fixtureDir := filepath.Join("testdata", "rails_routes_oracle")
+	src, err := os.ReadFile(filepath.Join(fixtureDir, "config", "routes.rb"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	oracle, err := os.ReadFile(filepath.Join(fixtureDir, "routes.oracle"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	nodes, _ := extractDefsFromSource("p", "config/routes.rb", LangRuby, src)
+	var got []string
+	for _, node := range nodes {
+		if node.Label == graph.LabelRoute {
+			got = append(got, node.Name)
+		}
+	}
+	slices.Sort(got)
+	var want []string
+	for _, line := range strings.Split(strings.TrimSpace(string(oracle)), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) != 2 {
+			t.Fatalf("invalid route oracle line %q", line)
+		}
+		want = append(want, strings.Join(fields, " "))
+	}
+	slices.Sort(want)
+	if !slices.Equal(got, want) {
+		t.Errorf("routes = %v, want Rails oracle %v", got, want)
+	}
+
+	wantMetadata := map[string]struct {
+		method string
+		path   string
+		line   int
+	}{
+		"GET /health":          {"GET", "/health", 2},
+		"GET /admin/dashboard": {"GET", "/admin/dashboard", 5},
+		"POST /api/sessions":   {"POST", "/api/sessions", 9},
+		"GET /images":          {"GET", "/images", 12},
+		"GET /images/browse":   {"GET", "/images/browse", 12},
+		"GET /images/:id":      {"GET", "/images/:id", 12},
+		"GET /profile/new":     {"GET", "/profile/new", 14},
+		"GET /profile/edit":    {"GET", "/profile/edit", 14},
+		"GET /profile":         {"GET", "/profile", 14},
+		"PATCH /profile":       {"PATCH", "/profile", 14},
+		"PUT /profile":         {"PUT", "/profile", 14},
+		"POST /profile":        {"POST", "/profile", 14},
+	}
+	for _, node := range nodes {
+		if node.Label != graph.LabelRoute {
+			continue
+		}
+		expected, listed := wantMetadata[node.Name]
+		if !listed {
+			t.Errorf("route %q is missing metadata expectations", node.Name)
+			continue
+		}
+		if node.Props["method"] != expected.method || node.Props["path"] != expected.path || node.Props["framework"] != "rails" {
+			t.Errorf("route %q metadata = %#v, want method=%q path=%q framework=rails", node.Name, node.Props, expected.method, expected.path)
+		}
+		if node.StartLine != expected.line || node.EndLine != expected.line {
+			t.Errorf("route %q span = %d-%d, want line %d", node.Name, node.StartLine, node.EndLine, expected.line)
+		}
+	}
+}
 
 func TestDefs_Ruby_ClassModuleMethodsAndConstants(t *testing.T) {
 	src := `module Billing
