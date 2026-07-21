@@ -49,22 +49,11 @@ func collectImportsStreaming(project string, files []SourceFile) ([]graph.Edge, 
 	}
 	var edges []graph.Edge
 	for _, f := range files {
-		switch f.Lang {
-		case LangTS, LangTSX, LangJS:
-		case LangRuby:
-		default:
-			continue
-		}
 		data, err := os.ReadFile(f.AbsPath)
 		if err != nil {
 			continue
 		}
-		switch f.Lang {
-		case LangRuby:
-			edges = append(edges, rubyImportEdgesForFile(project, f.RelPath, data, exists)...)
-		default:
-			edges = append(edges, importEdgesForFile(project, f.RelPath, f.Lang, data, exists)...)
-		}
+		edges = append(edges, importEdgesForSource(project, fileSrc{RelPath: f.RelPath, Lang: f.Lang, Data: data}, exists)...)
 		data = nil
 	}
 	return edges, nil
@@ -97,39 +86,32 @@ func resolveImports(project string, files []fileSrc) []graph.Edge {
 
 	var edges []graph.Edge
 	for _, f := range files {
-		switch f.Lang {
-		case LangTS, LangTSX, LangJS:
-		case LangRuby:
-			edges = append(edges, rubyImportEdgesForFile(project, f.RelPath, f.Data, exists)...)
-			continue
-		default:
-			continue
-		}
-		grammar := langFor(f.Lang)
-		fileQN := project + ":" + f.RelPath
-		for _, spec := range extractImportSpecifiers(grammar, f.Data) {
-			target, ok := resolveTSImport(f.RelPath, spec, exists)
-			if !ok || target == f.RelPath {
-				continue
-			}
-			edges = append(edges, graph.Edge{
-				Project: project, SourceQN: fileQN,
-				TargetQN: project + ":" + target, Type: graph.EdgeImports,
-				Props: map[string]any{"specifier": spec},
-			})
-		}
+		edges = append(edges, importEdgesForSource(project, f, exists)...)
 	}
 	return edges
+}
+
+func importEdgesForSource(project string, f fileSrc, exists map[string]bool) []graph.Edge {
+	switch f.Lang {
+	case LangRuby:
+		return rubyImportEdgesForFile(project, f.RelPath, f.Data, exists)
+	case LangTS, LangTSX, LangJS:
+		return importEdgesForFile(project, f.RelPath, f.Lang, f.Data, exists)
+	default:
+		return nil
+	}
 }
 
 func rubyImportEdgesForFile(project, relPath string, data []byte, exists map[string]bool) []graph.Edge {
 	fileQN := project + ":" + relPath
 	var edges []graph.Edge
-	for _, spec := range extractRubyRequireRelative(data) {
+	seen := map[string]bool{}
+	for _, spec := range extractRubyRequireRelativeSpecifiers(data) {
 		target, ok := resolveRubyRequireRelative(relPath, spec, exists)
-		if !ok || target == relPath {
+		if !ok || target == relPath || seen[target] {
 			continue
 		}
+		seen[target] = true
 		edges = append(edges, graph.Edge{Project: project, SourceQN: fileQN,
 			TargetQN: project + ":" + target, Type: graph.EdgeImports,
 			Props: map[string]any{"specifier": spec}})
@@ -137,7 +119,8 @@ func rubyImportEdgesForFile(project, relPath string, data []byte, exists map[str
 	return edges
 }
 
-func extractRubyRequireRelative(data []byte) []string {
+// Ruby imports are parsed in their own bounded pass, keeping no AST across files.
+func extractRubyRequireRelativeSpecifiers(data []byte) []string {
 	parser := tree_sitter.NewParser()
 	defer parser.Close()
 	if err := parser.SetLanguage(langFor(LangRuby)); err != nil {
@@ -168,6 +151,7 @@ func extractRubyRequireRelative(data []byte) []string {
 }
 
 func resolveRubyRequireRelative(importerRel, spec string, exists map[string]bool) (string, bool) {
+	// RelPath is normalized with filepath.ToSlash during discovery.
 	base := path.Clean(path.Join(path.Dir(importerRel), spec))
 	if exists[base] {
 		return base, true

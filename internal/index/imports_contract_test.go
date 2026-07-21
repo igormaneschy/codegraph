@@ -90,13 +90,13 @@ func TestImports_TS_UnresolvedRelativeDropped(t *testing.T) {
 
 func TestImports_RubyRequireRelative(t *testing.T) {
 	edges := resolveImports("p", []fileSrc{
-		{RelPath: "app/models/user.rb", Lang: LangRuby, Data: []byte("require_relative '../services/profile'\nrequire 'json'\nrequire_relative dynamic_path\n")},
+		{RelPath: "app/models/user.rb", Lang: LangRuby, Data: []byte("require_relative '../services/profile'\nrequire_relative '../services/profile.rb'\nrequire_relative '../missing/file'\nrequire_relative './user'\nrequire 'json'\nrequire_relative dynamic_path\n")},
 		{RelPath: "app/services/profile.rb", Lang: LangRuby, Data: []byte("class Profile; end\n")},
 	})
 	if !hasImport(edges, "p:app/models/user.rb", "p:app/services/profile.rb") {
 		t.Fatalf("missing Ruby require_relative edge; got %+v", edges)
 	}
 	if len(edges) != 1 {
-		t.Fatalf("dynamic and package requires must be dropped; got %+v", edges)
+		t.Fatalf("only one resolved non-self require_relative edge expected; got %+v", edges)
 	}
 }
