@@ -116,6 +116,22 @@ func TestRoutes_RailsLiteralScopes(t *testing.T) {
     get "reports", to: "reports#index"
   end
 
+  namespace :admin, "path" => "backoffice" do
+    get "audits", to: "audits#index"
+  end
+
+  scope module: "api" do
+    get "unprefixed", to: "status#show"
+  end
+
+  scope do
+    get "also_unprefixed", to: "status#show"
+  end
+
+  namespace do
+    get "invalid_namespace", to: "skipped#show"
+  end
+
   namespace dynamic_namespace do
     get "skipped", to: "skipped#show"
   end
@@ -141,6 +157,9 @@ end
 		"POST /admin/api/sessions": {},
 		"GET /public/status":       {},
 		"GET /control/reports":     {},
+		"GET /backoffice/audits":   {},
+		"GET /unprefixed":          {},
+		"GET /also_unprefixed":     {},
 	}
 	if len(routes) != len(want) {
 		t.Errorf("routes = %#v, want exactly %#v", routes, want)

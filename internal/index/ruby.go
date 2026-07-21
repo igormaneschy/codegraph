@@ -208,6 +208,7 @@ func rubyRouteScopePath(n *tree_sitter.Node, src []byte) (path string, handled, 
 			return path, true, ok
 		}
 		if args == nil || args.NamedChildCount() == 0 {
+			// namespace needs a name. Do not infer an empty URL prefix from invalid DSL.
 			return "", true, false
 		}
 		return rubyLiteralRouteScopeName(args.NamedChild(0), src)
@@ -251,7 +252,7 @@ func rubyRoutePathOption(args *tree_sitter.Node, src []byte) (path string, prese
 	}
 	for i := uint(0); i < args.NamedChildCount(); i++ {
 		pair := args.NamedChild(i)
-		if pair.Kind() != "pair" || rubyNodeName(pair.ChildByFieldName("key"), src) != "path" {
+		if pair.Kind() != "pair" || rubyRouteOptionKey(pair.ChildByFieldName("key"), src) != "path" {
 			continue
 		}
 		if path, ok := rubyLiteralRoutePathNode(pair.ChildByFieldName("value"), src); ok {
@@ -260,6 +261,19 @@ func rubyRoutePathOption(args *tree_sitter.Node, src []byte) (path string, prese
 		return "", true, false
 	}
 	return "", false, false
+}
+
+func rubyRouteOptionKey(key *tree_sitter.Node, src []byte) string {
+	if key == nil {
+		return ""
+	}
+	if key.Kind() == "hash_key_symbol" {
+		return rubyNodeName(key, src)
+	}
+	if value, ok := rubyLiteralStringNode(key, src); ok {
+		return value
+	}
+	return ""
 }
 
 func rubyJoinRoutePath(prefix, path string) string {
@@ -279,12 +293,19 @@ func rubyLiteralRoutePath(args *tree_sitter.Node, src []byte) (string, bool) {
 }
 
 func rubyLiteralRoutePathNode(path *tree_sitter.Node, src []byte) (string, bool) {
-	if path == nil || path.Kind() != "string" || path.NamedChildCount() != 1 || path.NamedChild(0).Kind() != "string_content" {
+	value, ok := rubyLiteralStringNode(path, src)
+	if !ok {
 		return "", false
 	}
-	value := path.NamedChild(0).Utf8Text(src)
 	if value == "" {
 		return "", false
 	}
 	return "/" + strings.TrimPrefix(value, "/"), true
+}
+
+func rubyLiteralStringNode(n *tree_sitter.Node, src []byte) (string, bool) {
+	if n == nil || n.Kind() != "string" || n.NamedChildCount() != 1 || n.NamedChild(0).Kind() != "string_content" {
+		return "", false
+	}
+	return n.NamedChild(0).Utf8Text(src), true
 }
