@@ -101,10 +101,9 @@ Goal: add graph relationships whose endpoints are explicit source declarations.
   `.rb` files as `IMPORTS` edges in a Ruby-only pass.
 - Evaluate literal `require` only for repository-local load paths that can be proven
   from project configuration; package and ambiguous load-path imports stay dropped.
-- Link an explicit Rails route target such as `to: "users#show"` to an existing
-  controller method only when the controller class and method are uniquely known.
-- Define a dedicated edge type and query behavior before emitting route-to-handler
-  relationships; they are not `CALLS`.
+- Completed: literal `to: "users#show"` targets emit `HANDLES` edges to conventionally
+  located controller methods when the target exists. Dynamic, malformed, and missing
+  targets drop; these relationships are not `CALLS`.
 
 Exit gate: all positive and negative relationship fixtures pass, and missing or
 ambiguous endpoints emit no edge.

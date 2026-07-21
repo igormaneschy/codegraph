@@ -98,6 +98,35 @@ end
 	}
 }
 
+func TestRoutes_RailsLiteralHandlerTarget(t *testing.T) {
+	_, edges := extractDefsFromSource("p", "config/routes.rb", LangRuby, []byte(`Rails.application.routes.draw do
+  get "users/:id", to: "admin/users#show"
+end
+`))
+	for _, edge := range edges {
+		if edge.Type == graph.EdgeHandles {
+			if edge.TargetQN != "p:app/controllers/admin/users_controller.rb.Admin::UsersController#show" {
+				t.Errorf("handler = %q", edge.TargetQN)
+			}
+			return
+		}
+	}
+	t.Fatal("missing HANDLES edge")
+}
+
+func TestRoutes_RailsDynamicHandlerTargetDropped(t *testing.T) {
+	_, edges := extractDefsFromSource("p", "config/routes.rb", LangRuby, []byte(`Rails.application.routes.draw do
+  get "users/:id", to: dynamic_target
+  get "status", to: "status"
+end
+`))
+	for _, edge := range edges {
+		if edge.Type == graph.EdgeHandles {
+			t.Fatalf("unexpected HANDLES edge: %+v", edge)
+		}
+	}
+}
+
 func TestRoutes_RailsLiteralScopes(t *testing.T) {
 	src := `Rails.application.routes.draw do
   namespace :admin do

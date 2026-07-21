@@ -128,6 +128,8 @@ Ruby `CALLS` resolution remains a future optional resolver.
 Literal Ruby `require_relative` calls resolve to existing repository-local `.rb` files
 as `IMPORTS` edges in a Ruby-specific pass. Ordinary `require` remains excluded because
 its load path cannot be proven from source alone.
+Literal Rails `to: "controller#action"` values emit `HANDLES` edges from Route nodes to
+conventionally located controller methods. Missing, dynamic, and malformed targets drop.
 
 ## Query layer (internal/query)
 

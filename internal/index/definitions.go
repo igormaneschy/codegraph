@@ -79,7 +79,9 @@ func extractDefsFromSource(project, relPath string, lang Lang, data []byte) ([]g
 		walkGoDefs(root, data, add)
 	case LangRuby:
 		walkRubyDefs(root, data, add)
-		walkRubyRoutes(root, data, relPath, add)
+		walkRubyRoutes(root, data, relPath, project, add, func(routeSuffix, targetQN string) {
+			edges = append(edges, graph.Edge{Project: project, SourceQN: fileQN + "." + routeSuffix, TargetQN: targetQN, Type: graph.EdgeHandles})
+		})
 	default:
 		walkTSDefs(root, data, add)
 	}
