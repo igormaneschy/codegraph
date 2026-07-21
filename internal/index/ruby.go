@@ -491,16 +491,10 @@ func rubyRoutePathOption(args *tree_sitter.Node, src []byte) (path string, prese
 }
 
 func rubyRouteOptionKey(key *tree_sitter.Node, src []byte) string {
-	if key == nil {
+	if key == nil || key.Kind() != "hash_key_symbol" {
 		return ""
 	}
-	if key.Kind() == "hash_key_symbol" {
-		return rubyNodeName(key, src)
-	}
-	if value, ok := rubyLiteralStringNode(key, src); ok {
-		return value
-	}
-	return ""
+	return rubyNodeName(key, src)
 }
 
 func rubyJoinRoutePath(prefix, path string) string {
