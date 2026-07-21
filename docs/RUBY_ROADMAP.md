@@ -97,9 +97,8 @@ must not boot a Rails application.
 
 Goal: add graph relationships whose endpoints are explicit source declarations.
 
-- Resolve literal `require_relative` paths into `IMPORTS` edges when the target file
-  exists within the indexed repository. Implement this as a Ruby-only imports pass;
-  do not broaden the TypeScript/JavaScript imports pass.
+- Completed: literal `require_relative` paths resolve to existing repository-local
+  `.rb` files as `IMPORTS` edges in a Ruby-only pass.
 - Evaluate literal `require` only for repository-local load paths that can be proven
   from project configuration; package and ambiguous load-path imports stay dropped.
 - Link an explicit Rails route target such as `to: "users#show"` to an existing

@@ -51,6 +51,7 @@ func collectImportsStreaming(project string, files []SourceFile) ([]graph.Edge, 
 	for _, f := range files {
 		switch f.Lang {
 		case LangTS, LangTSX, LangJS:
+		case LangRuby:
 		default:
 			continue
 		}
@@ -58,7 +59,12 @@ func collectImportsStreaming(project string, files []SourceFile) ([]graph.Edge, 
 		if err != nil {
 			continue
 		}
-		edges = append(edges, importEdgesForFile(project, f.RelPath, f.Lang, data, exists)...)
+		switch f.Lang {
+		case LangRuby:
+			edges = append(edges, rubyImportEdgesForFile(project, f.RelPath, data, exists)...)
+		default:
+			edges = append(edges, importEdgesForFile(project, f.RelPath, f.Lang, data, exists)...)
+		}
 		data = nil
 	}
 	return edges, nil
@@ -93,8 +99,11 @@ func resolveImports(project string, files []fileSrc) []graph.Edge {
 	for _, f := range files {
 		switch f.Lang {
 		case LangTS, LangTSX, LangJS:
+		case LangRuby:
+			edges = append(edges, rubyImportEdgesForFile(project, f.RelPath, f.Data, exists)...)
+			continue
 		default:
-			continue // TS/JS only for now
+			continue
 		}
 		grammar := langFor(f.Lang)
 		fileQN := project + ":" + f.RelPath
@@ -111,6 +120,62 @@ func resolveImports(project string, files []fileSrc) []graph.Edge {
 		}
 	}
 	return edges
+}
+
+func rubyImportEdgesForFile(project, relPath string, data []byte, exists map[string]bool) []graph.Edge {
+	fileQN := project + ":" + relPath
+	var edges []graph.Edge
+	for _, spec := range extractRubyRequireRelative(data) {
+		target, ok := resolveRubyRequireRelative(relPath, spec, exists)
+		if !ok || target == relPath {
+			continue
+		}
+		edges = append(edges, graph.Edge{Project: project, SourceQN: fileQN,
+			TargetQN: project + ":" + target, Type: graph.EdgeImports,
+			Props: map[string]any{"specifier": spec}})
+	}
+	return edges
+}
+
+func extractRubyRequireRelative(data []byte) []string {
+	parser := tree_sitter.NewParser()
+	defer parser.Close()
+	if err := parser.SetLanguage(langFor(LangRuby)); err != nil {
+		return nil
+	}
+	tree := parser.Parse(data, nil)
+	if tree == nil {
+		return nil
+	}
+	defer tree.Close()
+	var specs []string
+	var walk func(*tree_sitter.Node)
+	walk = func(n *tree_sitter.Node) {
+		if n.Kind() == "call" && n.ChildByFieldName("receiver") == nil &&
+			rubyNodeName(n.ChildByFieldName("method"), data) == "require_relative" {
+			if args := n.ChildByFieldName("arguments"); args != nil && args.NamedChildCount() == 1 {
+				if spec, ok := rubyLiteralStringNode(args.NamedChild(0), data); ok && spec != "" {
+					specs = append(specs, spec)
+				}
+			}
+		}
+		for i := uint(0); i < n.NamedChildCount(); i++ {
+			walk(n.NamedChild(i))
+		}
+	}
+	walk(tree.RootNode())
+	return specs
+}
+
+func resolveRubyRequireRelative(importerRel, spec string, exists map[string]bool) (string, bool) {
+	base := path.Clean(path.Join(path.Dir(importerRel), spec))
+	if exists[base] {
+		return base, true
+	}
+	if exists[base+".rb"] {
+		return base + ".rb", true
+	}
+	return "", false
 }
 
 // extractImportSpecifiers returns the raw `from` strings of import/export

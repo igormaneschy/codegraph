@@ -22,6 +22,9 @@ versions may include breaking changes).
   declarations expand from a fixed REST table, including literal `only`, `except`,
   `path`, and `path_names` options. Dynamic and nested resource declarations remain
   excluded.
+- **Ruby relative imports** - literal `require_relative` calls now emit `IMPORTS`
+  edges only when their repository-local `.rb` target exists. Dynamic arguments and
+  load-path-dependent `require` calls remain excluded.
 
 ### Changed
 
