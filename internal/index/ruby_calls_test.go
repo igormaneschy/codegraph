@@ -284,7 +284,7 @@ end
 	}
 }
 
-func TestPrepareIndexing_UpgradesLegacyRubyStaticCalls(t *testing.T) {
+func TestPrepareIndexing_UpgradesLegacyRubyAnalysis(t *testing.T) {
 	dir := t.TempDir()
 	source := []byte("class Gateway\n  def self.authorize\n  end\nend\n")
 	writeSourceFile(t, dir, "lib/gateway.rb", string(source))
@@ -295,7 +295,8 @@ func TestPrepareIndexing_UpgradesLegacyRubyStaticCalls(t *testing.T) {
 	defer store.Close()
 	project := ProjectName(dir)
 	nodes, edges := extractDefsFromSource(project, "lib/gateway.rb", LangRuby, source)
-	delete(nodes[0].Props, "ruby_static_calls_version") // simulate the structural-only release
+	delete(nodes[0].Props, "ruby_analysis_version")
+	nodes[0].Props["ruby_static_calls_version"] = 1 // simulate the previous Ruby cache marker
 	if err := store.InsertNodes(nodes); err != nil {
 		t.Fatal(err)
 	}

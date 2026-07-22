@@ -77,7 +77,7 @@ func TestForEachCallEdge_Streams(t *testing.T) {
 	}
 }
 
-func TestRubyStaticCallsCurrent(t *testing.T) {
+func TestRubyAnalysisCurrent(t *testing.T) {
 	s, err := Open(filepath.Join(t.TempDir(), "t.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -85,12 +85,12 @@ func TestRubyStaticCallsCurrent(t *testing.T) {
 	defer s.Close()
 
 	t.Run("no Ruby files", func(t *testing.T) {
-		current, err := s.RubyStaticCallsCurrent("empty", 1)
+		current, err := s.RubyAnalysisCurrent("empty", 1)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if !current {
-			t.Error("a project without Ruby files must not require a Ruby resolver migration")
+			t.Error("a project without Ruby files must not require a Ruby analysis migration")
 		}
 	})
 
@@ -100,26 +100,40 @@ func TestRubyStaticCallsCurrent(t *testing.T) {
 	}}); err != nil {
 		t.Fatal(err)
 	}
-	current, err := s.RubyStaticCallsCurrent("old", 1)
+	current, err := s.RubyAnalysisCurrent("old", 1)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if current {
-		t.Error("Ruby file without a resolver version must invalidate the old graph")
+		t.Error("Ruby file without an analysis version must invalidate the old graph")
 	}
 
 	if err := s.InsertNodes([]Node{{
-		Project: "current", Label: LabelFile, Name: "current.rb", QualifiedName: "current:current.rb", FilePath: "current.rb",
+		Project: "legacy", Label: LabelFile, Name: "legacy.rb", QualifiedName: "legacy:legacy.rb", FilePath: "legacy.rb",
 		Props: map[string]any{"lang": "ruby", "ruby_static_calls_version": 1},
 	}}); err != nil {
 		t.Fatal(err)
 	}
-	current, err = s.RubyStaticCallsCurrent("current", 1)
+	current, err = s.RubyAnalysisCurrent("legacy", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current {
+		t.Error("legacy static-call metadata must invalidate the graph for Ruby analysis upgrades")
+	}
+
+	if err := s.InsertNodes([]Node{{
+		Project: "current", Label: LabelFile, Name: "current.rb", QualifiedName: "current:current.rb", FilePath: "current.rb",
+		Props: map[string]any{"lang": "ruby", "ruby_analysis_version": 1},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	current, err = s.RubyAnalysisCurrent("current", 1)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !current {
-		t.Error("Ruby file at the current resolver version must permit a no-op")
+		t.Error("Ruby file at the current analysis version must permit a no-op")
 	}
 }
 

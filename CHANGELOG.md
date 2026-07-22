@@ -41,6 +41,8 @@ versions may include breaking changes).
 - **Roadmap priority** - Ruby and Rails support is now the active roadmap focus;
   its staged plan, quality gates, and explicit non-goals live in
   [`docs/RUBY_ROADMAP.md`](docs/RUBY_ROADMAP.md).
+- **Ruby analysis cache migration** - parser and resolver upgrades now refresh an
+  unchanged Ruby repository on its next index, without requiring a source edit.
 
 ### Planned
 

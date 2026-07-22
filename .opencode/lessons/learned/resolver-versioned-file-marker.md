@@ -1,4 +1,4 @@
-# Version semantic passes in file metadata
+# Version Ruby analysis in file metadata
 
 **Date**: 2026-07-21
 **Change**: ruby-verified-static-calls
@@ -6,13 +6,13 @@
 
 ## What happened
 
-Hash-only no-op indexing would leave pre-resolver Ruby graphs unchanged after a new
-semantic pass shipped, so users would not receive the new edges until editing source.
+Hash-only no-op indexing would leave Ruby graphs unchanged after a parser or resolver
+upgrade, so users would not receive new nodes or edges until editing source.
 
 ## How to avoid
 
-Store a semantic-pass version on Ruby File nodes and invalidate the otherwise clean
-Ruby scope once when the version changes.
+Store one Ruby analysis version on Ruby File nodes and invalidate the otherwise clean
+Ruby scope once when it changes.
 
 ## Tags
 

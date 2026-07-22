@@ -9,6 +9,11 @@ import (
 	"github.com/Lordymine/codegraph/internal/graph"
 )
 
+// rubyAnalysisVersion is incremented whenever a Ruby parser, route extractor, or
+// call resolver changes its output for unchanged source. It forces one full Ruby
+// rebuild so existing repositories receive the new analysis without an edit.
+const rubyAnalysisVersion = 1
+
 // rubyScope carries the lexical owner of declarations. Ruby's runtime constant
 // lookup is dynamic, so these names describe only declarations spelled in source.
 type rubyScope struct {

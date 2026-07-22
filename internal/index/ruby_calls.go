@@ -10,10 +10,6 @@ import (
 	"github.com/Lordymine/codegraph/internal/scip"
 )
 
-// rubyStaticCallsVersion invalidates a previously structural-only Ruby graph once
-// when the verified static-call contract changes.
-const rubyStaticCallsVersion = 1
-
 // resolveRubyCalls emits only calls whose receiver is an absolute Ruby constant
 // and whose singleton method has one explicit repository declaration. This is a
 // deliberately small static subset: no inferred receiver types, lexical constant
