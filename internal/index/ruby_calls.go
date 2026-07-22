@@ -66,6 +66,9 @@ func uniqueRubyCallTargets(targets []graph.RubyCallTarget) map[string]string {
 }
 
 func rubyCallEdgesInSource(project, relPath string, src []byte, enc scip.Enclosing, targets map[string]string) []graph.Edge {
+	// Definitions are intentionally parsed and persisted before relationships. This
+	// second, bounded parse keeps that phase boundary and avoids retaining ASTs for
+	// every Ruby file in memory between pipeline passes.
 	parser := tree_sitter.NewParser()
 	defer parser.Close()
 	if err := parser.SetLanguage(rubyLang); err != nil {

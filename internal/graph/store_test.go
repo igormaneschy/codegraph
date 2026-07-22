@@ -84,6 +84,16 @@ func TestRubyStaticCallsCurrent(t *testing.T) {
 	}
 	defer s.Close()
 
+	t.Run("no Ruby files", func(t *testing.T) {
+		current, err := s.RubyStaticCallsCurrent("empty", 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !current {
+			t.Error("a project without Ruby files must not require a Ruby resolver migration")
+		}
+	})
+
 	if err := s.InsertNodes([]Node{{
 		Project: "old", Label: LabelFile, Name: "old.rb", QualifiedName: "old:old.rb", FilePath: "old.rb",
 		Props: map[string]any{"lang": "ruby"},

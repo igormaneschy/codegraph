@@ -10,12 +10,12 @@ import (
 
 func TestRun_RubyCalls_AbsoluteConstantSingletonMethod(t *testing.T) {
 	dir := t.TempDir()
-	writeRubySource(t, dir, "lib/gateway.rb", `class Gateway
+	writeSourceFile(t, dir, "lib/gateway.rb", `class Gateway
   def self.authorize
   end
 end
 `)
-	writeRubySource(t, dir, "lib/checkout.rb", `class Checkout
+	writeSourceFile(t, dir, "lib/checkout.rb", `class Checkout
   def process
     ::Gateway.authorize
   end
@@ -65,19 +65,54 @@ end
 	}
 }
 
+func TestRun_RubyCalls_QualifiedNamespaceConstant(t *testing.T) {
+	dir := t.TempDir()
+	writeSourceFile(t, dir, "lib/payments/gateway.rb", `module Payments
+  class Gateway
+    def self.authorize
+    end
+  end
+end
+`)
+	writeSourceFile(t, dir, "lib/checkout.rb", `class Checkout
+  def process
+    ::Payments::Gateway.authorize
+  end
+end
+`)
+
+	store, err := graph.Open(filepath.Join(dir, "graph.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	project := ProjectName(dir)
+	if _, err := Run(store, dir); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	calls, err := store.Neighbors(project, project+":lib/checkout.rb.Checkout#process", "out", string(graph.EdgeCalls), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(calls) != 1 || calls[0].QualifiedName != project+":lib/payments/gateway.rb.Payments::Gateway.authorize" {
+		t.Errorf("qualified Ruby CALLS = %#v", calls)
+	}
+}
+
 func TestRun_RubyCalls_DropsNonAbsoluteAndAmbiguousTargets(t *testing.T) {
 	dir := t.TempDir()
-	writeRubySource(t, dir, "lib/gateway_a.rb", `class Gateway
+	writeSourceFile(t, dir, "lib/gateway_a.rb", `class Gateway
   def self.authorize
   end
 end
 `)
-	writeRubySource(t, dir, "lib/gateway_b.rb", `class Gateway
+	writeSourceFile(t, dir, "lib/gateway_b.rb", `class Gateway
   def self.authorize
   end
 end
 `)
-	writeRubySource(t, dir, "lib/checkout.rb", `class Checkout
+	writeSourceFile(t, dir, "lib/checkout.rb", `class Checkout
   def authorize
   end
 
@@ -112,14 +147,14 @@ end
 
 func TestRun_RubyCalls_DropsLexicalSingletonDefinitions(t *testing.T) {
 	dir := t.TempDir()
-	writeRubySource(t, dir, "lib/nested_gateway.rb", `class Outer
+	writeSourceFile(t, dir, "lib/nested_gateway.rb", `class Outer
   class Gateway
     def Gateway.authorize
     end
   end
 end
 `)
-	writeRubySource(t, dir, "lib/checkout.rb", `class Checkout
+	writeSourceFile(t, dir, "lib/checkout.rb", `class Checkout
   def process
     ::Gateway.authorize
   end
@@ -147,7 +182,7 @@ end
 
 func TestRun_RubyCalls_DropsLexicalSingletonClassDefinitions(t *testing.T) {
 	dir := t.TempDir()
-	writeRubySource(t, dir, "lib/nested_gateway.rb", `class Outer
+	writeSourceFile(t, dir, "lib/nested_gateway.rb", `class Outer
   class Gateway
   end
 
@@ -157,7 +192,7 @@ func TestRun_RubyCalls_DropsLexicalSingletonClassDefinitions(t *testing.T) {
   end
 end
 `)
-	writeRubySource(t, dir, "lib/checkout.rb", `class Checkout
+	writeSourceFile(t, dir, "lib/checkout.rb", `class Checkout
   def process
     ::Gateway.authorize
   end
@@ -185,19 +220,19 @@ end
 
 func TestRun_RubyCalls_ReusesOtherScopesAndReplacesRubyScope(t *testing.T) {
 	dir := t.TempDir()
-	writeRubySource(t, dir, "go.mod", "module example.test/ruby-calls\n\ngo 1.26\n")
-	writeRubySource(t, dir, "main.go", "package main\n\nfunc main() {}\n")
-	writeRubySource(t, dir, "lib/gateway.rb", `class Gateway
+	writeSourceFile(t, dir, "go.mod", "module example.test/ruby-calls\n\ngo 1.26\n")
+	writeSourceFile(t, dir, "main.go", "package main\n\nfunc main() {}\n")
+	writeSourceFile(t, dir, "lib/gateway.rb", `class Gateway
   def self.authorize
   end
 end
 `)
-	writeRubySource(t, dir, "lib/gateway_two.rb", `class GatewayTwo
+	writeSourceFile(t, dir, "lib/gateway_two.rb", `class GatewayTwo
   def self.authorize
   end
 end
 `)
-	writeRubySource(t, dir, "lib/checkout.rb", `class Checkout
+	writeSourceFile(t, dir, "lib/checkout.rb", `class Checkout
   def process
     ::Gateway.authorize
   end
@@ -222,7 +257,7 @@ end
 	}
 
 	// A Go-only edit must reuse every Ruby CALLS edge, including this resolver-impossible sentinel.
-	writeRubySource(t, dir, "main.go", "package main\n\nfunc main() { _ = 1 }\n")
+	writeSourceFile(t, dir, "main.go", "package main\n\nfunc main() { _ = 1 }\n")
 	if _, err := Run(store, dir); err != nil {
 		t.Fatalf("run after Go edit: %v", err)
 	}
@@ -231,7 +266,7 @@ end
 	}
 
 	// A Ruby edit must re-resolve that scope, replace its old calls, and remove the sentinel.
-	writeRubySource(t, dir, "lib/checkout.rb", `class Checkout
+	writeSourceFile(t, dir, "lib/checkout.rb", `class Checkout
   def process
     ::GatewayTwo.authorize
   end
@@ -252,7 +287,7 @@ end
 func TestPrepareIndexing_UpgradesLegacyRubyStaticCalls(t *testing.T) {
 	dir := t.TempDir()
 	source := []byte("class Gateway\n  def self.authorize\n  end\nend\n")
-	writeRubySource(t, dir, "lib/gateway.rb", string(source))
+	writeSourceFile(t, dir, "lib/gateway.rb", string(source))
 	store, err := graph.Open(filepath.Join(dir, "graph.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -294,7 +329,7 @@ func TestRubyCallTargetUniqueness(t *testing.T) {
 	}
 }
 
-func writeRubySource(t *testing.T, root, rel, source string) {
+func writeSourceFile(t *testing.T, root, rel, source string) {
 	t.Helper()
 	path := filepath.Join(root, filepath.FromSlash(rel))
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
