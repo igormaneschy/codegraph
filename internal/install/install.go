@@ -1,8 +1,8 @@
 // Package install registers the codegraph MCP server into the AI coding agents
-// found on the machine. The "main" agents (Claude Code, Codex, opencode) are
-// auto-registered — via their own add-CLI where one exists (safe: the agent owns
-// its config format), or a careful config-file merge where it doesn't. Anything
-// else is covered by a generic manual snippet (GenericManual).
+// found on the machine. The "main" agents (Claude Code, Codex, opencode, Grok)
+// are auto-registered — via their own add-CLI where one exists (safe: the agent
+// owns its config format), or a careful config-file merge where it doesn't.
+// Anything else is covered by a generic manual snippet (GenericManual).
 package install
 
 import (
@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -85,6 +86,12 @@ func Agents() []Agent {
 			Detect:  func() bool { return onPath("opencode") },
 			Install: installOpencode,
 			Manual:  opencodeManual,
+		},
+		{
+			Name:    "Grok CLI",
+			Detect:  func() bool { return onPath("grok") || fileExists(grokConfigPath()) },
+			Install: installGrok,
+			Manual:  grokManual,
 		},
 	}
 }
@@ -166,6 +173,59 @@ func opencodeConfigPath() string {
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+// grokCodegraphSection is the TOML table Grok CLI reads for a local stdio MCP server.
+// No repo-path arg: Grok launches with the session cwd, and codegraph resolves that.
+func grokCodegraphSection(bin string) string {
+	return fmt.Sprintf(`[mcp_servers.codegraph]
+command = %q
+args = ["mcp"]
+enabled = true
+`, bin)
+}
+
+// mergeGrokConfig upserts [mcp_servers.codegraph] into a Grok config.toml blob
+// without clobbering other tables (ai-memory, models, ui, …).
+func mergeGrokConfig(existing []byte, bin string) []byte {
+	section := strings.TrimRight(grokCodegraphSection(bin), "\n")
+	text := string(existing)
+	// Match the whole table: header through the line before the next [table] or EOF.
+	re := regexp.MustCompile(`(?ms)^\[mcp_servers\.codegraph\]\s*\n(?:[^\[\n][^\n]*\n|\n)*`)
+	if re.MatchString(text) {
+		// Keep a blank line after the table so the next [section] stays readable.
+		return []byte(re.ReplaceAllString(text, section+"\n\n"))
+	}
+	if len(strings.TrimSpace(text)) == 0 {
+		return []byte(section + "\n")
+	}
+	if !strings.HasSuffix(text, "\n") {
+		text += "\n"
+	}
+	return []byte(text + "\n" + section + "\n")
+}
+
+func installGrok(bin string) error {
+	path := grokConfigPath()
+	existing, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	merged := mergeGrokConfig(existing, bin)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, merged, 0o644)
+}
+
+func grokManual(bin string) string {
+	return "Add to " + grokConfigPath() + ":\n" + grokCodegraphSection(bin)
+}
+
+// grokConfigPath is ~/.grok/config.toml (Grok CLI user config).
+func grokConfigPath() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".grok", "config.toml")
 }
 
 // GenericManual is the fallback for any agent codegraph doesn't auto-register: the
