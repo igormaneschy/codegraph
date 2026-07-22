@@ -170,6 +170,21 @@ func runPipeline(store *graph.Store, in pipelineInput) (Result, error) {
 	goEdges = nil
 	memory.Gate()
 
+	// A Ruby scope is either re-resolved here or streamed unchanged below; changed
+	// scope gating makes the two paths mutually exclusive.
+	rubyEdges, err := resolveRubyCalls(store, in.project, files, enc, in.changed)
+	if err != nil {
+		return Result{}, fmt.Errorf("ruby calls: %w", err)
+	}
+	k, d, err = store.InsertEdges(rubyEdges)
+	if err != nil {
+		return Result{}, fmt.Errorf("insert ruby call edges: %w", err)
+	}
+	edgesKept += k
+	edgesDropped += d
+	rubyEdges = nil
+	memory.Gate()
+
 	if in.reuseFrom != nil {
 		k, d, err = insertReusedCallEdges(store, in.reuseFrom, in.project, in.changed, in.tsdirs)
 		if err != nil {

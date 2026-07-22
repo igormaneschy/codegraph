@@ -126,7 +126,13 @@ deliberately skipped until a Rails-aware resolver can validate them. Non-nested
 `resources` and `resource` declarations expand their literal `only`, `except`, `path`,
 and `path_names` options through a fixed REST table. Nested and shallow resources stay
 out of scope because their parent parameter names require Rails-compatible inflection.
-Ruby `CALLS` resolution remains a future optional resolver.
+Ruby also emits a deliberately narrow static `CALLS` subset: an absolute constant
+receiver (for example, `::Payments::Gateway.authorize`) maps only to one explicit
+repository singleton-method declaration. The resolver runs after definitions are
+stored, attributes the source location to its containing method span, and tags the
+edge `resolver=ruby-static`, `confidence=high`. Lexical constants, variables,
+instance receivers, bare calls, `send`, and duplicate declarations are dropped; an
+optional type-aware resolver remains future work for broader coverage.
 Literal Ruby `require_relative` calls resolve to existing repository-local `.rb` files
 as `IMPORTS` edges in a Ruby-specific pass. Literal `require` resolves only through
 paths explicitly proven in `config/application.rb`: Rails must enable

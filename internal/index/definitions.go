@@ -38,6 +38,9 @@ func extractDefsFromSource(project, relPath string, lang Lang, data []byte) ([]g
 		FilePath: relPath, StartLine: 1, EndLine: strings.Count(string(data), "\n") + 1,
 		Props: map[string]any{"lang": string(lang), "sha256": hashBytes(data)},
 	}
+	if lang == LangRuby {
+		fileNode.Props["ruby_static_calls_version"] = rubyStaticCallsVersion
+	}
 	nodes := []graph.Node{fileNode}
 	var edges []graph.Edge
 

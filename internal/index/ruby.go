@@ -12,8 +12,9 @@ import (
 // rubyScope carries the lexical owner of declarations. Ruby's runtime constant
 // lookup is dynamic, so these names describe only declarations spelled in source.
 type rubyScope struct {
-	name      string
-	singleton bool
+	name         string
+	singleton    bool
+	staticTarget bool // this scope names one root-resolvable constant object
 }
 
 // walkRubyDefs extracts declarations that are explicit in Ruby source. It does
@@ -39,16 +40,21 @@ func walkRubyChildren(parent *tree_sitter.Node, src []byte, scope rubyScope, add
 			add(label, name, qualified, n.StartPosition().Row, n.EndPosition().Row,
 				map[string]any{"is_exported": true})
 			if body := n.ChildByFieldName("body"); body != nil {
-				walkRubyChildren(body, src, rubyScope{name: qualified}, add)
+				walkRubyChildren(body, src, rubyScope{name: qualified, staticTarget: true}, add)
 			}
 
 		case "singleton_class":
 			if body := n.ChildByFieldName("body"); body != nil {
 				owner := rubyNodeName(n.ChildByFieldName("value"), src)
+				staticTarget := false
 				if owner == "self" {
 					owner = scope.name
+					staticTarget = scope.staticTarget
+				} else if strings.HasPrefix(owner, "::") {
+					owner = strings.TrimPrefix(owner, "::")
+					staticTarget = rubyConstantName(owner)
 				}
-				walkRubyChildren(body, src, rubyScope{name: owner, singleton: true}, add)
+				walkRubyChildren(body, src, rubyScope{name: owner, singleton: true, staticTarget: staticTarget}, add)
 			}
 
 		case "method":
@@ -80,6 +86,9 @@ func walkRubyMethod(n *tree_sitter.Node, src []byte, scope rubyScope, explicitSi
 		receiver := rubyNodeName(n.ChildByFieldName("object"), src)
 		if receiver != "" && receiver != "self" {
 			owner = receiver
+			if strings.HasPrefix(owner, "::") {
+				owner = strings.TrimPrefix(owner, "::")
+			}
 		}
 	}
 	label := graph.LabelMethod
@@ -91,8 +100,22 @@ func walkRubyMethod(n *tree_sitter.Node, src []byte, scope rubyScope, explicitSi
 	} else {
 		qualified = owner + "#" + name
 	}
-	add(label, name, qualified, n.StartPosition().Row, n.EndPosition().Row,
-		map[string]any{"is_exported": true})
+	extra := map[string]any{"is_exported": true, "owner": owner, "singleton": singleton}
+	if singleton {
+		receiver := rubyNodeName(n.ChildByFieldName("object"), src)
+		switch {
+		case !explicitSingleton && scope.staticTarget:
+			// A root-qualified singleton_class (or class << self) owns this method.
+			extra["ruby_static_call_target_owner"] = strings.TrimPrefix(owner, "::")
+		case receiver == "self" && scope.staticTarget:
+			// The enclosing class/module scope is already a fully qualified constant path.
+			extra["ruby_static_call_target_owner"] = strings.TrimPrefix(owner, "::")
+		case strings.HasPrefix(receiver, "::"):
+			// An explicit root-qualified receiver denotes the same object as ::Owner.method.
+			extra["ruby_static_call_target_owner"] = strings.TrimPrefix(owner, "::")
+		}
+	}
+	add(label, name, qualified, n.StartPosition().Row, n.EndPosition().Row, extra)
 }
 
 func walkRubyConstant(n *tree_sitter.Node, src []byte, scope rubyScope, add addFn) {

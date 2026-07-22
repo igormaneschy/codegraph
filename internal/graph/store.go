@@ -243,6 +243,15 @@ type FunctionSpan struct {
 	EndLine       int
 }
 
+// RubyCallTarget is a singleton method that the Ruby static resolver may use as
+// a CALLS target. Owner is the source-level constant path (for example,
+// "Payments::Gateway"), not a file-qualified graph name.
+type RubyCallTarget struct {
+	QualifiedName string
+	Owner         string
+	Name          string
+}
+
 // FunctionSpans returns every Function/Method span in a project. The indexing
 // pipeline loads this instead of keeping all nodes in RAM for CALLS/SIMILAR.
 func (s *Store) FunctionSpans(project string) ([]FunctionSpan, error) {
@@ -262,6 +271,48 @@ func (s *Store) FunctionSpans(project string) ([]FunctionSpan, error) {
 		out = append(out, sp)
 	}
 	return out, rows.Err()
+}
+
+// RubySingletonCallTargets returns singleton methods whose source declaration
+// establishes a static target owner. The resolver deliberately uses only this
+// narrow set: an absolute constant receiver identifies one runtime object without
+// needing receiver type inference.
+func (s *Store) RubySingletonCallTargets(project string) ([]RubyCallTarget, error) {
+	rows, err := s.db.Query(`SELECT qualified_name, json_extract(properties, '$.ruby_static_call_target_owner'), name
+		FROM nodes
+		WHERE project=? AND label='Method'
+		  AND json_extract(properties, '$.lang')='ruby'
+		  AND json_extract(properties, '$.ruby_static_call_target_owner') IS NOT NULL`, project)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []RubyCallTarget
+	for rows.Next() {
+		var target RubyCallTarget
+		if err := rows.Scan(&target.QualifiedName, &target.Owner, &target.Name); err != nil {
+			return nil, err
+		}
+		out = append(out, target)
+	}
+	return out, rows.Err()
+}
+
+// RubyStaticCallsCurrent reports whether every indexed Ruby File node was built
+// with the requested static-call resolver version. It lets a newly released Ruby
+// resolver invalidate an otherwise hash-identical Ruby graph exactly once.
+func (s *Store) RubyStaticCallsCurrent(project string, version int) (bool, error) {
+	var rubyFiles, current int
+	err := s.db.QueryRow(`SELECT
+		COUNT(*),
+		COALESCE(SUM(CASE WHEN json_extract(properties, '$.ruby_static_calls_version')=? THEN 1 ELSE 0 END), 0)
+		FROM nodes
+		WHERE project=? AND label='File' AND json_extract(properties, '$.lang')='ruby'`, version, project).Scan(&rubyFiles, &current)
+	if err != nil {
+		return false, err
+	}
+	return rubyFiles == current, nil
 }
 
 // InsertEdges resolves source/target qualified names to node IDs and inserts.

@@ -25,8 +25,12 @@ func prepareIndexing(store *graph.Store, root string) (input pipelineInput, reus
 	if err != nil {
 		return pipelineInput{}, nil, err
 	}
+	rubyCallsCurrent, err := store.RubyStaticCallsCurrent(project, rubyStaticCallsVersion)
+	if err != nil {
+		return pipelineInput{}, nil, err
+	}
 	if !changes.Any() {
-		if n, e, err := store.Stats(project); err == nil && n > 0 {
+		if n, e, err := store.Stats(project); err == nil && n > 0 && rubyCallsCurrent {
 			files, _ := store.FileHashes(project)
 			return pipelineInput{}, &Result{
 				Project: project, Files: len(files), Nodes: n, EdgesKept: e, Reused: true,
@@ -36,6 +40,9 @@ func prepareIndexing(store *graph.Store, root string) (input pipelineInput, reus
 
 	tsdirs := tsconfigDirs(root)
 	changed := changedScopes(changes, tsdirs)
+	if !rubyCallsCurrent {
+		changed["ruby"] = true
+	}
 	return pipelineInput{
 		project: project, root: root, changed: changed, tsdirs: tsdirs,
 	}, nil, nil

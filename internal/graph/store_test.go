@@ -77,6 +77,52 @@ func TestForEachCallEdge_Streams(t *testing.T) {
 	}
 }
 
+func TestRubyStaticCallsCurrent(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	t.Run("no Ruby files", func(t *testing.T) {
+		current, err := s.RubyStaticCallsCurrent("empty", 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !current {
+			t.Error("a project without Ruby files must not require a Ruby resolver migration")
+		}
+	})
+
+	if err := s.InsertNodes([]Node{{
+		Project: "old", Label: LabelFile, Name: "old.rb", QualifiedName: "old:old.rb", FilePath: "old.rb",
+		Props: map[string]any{"lang": "ruby"},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	current, err := s.RubyStaticCallsCurrent("old", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current {
+		t.Error("Ruby file without a resolver version must invalidate the old graph")
+	}
+
+	if err := s.InsertNodes([]Node{{
+		Project: "current", Label: LabelFile, Name: "current.rb", QualifiedName: "current:current.rb", FilePath: "current.rb",
+		Props: map[string]any{"lang": "ruby", "ruby_static_calls_version": 1},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	current, err = s.RubyStaticCallsCurrent("current", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !current {
+		t.Error("Ruby file at the current resolver version must permit a no-op")
+	}
+}
+
 // TestStore_ReadSnapshotPreservesPreWipeCalls pins the Run reuse path: a second
 // connection with an active read snapshot still sees CALLS edges after ReplaceProject
 // wipes them on the writer connection.

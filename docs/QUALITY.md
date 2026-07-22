@@ -145,6 +145,78 @@ are measured uncapped (limit 1000) so the score reflects the graph, not the cap;
 controlled before/after for the closure fix (85→93) holds the cap fixed on both sides.
 Raising the default is a tracked product change.
 
+## Ruby semantic resolver spike (2026-07-21)
+
+**Decision: no external Ruby `CALLS` resolver is admitted.** The indexer retains its
+verified static subset and does not weaken it with a textual fallback. Broad semantic
+resolution remains deferred until a candidate can prove its call targets.
+
+### Corpus and environment
+
+The evaluation used the versioned Rails fixture at
+`internal/index/testdata/rails_routes_oracle` (`rails` **8.0.2**, locked in its
+`Gemfile.lock`) on macOS arm64 with Ruby **4.0.0**. It is the pinned Ruby/Rails
+fixture available to the structural-indexing suite. It verifies resolver startup,
+reproducibility, and failure behavior, but deliberately contains no repository-local
+method-call oracle; therefore callers/callees precision and recall are **N/A**, not
+zero or an inferred score. A future candidate must first add an independent plain
+Ruby and Rails call oracle before it can be considered for R5.
+
+### Candidates
+
+| resolver | pinned version | batch result on fixture | semantic-edge admission | decision |
+|---|---|---|---|---|
+| [Rubydex](https://github.com/Shopify/rubydex) | `v0.2.9` | `Graph#index_all` + `resolve` completed in 0.96 s, 27.9 MB max RSS; 40 method references, 0 diagnostics | Rejected: public `MethodReference` exposes only `name`, `receiver`, and `location`, not a resolved declaration/call target. The installed `rdx` command also has no documented machine-readable batch export. | No-go |
+| [scip-ruby](https://github.com/sourcegraph/scip-ruby) | `scip-ruby-v0.4.7` | direct arm64-darwin binary wrote a 4,419-byte SCIP index in 0.12 s warm, 36.9 MB max RSS with `--gem-metadata rails_routes_oracle@0.0.0` | Rejected: it is Sorbet-based and its release README describes `# typed: true` or stronger as the path to better navigation. The current Go SCIP bridge only maps the TypeScript QN scheme; no Ruby symbol-to-codegraph-QN mapping or Ruby call oracle is proven. | No-go |
+
+Rubydex is a promising static-analysis engine, but its in-process Ruby graph is not
+an external batch resolver consumable by this Go indexer without a new, versioned
+export contract. scip-ruby has an appropriate batch artifact, but its documented
+best fidelity depends on Sorbet adoption, which is outside the supported Ruby/Rails
+baseline. Neither tool may be invoked during normal indexing, so missing executables,
+invalid output, and unsupported projects continue to leave the structural graph
+unchanged.
+
+### Reproduction
+
+```bash
+fixture=internal/index/testdata/rails_routes_oracle
+
+# scip-ruby v0.4.7 arm64-darwin binary, from its release checksum asset
+(
+  cd "$fixture"
+  scip-ruby --gem-metadata rails_routes_oracle@0.0.0 \
+    --index-file /tmp/rails-ruby.scip .
+)
+
+# rubydex v0.2.9 installed in an isolated GEM_HOME
+(
+  cd "$fixture"
+  GEM_HOME=/path/to/rubydex-gems GEM_PATH=/path/to/rubydex-gems \
+    ruby -rrubydex -e \
+    'g = Rubydex::Graph.new; g.index_all(["config/routes.rb"]); g.resolve; p g.method_references.count'
+)
+```
+
+The scip-ruby command must include explicit gem metadata for this fixture: without
+it the indexer prints a Gemfile.lock metadata warning and reports one error despite
+producing an artifact. That is incompatible with a fail-soft production integration
+until it is handled as an all-or-nothing resolver failure.
+
+### Verified static subset
+
+The indexer now emits a `CALLS` edge only for `::Owner.method` when `Owner.method`
+has exactly one explicit repository singleton-method definition. The source call is
+attributed to its containing function or method after definitions are stored and is
+tagged `resolver=ruby-static`, `confidence=high`, and
+`evidence=absolute_constant_receiver`.
+
+`TestRun_RubyCalls_AbsoluteConstantSingletonMethod` proves the positive cross-file
+case. `TestRun_RubyCalls_DropsNonAbsoluteAndAmbiguousTargets` proves that lexical
+constants, variables, `self`, `send`, and duplicate singleton declarations produce
+no edge. This is a precision floor, not a Ruby answer-quality score: the independent
+plain-Ruby and Rails callers/callees oracle remains required before broader R5 work.
+
 ## A scorer bug we caught (and why the split harness matters)
 
 The first scoring run reported baseline callers at **32%** — four questions at 0%.
