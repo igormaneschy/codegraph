@@ -220,11 +220,15 @@ func TestRoutes_RailsRootAndHashRocketHandlerTargets(t *testing.T) {
 	_, edges := extractDefsFromSource("p", "config/routes.rb", LangRuby, []byte(`Rails.application.routes.draw do
   root "dashboard#index"
   get "status" => "health#show"
+  scope "admin" do
+    root "dashboard#index"
+  end
 end
 `))
 	want := map[string]string{
 		"route.GET..2":       "p:app/controllers/dashboard_controller.rb.DashboardController#index",
 		"route.GET.status.3": "p:app/controllers/health_controller.rb.HealthController#show",
+		"route.GET.admin.5":  "p:app/controllers/dashboard_controller.rb.DashboardController#index",
 	}
 	got := map[string]string{}
 	for _, edge := range edges {
@@ -249,6 +253,10 @@ func TestRoutes_RailsScopedHandlerTargetsDropped(t *testing.T) {
 
   scope :module => "legacy_api" do
     root "dashboard#index"
+  end
+
+  scope controller: "health" do
+    get "status", to: "other#show"
   end
 end
 `))

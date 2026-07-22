@@ -112,8 +112,8 @@ Goal: add graph relationships whose endpoints are explicit source declarations.
 - Completed: literal `to: "users#show"` targets emit `HANDLES` edges to conventionally
   located controller methods when the target exists. Literal root and hash-rocket
   verb targets use the same mapping when a scope does not alter controller context.
-  Dynamic, malformed, missing, namespaced, and module-scoped targets drop; these
-  relationships are not `CALLS`.
+  Dynamic, malformed, missing, namespaced, module-scoped, and controller-scoped
+  targets drop; these relationships are not `CALLS`.
 - Completed: absolute-constant singleton calls such as
   `::Payments::Gateway.authorize` emit `CALLS` only when exactly one explicit
   repository singleton-method declaration matches. Lexical constants, variables,

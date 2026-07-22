@@ -29,7 +29,8 @@ versions may include breaking changes).
 - **Rails route handlers** - literal `to: "controller#action"` targets emit `HANDLES`
   edges to conventionally located controller methods when the target exists in the graph.
   Literal `root "controller#action"` and hash-rocket verb forms receive the same
-  handler linking when no namespace or controller-module scope changes the target.
+  handler linking when no namespace, controller-module, or controller scope changes
+  the target.
 - **Ruby verified static calls** - absolute-constant singleton calls such as
   `::Payments::Gateway.authorize` emit `CALLS` only when exactly one repository
   singleton-method declaration exists. Dynamic, lexical, instance, and ambiguous

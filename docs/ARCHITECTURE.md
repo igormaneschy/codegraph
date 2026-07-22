@@ -144,8 +144,8 @@ excluded.
 Literal Rails `to: "controller#action"` values emit `HANDLES` edges from Route nodes to
 conventionally located controller methods. Literal root targets and hash-rocket verb
 targets use the same mapping. Namespace and `scope module:` blocks retain their route
-nodes but drop `HANDLES` until their controller context is modeled. Missing, dynamic,
-and malformed targets drop.
+nodes but drop `HANDLES` until their controller context is modeled; the same applies
+to `scope controller:`. Missing, dynamic, and malformed targets drop.
 
 ## Query layer (internal/query)
 

@@ -7,7 +7,8 @@
 ## What happened
 
 A URL prefix alone does not identify the controller namespace. Emitting a handler
-edge inside `namespace` or `scope module:` could link a route to the wrong controller.
+edge inside `namespace`, `scope module:`, or `scope controller:` could link a route
+to the wrong controller.
 
 ## How to avoid
 

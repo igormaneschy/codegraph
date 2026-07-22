@@ -454,6 +454,8 @@ func rubyRouteHandlerTargetValue(target, project string) (string, bool) {
 		classes = append(classes, rubyControllerClass(segment))
 	}
 	file := "app/controllers/" + strings.Join(segments, "/") + "_controller.rb"
+	// InsertEdges discards this candidate when the conventionally located
+	// controller is external to the repository or absent from the graph.
 	return project + ":" + file + "." + strings.Join(classes, "::") + "Controller#" + parts[1], true
 }
 
@@ -512,21 +514,26 @@ func rubyRouteScopeChangesController(n *tree_sitter.Node, src []byte) bool {
 			if pair.Kind() != "pair" {
 				continue
 			}
-			keyNode := pair.ChildByFieldName("key")
-			key := rubyRouteOptionKey(keyNode, src)
-			if key == "" {
-				if keyNode != nil && keyNode.Kind() == "simple_symbol" {
-					key = strings.TrimPrefix(rubyNodeName(keyNode, src), ":")
-				} else {
-					key, _ = rubyLiteralStringNode(keyNode, src)
-				}
-			}
-			if key == "module" {
+			key := rubyRouteScopeOptionKey(pair.ChildByFieldName("key"), src)
+			if key == "module" || key == "controller" {
 				return true
 			}
 		}
 	}
 	return false
+}
+
+// rubyRouteScopeOptionKey additionally recognizes legacy hash-rocket keys. It is
+// intentionally scope-only: other DSL option parsers retain their narrower forms.
+func rubyRouteScopeOptionKey(key *tree_sitter.Node, src []byte) string {
+	if option := rubyRouteOptionKey(key, src); option != "" {
+		return option
+	}
+	if key != nil && key.Kind() == "simple_symbol" {
+		return strings.TrimPrefix(rubyNodeName(key, src), ":")
+	}
+	option, _ := rubyLiteralStringNode(key, src)
+	return option
 }
 
 func rubyLiteralRouteScopeName(n *tree_sitter.Node, src []byte) (string, bool, bool) {
