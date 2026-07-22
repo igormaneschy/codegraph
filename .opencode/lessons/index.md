@@ -17,3 +17,9 @@
 ## Change ruby-verified-static-calls (2026-07-21)
 - [anti-pattern] ruby-lexical-singleton-targets
 - [pattern] resolver-versioned-file-marker
+
+## Change ruby-route-literal-forms (2026-07-22)
+- [pattern] scoped-route-prefix-composition
+- [pattern] rails-oracle-valid-helper-names
+- [anti-pattern] scoped-route-handler-targets
+- [pattern] literal-route-target-validation

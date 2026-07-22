@@ -20,13 +20,17 @@ versions may include breaking changes).
   preserve precision.
 - **Resourceful Rails route nodes** - non-nested `resources` and `resource`
   declarations expand from a fixed REST table, including literal `only`, `except`,
-  `path`, and `path_names` options. Dynamic and nested resource declarations remain
-  excluded.
+  `path`, and `path_names` options. Literal symbol arrays (`%i[...]`), hash-rocket
+  verb routes, and `root "controller#action"` are also recognized. Dynamic and nested
+  resource declarations remain excluded.
 - **Ruby relative imports** - literal `require_relative` calls now emit `IMPORTS`
   edges only when their repository-local `.rb` target exists. Dynamic arguments and
   load-path-dependent `require` calls remain excluded.
 - **Rails route handlers** - literal `to: "controller#action"` targets emit `HANDLES`
   edges to conventionally located controller methods when the target exists in the graph.
+  Literal `root "controller#action"` and hash-rocket verb forms receive the same
+  handler linking when no namespace, controller-module, or controller scope changes
+  the target.
 - **Ruby verified static calls** - absolute-constant singleton calls such as
   `::Payments::Gateway.authorize` emit `CALLS` only when exactly one repository
   singleton-method declaration exists. Dynamic, lexical, instance, and ambiguous

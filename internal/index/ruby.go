@@ -164,7 +164,7 @@ func walkRubyRoutes(root *tree_sitter.Node, src []byte, relPath, project string,
 		return
 	}
 	for _, block := range rubyRoutesDrawBlocks(root, src) {
-		walkRubyRouteCalls(block, src, "", project, add, addHandler)
+		walkRubyRouteCalls(block, src, "", true, project, add, addHandler)
 	}
 }
 
@@ -187,13 +187,13 @@ func rubyRoutesDrawBlocks(root *tree_sitter.Node, src []byte) []*tree_sitter.Nod
 	return blocks
 }
 
-func walkRubyRouteCalls(root *tree_sitter.Node, src []byte, prefix, project string, add addFn, addHandler func(string, string)) {
+func walkRubyRouteCalls(root *tree_sitter.Node, src []byte, prefix string, handlerSafe bool, project string, add addFn, addHandler func(string, string)) {
 	var walk func(*tree_sitter.Node)
 	walk = func(n *tree_sitter.Node) {
 		if path, handled, ok := rubyRouteScopePath(n, src); handled {
 			if ok {
 				if block := n.ChildByFieldName("block"); block != nil {
-					walkRubyRouteCalls(block, src, rubyJoinRoutePath(prefix, path), project, add, addHandler)
+					walkRubyRouteCalls(block, src, rubyJoinRoutePath(prefix, path), handlerSafe && !rubyRouteScopeChangesController(n, src), project, add, addHandler)
 				}
 			}
 			return
@@ -206,11 +206,18 @@ func walkRubyRouteCalls(root *tree_sitter.Node, src []byte, prefix, project stri
 		}
 		if n.Kind() == "call" && n.ChildByFieldName("receiver") == nil {
 			verb := rubyNodeName(n.ChildByFieldName("method"), src)
-			if routeVerb, ok := rubyHTTPVerbs[verb]; ok {
+			if verb == "root" {
+				if target, ok := rubyLiteralRootTarget(n.ChildByFieldName("arguments"), src); ok {
+					routeSuffix := addRubyRoute("GET", rubyJoinRoutePath(prefix, "/"), n, add)
+					if targetQN, ok := rubyRouteHandlerTargetValue(target, project); ok && handlerSafe {
+						addHandler(routeSuffix, targetQN)
+					}
+				}
+			} else if routeVerb, ok := rubyHTTPVerbs[verb]; ok {
 				if path, ok := rubyLiteralRoutePath(n.ChildByFieldName("arguments"), src); ok {
 					path = rubyJoinRoutePath(prefix, path)
 					routeSuffix := addRubyRoute(routeVerb, path, n, add)
-					if target, ok := rubyRouteHandlerTarget(n.ChildByFieldName("arguments"), src, project); ok {
+					if target, ok := rubyRouteHandlerTarget(n.ChildByFieldName("arguments"), src, project); ok && handlerSafe {
 						addHandler(routeSuffix, target)
 					}
 				}
@@ -350,10 +357,10 @@ func rubyResourceActionList(n *tree_sitter.Node, src []byte) ([]string, bool) {
 	if n == nil {
 		return nil, false
 	}
-	if n.Kind() == "simple_symbol" {
+	if n.Kind() == "simple_symbol" || n.Kind() == "bare_symbol" {
 		return []string{strings.TrimPrefix(rubyNodeName(n, src), ":")}, true
 	}
-	if n.Kind() != "array" {
+	if n.Kind() != "array" && n.Kind() != "symbol_array" && n.Kind() != "percent_symbol_array" {
 		return nil, false
 	}
 	var actions []string
@@ -419,19 +426,37 @@ func rubyRouteHandlerTarget(args *tree_sitter.Node, src []byte, project string) 
 		if !ok {
 			return "", false
 		}
-		parts := strings.Split(target, "#")
-		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-			return "", false
+		return rubyRouteHandlerTargetValue(target, project)
+	}
+	// Rails also permits get "path" => "controller#action". The pair key is
+	// the route path; only a literal string key and literal target are admitted.
+	if args.NamedChildCount() > 0 {
+		pair := args.NamedChild(0)
+		if pair.Kind() == "pair" {
+			if _, ok := rubyLiteralRoutePathNode(pair.ChildByFieldName("key"), src); ok {
+				if target, ok := rubyLiteralStringNode(pair.ChildByFieldName("value"), src); ok {
+					return rubyRouteHandlerTargetValue(target, project)
+				}
+			}
 		}
-		segments := strings.Split(parts[0], "/")
-		var classes []string
-		for _, segment := range segments {
-			classes = append(classes, rubyControllerClass(segment))
-		}
-		file := "app/controllers/" + strings.Join(segments, "/") + "_controller.rb"
-		return project + ":" + file + "." + strings.Join(classes, "::") + "Controller#" + parts[1], true
 	}
 	return "", false
+}
+
+func rubyRouteHandlerTargetValue(target, project string) (string, bool) {
+	parts := strings.Split(target, "#")
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return "", false
+	}
+	segments := strings.Split(parts[0], "/")
+	var classes []string
+	for _, segment := range segments {
+		classes = append(classes, rubyControllerClass(segment))
+	}
+	file := "app/controllers/" + strings.Join(segments, "/") + "_controller.rb"
+	// InsertEdges discards this candidate when the conventionally located
+	// controller is external to the repository or absent from the graph.
+	return project + ":" + file + "." + strings.Join(classes, "::") + "Controller#" + parts[1], true
 }
 
 func rubyControllerClass(name string) string {
@@ -467,6 +492,48 @@ func rubyRouteScopePath(n *tree_sitter.Node, src []byte) (path string, handled, 
 	default:
 		return "", false, false
 	}
+}
+
+// rubyRouteScopeChangesController reports route DSL scopes whose controller
+// namespace is no longer derivable from a literal target alone. Route nodes remain
+// safe, but HANDLES must be dropped rather than linked to a wrong controller.
+func rubyRouteScopeChangesController(n *tree_sitter.Node, src []byte) bool {
+	if n.Kind() != "call" || n.ChildByFieldName("receiver") != nil {
+		return false
+	}
+	switch rubyNodeName(n.ChildByFieldName("method"), src) {
+	case "namespace":
+		return true
+	case "scope":
+		args := n.ChildByFieldName("arguments")
+		if args == nil {
+			return false
+		}
+		for i := uint(0); i < args.NamedChildCount(); i++ {
+			pair := args.NamedChild(i)
+			if pair.Kind() != "pair" {
+				continue
+			}
+			key := rubyRouteScopeOptionKey(pair.ChildByFieldName("key"), src)
+			if key == "module" || key == "controller" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// rubyRouteScopeOptionKey additionally recognizes legacy hash-rocket keys. It is
+// intentionally scope-only: other DSL option parsers retain their narrower forms.
+func rubyRouteScopeOptionKey(key *tree_sitter.Node, src []byte) string {
+	if option := rubyRouteOptionKey(key, src); option != "" {
+		return option
+	}
+	if key != nil && key.Kind() == "simple_symbol" {
+		return strings.TrimPrefix(rubyNodeName(key, src), ":")
+	}
+	option, _ := rubyLiteralStringNode(key, src)
+	return option
 }
 
 func rubyLiteralRouteScopeName(n *tree_sitter.Node, src []byte) (string, bool, bool) {
@@ -533,7 +600,30 @@ func rubyLiteralRoutePath(args *tree_sitter.Node, src []byte) (string, bool) {
 	if args == nil || args.NamedChildCount() == 0 {
 		return "", false
 	}
-	return rubyLiteralRoutePathNode(args.NamedChild(0), src)
+	first := args.NamedChild(0)
+	if path, ok := rubyLiteralRoutePathNode(first, src); ok {
+		return path, true
+	}
+	// Rails permits get "up" => "controller#action". The hash key is the
+	// literal path in this call form, not an option name.
+	if first.Kind() == "pair" {
+		return rubyLiteralRoutePathNode(first.ChildByFieldName("key"), src)
+	}
+	return "", false
+}
+
+// rubyLiteralRootTarget accepts only the conventional root "controller#action"
+// form. Dynamic root targets do not produce a route node.
+func rubyLiteralRootTarget(args *tree_sitter.Node, src []byte) (string, bool) {
+	if args == nil || args.NamedChildCount() == 0 {
+		return "", false
+	}
+	value, ok := rubyLiteralStringNode(args.NamedChild(0), src)
+	if !ok {
+		return "", false
+	}
+	parts := strings.Split(value, "#")
+	return value, len(parts) == 2 && parts[0] != "" && parts[1] != ""
 }
 
 func rubyLiteralRoutePathNode(path *tree_sitter.Node, src []byte) (string, bool) {

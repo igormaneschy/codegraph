@@ -1,6 +1,7 @@
 package index
 
 import (
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -70,6 +71,11 @@ func TestRoutes_RailsFixtureOracle(t *testing.T) {
 		"GET /also_unprefixed":  {"GET", "/also_unprefixed", 39},
 		"GET /posts/:id/change": {"GET", "/posts/:id/change", 42},
 		"GET /settings/change":  {"GET", "/settings/change", 43},
+		"GET /registration/new": {"GET", "/registration/new", 44},
+		"POST /registration":    {"POST", "/registration", 44},
+		"GET /up":               {"GET", "/up", 45},
+		"GET /":                 {"GET", "/", 46},
+		"GET /portal":           {"GET", "/portal", 48},
 	}
 	for _, node := range nodes {
 		if node.Label != graph.LabelRoute {
@@ -210,6 +216,69 @@ end
 	}
 }
 
+func TestRoutes_RailsRootAndHashRocketHandlerTargets(t *testing.T) {
+	_, edges := extractDefsFromSource("p", "config/routes.rb", LangRuby, []byte(`Rails.application.routes.draw do
+  root "dashboard#index"
+  get "status" => "health#show"
+  scope "admin" do
+    root "dashboard#index"
+  end
+end
+`))
+	want := map[string]string{
+		"route.GET..2":       "p:app/controllers/dashboard_controller.rb.DashboardController#index",
+		"route.GET.status.3": "p:app/controllers/health_controller.rb.HealthController#show",
+		"route.GET.admin.5":  "p:app/controllers/dashboard_controller.rb.DashboardController#index",
+	}
+	got := map[string]string{}
+	for _, edge := range edges {
+		if edge.Type == graph.EdgeHandles {
+			got[strings.TrimPrefix(edge.SourceQN, "p:config/routes.rb.")] = edge.TargetQN
+		}
+	}
+	if !maps.Equal(got, want) {
+		t.Errorf("HANDLES = %#v, want %#v", got, want)
+	}
+}
+
+func TestRoutes_RailsScopedHandlerTargetsDropped(t *testing.T) {
+	_, edges := extractDefsFromSource("p", "config/routes.rb", LangRuby, []byte(`Rails.application.routes.draw do
+  namespace :admin do
+    root "dashboard#index"
+  end
+
+  scope module: "api" do
+    get "status", to: "health#show"
+  end
+
+  scope :module => "legacy_api" do
+    root "dashboard#index"
+  end
+
+  scope controller: "health" do
+    get "status", to: "other#show"
+  end
+end
+`))
+	for _, edge := range edges {
+		if edge.Type == graph.EdgeHandles {
+			t.Fatalf("scoped route handler must be dropped until its controller namespace is modeled: %+v", edge)
+		}
+	}
+}
+
+func TestRoutes_RailsMalformedRootDropped(t *testing.T) {
+	nodes, _ := extractDefsFromSource("p", "config/routes.rb", LangRuby, []byte(`Rails.application.routes.draw do
+  root "dashboard"
+end
+`))
+	for _, node := range nodes {
+		if node.Label == graph.LabelRoute {
+			t.Fatalf("malformed root emitted a route: %+v", node)
+		}
+	}
+}
+
 func TestRoutes_RailsLiteralScopes(t *testing.T) {
 	src := `Rails.application.routes.draw do
   namespace :admin do
@@ -321,5 +390,29 @@ end
 	}
 	if _, ok := routes["GET /comments"]; ok {
 		t.Error("nested resources must be skipped until parent parameters are modeled")
+	}
+}
+
+func TestRoutes_RailsRootAndHashRocket(t *testing.T) {
+	src := `Rails.application.routes.draw do
+  resource :registration, only: %i[new create]
+  get "up" => "rails/health#show"
+  root "dashboard#index"
+  scope "admin", as: "admin" do
+    root "dashboard#index"
+  end
+end
+`
+	nodes, _ := extractDefsFromSource("p", "config/routes.rb", LangRuby, []byte(src))
+	routes := map[string]struct{}{}
+	for _, node := range nodes {
+		if node.Label == graph.LabelRoute {
+			routes[node.Name] = struct{}{}
+		}
+	}
+	for _, want := range []string{"GET /registration/new", "POST /registration", "GET /up", "GET /", "GET /admin"} {
+		if _, ok := routes[want]; !ok {
+			t.Errorf("missing route %q: %#v", want, routes)
+		}
 	}
 }
