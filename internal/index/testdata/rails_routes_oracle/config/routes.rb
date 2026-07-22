@@ -41,6 +41,12 @@ Rails.application.routes.draw do
 
   resources :posts, only: :edit, path_names: { edit: "change" }
   resource :settings, only: :edit, path_names: { edit: "change" }
+  resource :registration, only: %i[new create]
+  get "up" => "rails/health#show"
+  root "health#show"
+  scope "portal", as: "portal" do
+    root "health#show"
+  end
 
   # These syntactically valid dynamic forms must remain excluded by codegraph.
   # Keeping them unreachable lets `rails routes` produce the same supported oracle.

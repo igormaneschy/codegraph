@@ -16,8 +16,13 @@ GET /public/status
 GET /posts/:id/change
 GET /settings/change
 GET /unprefixed
+GET /up
+GET /
 PATCH /profile
 POST /api/sessions
 POST /profile
+POST /registration
 PUT /settings
 PUT /profile
+GET /registration/new
+GET /portal

@@ -79,8 +79,9 @@ for every emitted route.
   compose URL paths when nesting and the optional `path:` override are static. Dynamic
   namespace or scope prefixes skip their subtrees.
 - Completed: non-nested `resources` and `resource` use a table-driven expansion for
-  literal `only`, `except`, `path`, and `path_names` options. Dynamic declarations
-  and nested resource subtrees are skipped.
+  literal `only`, `except`, `path`, and `path_names` options, including `%i[...]`
+  action lists. Literal hash-rocket verb routes and `root "controller#action"` also
+  emit routes. Dynamic declarations and nested resource subtrees are skipped.
 - Deferred: shallow nesting needs Rails-compatible parent parameter names such as
   `:article_id`. Do not add a hand-written singularization heuristic; first establish
   a source-compatible inflection strategy and a captured `rails routes` oracle.
@@ -109,8 +110,10 @@ Goal: add graph relationships whose endpoints are explicit source declarations.
   `Rails.root.join(...)` path to `config.autoload_paths`; package and ambiguous
   load-path imports stay dropped.
 - Completed: literal `to: "users#show"` targets emit `HANDLES` edges to conventionally
-  located controller methods when the target exists. Dynamic, malformed, and missing
-  targets drop; these relationships are not `CALLS`.
+  located controller methods when the target exists. Literal root and hash-rocket
+  verb targets use the same mapping when a scope does not alter controller context.
+  Dynamic, malformed, missing, namespaced, and module-scoped targets drop; these
+  relationships are not `CALLS`.
 - Completed: absolute-constant singleton calls such as
   `::Payments::Gateway.authorize` emit `CALLS` only when exactly one explicit
   repository singleton-method declaration matches. Lexical constants, variables,
