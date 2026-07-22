@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -139,5 +140,48 @@ func TestMergeOpencodeConfig(t *testing.T) {
 	}
 	if _, ok := mcp["codegraph"]; !ok {
 		t.Errorf("merge did not add codegraph: %v", mcp)
+	}
+}
+
+// TestMergeGrokConfig pins the Grok TOML merge: upsert [mcp_servers.codegraph]
+// without dropping sibling tables (ai-memory, models, …).
+func TestMergeGrokConfig(t *testing.T) {
+	out := string(mergeGrokConfig(nil, "/opt/codegraph"))
+	if !strings.Contains(out, `command = "/opt/codegraph"`) || !strings.Contains(out, `args = ["mcp"]`) {
+		t.Fatalf("empty merge missing codegraph section:\n%s", out)
+	}
+
+	existing := []byte(`
+[cli]
+installer = "internal"
+
+[mcp_servers.ai-memory]
+url = "http://127.0.0.1:49374/mcp"
+enabled = true
+
+[mcp_servers.codegraph]
+command = "/old/codegraph"
+args = ["mcp", "/wrong/repo"]
+enabled = true
+
+[models]
+default = "grok-4.5"
+`)
+	out2 := string(mergeGrokConfig(existing, "/opt/codegraph"))
+	if !strings.Contains(out2, `[mcp_servers.ai-memory]`) {
+		t.Errorf("merge dropped ai-memory:\n%s", out2)
+	}
+	if !strings.Contains(out2, `default = "grok-4.5"`) {
+		t.Errorf("merge dropped models:\n%s", out2)
+	}
+	if strings.Contains(out2, "/old/codegraph") || strings.Contains(out2, "/wrong/repo") {
+		t.Errorf("merge left stale codegraph values:\n%s", out2)
+	}
+	if !strings.Contains(out2, `command = "/opt/codegraph"`) {
+		t.Errorf("merge did not set new binary:\n%s", out2)
+	}
+	// Exactly one codegraph table.
+	if n := strings.Count(out2, "[mcp_servers.codegraph]"); n != 1 {
+		t.Errorf("want 1 codegraph table, got %d:\n%s", n, out2)
 	}
 }

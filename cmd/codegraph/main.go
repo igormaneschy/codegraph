@@ -46,6 +46,8 @@ func main() {
 		err = cmdQuality(os.Args[2:])
 	case "cli":
 		err = cmdCLI(os.Args[2:])
+	case "version", "--version", "-v":
+		cmdVersion()
 	case "-h", "--help", "help":
 		usage()
 	default:
@@ -73,14 +75,59 @@ Usage:
   codegraph stats <path>          Show node/edge counts for a repo
   codegraph changes <path>        List source files changed since the last index
   codegraph install               Register codegraph as an MCP server in detected agents
-  codegraph mcp   <path>          Serve the graph over MCP (stdio) for a repo
+  codegraph mcp   [path]          Serve the graph over MCP (stdio); default = cwd / $CLAUDE_PROJECT_DIR
   codegraph bench <path>          Re-index + measure token/tool-call/speed efficiency
   codegraph quality gen <repo> [outdir] [lang]   Generate the answer-quality question set
   codegraph quality score <dir>                  Grade filled truth+answers -> report.md
   codegraph cli   <tool> <path> <json>   Run one query tool (search|callers|callees|neighbors|similar|dead_code|get_architecture|snippet)
+  codegraph version               Print binary path + build identity (verify fork vs stale install)
 
-Store lives in ~/.cache/codegraph/<project>.db
+Store lives in ~/Library/Caches/codegraph/<project>.db (macOS) or ~/.cache/codegraph/
 `)
+}
+
+// cmdVersion prints enough identity to tell a fresh fork build from a stale
+// system install (path, module, Go version, VCS revision when embedded).
+func cmdVersion() {
+	exe, _ := os.Executable()
+	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = resolved
+	}
+	fmt.Printf("codegraph\n  path:    %s\n", exe)
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		fmt.Println("  build:   unknown")
+		return
+	}
+	fmt.Printf("  module:  %s\n", info.Main.Path)
+	fmt.Printf("  go:      %s\n", info.GoVersion)
+	var rev, t string
+	modified := false
+	for _, s := range info.Settings {
+		switch s.Key {
+		case "vcs.revision":
+			rev = s.Value
+		case "vcs.time":
+			t = s.Value
+		case "vcs.modified":
+			modified = s.Value == "true"
+		}
+	}
+	if rev != "" {
+		if len(rev) > 12 {
+			rev = rev[:12]
+		}
+		line := "  vcs:     " + rev
+		if t != "" {
+			line += " (" + t + ")"
+		}
+		if modified {
+			line += " dirty"
+		}
+		fmt.Println(line)
+	}
+	// Capability fingerprint: Ruby/Rails static CALLS landed in this fork.
+	fmt.Println("  features: ruby-static-calls, rails-routes, go-vta, scip-typescript")
 }
 
 func storePath(project string) (string, error) {
@@ -171,15 +218,21 @@ func cmdStats(root string) error {
 }
 
 // cmdInstall registers this binary as an MCP server in every detected agent
-// (Claude Code, Codex, opencode), and prints manual instructions for the rest.
+// (Claude Code, Codex, opencode, Grok CLI), and prints manual instructions for the rest.
+// Prefer running the installed PATH binary (`codegraph install` after `make install`)
+// so agents point at /usr/local/bin/codegraph, not a workspace build artifact.
 func cmdInstall() error {
 	bin, err := os.Executable()
 	if err != nil {
 		return err
 	}
+	if resolved, err := filepath.EvalSymlinks(bin); err == nil {
+		bin = resolved
+	}
+	fmt.Printf("registering MCP server binary: %s\n", bin)
 	outs := install.Run(install.Agents(), bin)
 	if len(outs) == 0 {
-		fmt.Println("No supported agent detected on PATH (looked for: claude, codex, opencode).")
+		fmt.Println("No supported agent detected on PATH (looked for: claude, codex, opencode, grok).")
 	}
 	for _, o := range outs {
 		if o.Installed {
