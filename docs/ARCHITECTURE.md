@@ -86,7 +86,9 @@ batch indexers — scip-typescript for TS/JS (`internal/scip`) and go/packages +
 call graph for Go (`internal/gocalls`) — dropping callees that aren't known graph symbols.
 Incremental (M3, incremental.go): `DetectChanges` gates a no-op when nothing changed, and
 a re-index re-resolves only the changed scopes, reusing the stored CALLS edges of the rest
-via `forEachReusableCallEdge` + batched `insertReusedCallEdges`.
+via `forEachReusableCallEdge` + batched `insertReusedCallEdges`. Ruby File nodes carry a
+`ruby_analysis_version`; changing it forces one full Ruby analysis rebuild even when source
+hashes are unchanged, so parser/resolver upgrades are visible without requiring an edit.
 
 ### Memory budget (internal/memory)
 

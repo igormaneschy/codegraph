@@ -299,14 +299,14 @@ func (s *Store) RubySingletonCallTargets(project string) ([]RubyCallTarget, erro
 	return out, rows.Err()
 }
 
-// RubyStaticCallsCurrent reports whether every indexed Ruby File node was built
-// with the requested static-call resolver version. It lets a newly released Ruby
-// resolver invalidate an otherwise hash-identical Ruby graph exactly once.
-func (s *Store) RubyStaticCallsCurrent(project string, version int) (bool, error) {
+// RubyAnalysisCurrent reports whether every indexed Ruby File node was built with
+// the requested Ruby analysis version. It lets parser and resolver upgrades
+// invalidate an otherwise hash-identical Ruby graph exactly once.
+func (s *Store) RubyAnalysisCurrent(project string, version int) (bool, error) {
 	var rubyFiles, current int
 	err := s.db.QueryRow(`SELECT
 		COUNT(*),
-		COALESCE(SUM(CASE WHEN json_extract(properties, '$.ruby_static_calls_version')=? THEN 1 ELSE 0 END), 0)
+		COALESCE(SUM(CASE WHEN json_extract(properties, '$.ruby_analysis_version')=? THEN 1 ELSE 0 END), 0)
 		FROM nodes
 		WHERE project=? AND label='File' AND json_extract(properties, '$.lang')='ruby'`, version, project).Scan(&rubyFiles, &current)
 	if err != nil {
