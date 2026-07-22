@@ -111,6 +111,10 @@ Goal: add graph relationships whose endpoints are explicit source declarations.
 - Completed: literal `to: "users#show"` targets emit `HANDLES` edges to conventionally
   located controller methods when the target exists. Dynamic, malformed, and missing
   targets drop; these relationships are not `CALLS`.
+- Completed: absolute-constant singleton calls such as
+  `::Payments::Gateway.authorize` emit `CALLS` only when exactly one explicit
+  repository singleton-method declaration matches. Lexical constants, variables,
+  instance receivers, bare calls, `send`, and reopened/ambiguous declarations drop.
 
 Exit gate: all positive and negative relationship fixtures pass, and missing or
 ambiguous endpoints emit no edge.
@@ -119,6 +123,14 @@ ambiguous endpoints emit no edge.
 
 Goal: decide whether an optional external resolver can produce enough evidence for
 Ruby `CALLS` edges.
+
+Status: complete — no external candidate is admitted. Ruby has a narrow verified
+static subset, while broader semantic resolution remains deferred.
+
+The reproducible evaluation and decision are recorded in
+[`QUALITY.md`](QUALITY.md#ruby-semantic-resolver-spike-2026-07-21). Neither
+candidate supplies the evidence and stable bridge required for broad codegraph
+`CALLS` coverage. This is a no-go result, not a reason to add a textual fallback.
 
 - Evaluate Rubydex and scip-ruby on the same pinned Ruby and Rails fixture corpus.
 - Measure resolver startup cost, reproducibility, Ruby/Rails version support, and
@@ -134,7 +146,10 @@ Ruby `CALLS` edges.
 
 Exit gate: publish a `docs/QUALITY.md` result with an agreed corpus and thresholds.
 The resolver must improve answer quality without introducing false `CALLS` edges.
-Otherwise Ruby remains structural-only.
+Otherwise Ruby remains structural-only. The 2026-07-21 spike exercised the pinned
+Rails 8.0.2 fixture and rejected both candidates before a `CALLS` quality score:
+Rubydex lacks a stable batch call-target export, while released scip-ruby requires
+Sorbet-oriented output and has no proven mapping to codegraph Ruby qualified names.
 
 ## R5 Ruby Calls and Release Gate
 

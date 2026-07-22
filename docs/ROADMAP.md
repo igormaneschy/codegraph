@@ -178,7 +178,7 @@ its release gate.
   high-precision, literal-anchored version proves worth it.
 - ⬜ Optional: committable `graph.db.zst` team artifact (zstd snapshot + bootstrap).
 
-## Ruby M1 — structural indexing ✅
+## Ruby M1 — structural indexing + verified static calls ✅
 
 - Ruby discovery covers `.rb`, `.rake`, `.ru`, and `.rbi`.
 - The official tree-sitter Ruby grammar emits explicit `Module`, `Class`, `Constant`,
@@ -186,8 +186,9 @@ its release gate.
   of scope for this structural pass.
 - Literal HTTP verb routes in `config/routes.rb` become `Route` nodes. Resourceful,
   namespaced, and interpolated routes are deferred rather than guessed.
-- Ruby `CALLS` edges are not emitted until an optional semantic resolver can provide
-  evidence for them.
+- Absolute-constant singleton calls emit `CALLS` only when a unique explicit
+  repository target exists. Broader Ruby calls still require an optional semantic
+  resolver.
 
 ## Stretch / maybe-never (YAGNI unless proven)
 

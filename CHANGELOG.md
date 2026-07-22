@@ -27,6 +27,10 @@ versions may include breaking changes).
   load-path-dependent `require` calls remain excluded.
 - **Rails route handlers** - literal `to: "controller#action"` targets emit `HANDLES`
   edges to conventionally located controller methods when the target exists in the graph.
+- **Ruby verified static calls** - absolute-constant singleton calls such as
+  `::Payments::Gateway.authorize` emit `CALLS` only when exactly one repository
+  singleton-method declaration exists. Dynamic, lexical, instance, and ambiguous
+  receivers remain excluded.
 
 ### Changed
 
