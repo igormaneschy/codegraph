@@ -10,11 +10,6 @@ import (
 	"github.com/Lordymine/codegraph/internal/scip"
 )
 
-// rubyAnalysisVersion invalidates a previously indexed Ruby graph when any Ruby
-// structural or relationship analysis changes. Keep this independent from source
-// hashes so upgraded binaries refresh existing repositories without an edit.
-const rubyAnalysisVersion = 1
-
 // resolveRubyCalls emits only calls whose receiver is an absolute Ruby constant
 // and whose singleton method has one explicit repository declaration. This is a
 // deliberately small static subset: no inferred receiver types, lexical constant

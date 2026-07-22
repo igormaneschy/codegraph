@@ -295,7 +295,8 @@ func TestPrepareIndexing_UpgradesLegacyRubyAnalysis(t *testing.T) {
 	defer store.Close()
 	project := ProjectName(dir)
 	nodes, edges := extractDefsFromSource(project, "lib/gateway.rb", LangRuby, source)
-	delete(nodes[0].Props, "ruby_analysis_version") // simulate a pre-versioned Ruby graph
+	delete(nodes[0].Props, "ruby_analysis_version")
+	nodes[0].Props["ruby_static_calls_version"] = 1 // simulate the previous Ruby cache marker
 	if err := store.InsertNodes(nodes); err != nil {
 		t.Fatal(err)
 	}
