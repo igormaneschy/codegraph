@@ -1,6 +1,9 @@
 package scip
 
 import (
+	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -44,5 +47,15 @@ VmRSS:	 123456 kB
 	}
 	if kb != 123456 {
 		t.Fatal("fixture parse failed")
+	}
+}
+
+func TestRunAndRead_RejectsPreexistingOutputArtifact(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "existing.scip")
+	if err := os.WriteFile(out, []byte("old invocation"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := RunAndReadContext(context.Background(), t.TempDir(), out); err == nil || !strings.Contains(err.Error(), "already exists before invocation") {
+		t.Fatalf("preexisting SCIP output error=%v", err)
 	}
 }

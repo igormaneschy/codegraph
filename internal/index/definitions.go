@@ -3,6 +3,7 @@ package index
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"os"
 	"strings"
 
@@ -19,11 +20,20 @@ import (
 
 // ExtractDefinitions reads a file from disk and extracts its definitions.
 func ExtractDefinitions(project string, f SourceFile) ([]graph.Node, []graph.Edge) {
+	nodes, edges, _ := ExtractDefinitionsChecked(project, f)
+	return nodes, edges
+}
+
+// ExtractDefinitionsChecked is the production read boundary. The compatibility
+// wrapper above retains the small test helper API, while indexing must not turn
+// a source read failure into an apparently successful file deletion.
+func ExtractDefinitionsChecked(project string, f SourceFile) ([]graph.Node, []graph.Edge, error) {
 	data, err := os.ReadFile(f.AbsPath)
 	if err != nil {
-		return nil, nil
+		return nil, nil, fmt.Errorf("read source %q: %w", f.RelPath, err)
 	}
-	return extractDefsFromSource(project, f.RelPath, f.Lang, data)
+	nodes, edges := extractDefsFromSource(project, f.RelPath, f.Lang, data)
+	return nodes, edges, nil
 }
 
 // extractDefsFromSource is the testable core: it takes the source bytes directly

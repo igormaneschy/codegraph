@@ -1,12 +1,26 @@
 package gocalls
 
 import (
+	"context"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/Lordymine/codegraph/internal/graph"
 )
+
+func TestCallEdgesContextHonorsCancellationBeforeLoading(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	edges, err := CallEdgesContext(ctx, "test", "does-not-exist", func(string) bool { return true })
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled CallEdges error = %v, want context.Canceled", err)
+	}
+	if edges != nil {
+		t.Fatalf("canceled CallEdges returned edges: %v", edges)
+	}
+}
 
 // TestCallEdges_InterfacePrecision pins the precision contract: an interface call
 // dispatched on a concrete type must NOT spray edges to every implementation of the

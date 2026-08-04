@@ -1,6 +1,8 @@
 package index
 
 import (
+	"context"
+	"fmt"
 	"os"
 	"path"
 	"strings"
@@ -43,19 +45,42 @@ func ResolveImports(project string, files []SourceFile) []graph.Edge {
 // collectImportsStreaming resolves IMPORTS one file at a time. Source bytes are not
 // retained for the whole repo; only the small edge list grows until a single insert.
 func collectImportsStreaming(project string, files []SourceFile) ([]graph.Edge, error) {
+	return collectImportsStreamingContext(context.Background(), project, files)
+}
+
+// collectImportsStreamingContext checks cancellation at each file boundary in
+// both the existence pass and the source-reading pass. The caller can therefore
+// stop a large import collection without waiting for every remaining file.
+func collectImportsStreamingContext(ctx context.Context, project string, files []SourceFile) ([]graph.Edge, error) {
+	ctx = nonNilContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	exists := make(map[string]bool, len(files))
 	for _, f := range files {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		exists[f.RelPath] = true
 	}
-	rubyLoadPaths := rubyRequireLoadPathsFromSourceFiles(files)
+	rubyLoadPaths, err := rubyRequireLoadPathsFromSourceFilesContext(ctx, files)
+	if err != nil {
+		return nil, err
+	}
 	var edges []graph.Edge
 	for _, f := range files {
+		if err := ctx.Err(); err != nil {
+			return edges, err
+		}
 		data, err := os.ReadFile(f.AbsPath)
 		if err != nil {
-			continue
+			return edges, fmt.Errorf("read source for imports %q: %w", f.RelPath, err)
 		}
 		edges = append(edges, importEdgesForSource(project, fileSrc{RelPath: f.RelPath, Lang: f.Lang, Data: data}, exists, rubyLoadPaths)...)
 		data = nil
+	}
+	if err := ctx.Err(); err != nil {
+		return edges, err
 	}
 	return edges, nil
 }
@@ -195,17 +220,30 @@ func rubyRequireLoadPaths(files []fileSrc) []string {
 }
 
 func rubyRequireLoadPathsFromSourceFiles(files []SourceFile) []string {
+	paths, _ := rubyRequireLoadPathsFromSourceFilesContext(context.Background(), files)
+	return paths
+}
+
+func rubyRequireLoadPathsFromSourceFilesContext(ctx context.Context, files []SourceFile) ([]string, error) {
+	ctx = nonNilContext(ctx)
 	for _, f := range files {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if f.RelPath != "config/application.rb" || f.Lang != LangRuby {
 			continue
 		}
 		data, err := os.ReadFile(f.AbsPath)
 		if err != nil {
-			return nil
+			return nil, fmt.Errorf("read Ruby application config %q: %w", f.RelPath, err)
 		}
-		return rubyRequireLoadPathsFromApplication(data)
+		paths := rubyRequireLoadPathsFromApplication(data)
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		return paths, nil
 	}
-	return nil
+	return nil, nil
 }
 
 // rubyRequireLoadPathsFromApplication parses config/application.rb with the Ruby
