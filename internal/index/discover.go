@@ -2,6 +2,10 @@ package index
 
 import (
 	"bufio"
+	"context"
+	"errors"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -52,21 +56,47 @@ var hardIgnoreDir = map[string]bool{
 // graph. Common-case ignore semantics only: directory/name patterns, globs, and
 // root-anchored paths; negation (`!`) and nested .gitignore files are not honored.
 func Discover(root string) ([]SourceFile, error) {
-	root, _ = filepath.Abs(root)
-	ignore := loadIgnore(root)
+	var err error
+	root, err = ValidateRepositoryRoot(root)
+	if err != nil {
+		return nil, err
+	}
+	return discoverCanonical(root)
+}
+
+// discoverCanonical is the pipeline-internal form used after the public entry
+// point has already validated and canonicalized the repository. Keeping the
+// validation boundary explicit avoids repeatedly scanning the same physical
+// ancestor directories during one index run.
+func discoverCanonical(root string) ([]SourceFile, error) {
+	return discoverCanonicalContext(context.Background(), root)
+}
+
+// discoverCanonicalContext checks cancellation at every WalkDir entry. A
+// canceled large discovery returns its partial result and context error rather
+// than making shutdown wait for the entire repository walk.
+func discoverCanonicalContext(ctx context.Context, root string) ([]SourceFile, error) {
+	ctx = nonNilContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	ignore, err := loadIgnore(root)
+	if err != nil {
+		return nil, err
+	}
 
 	var files []SourceFile
-	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return nil // skip unreadable entries
+	err = filepath.WalkDir(root, func(path string, d os.DirEntry, walkErr error) error {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
+		if walkErr != nil {
+			return classifyWalkError(root, path, ignore, walkErr)
 		}
 		rel, _ := filepath.Rel(root, path)
 		rel = filepath.ToSlash(rel)
 		if d.IsDir() {
-			if hardIgnoreDir[d.Name()] || strings.HasPrefix(d.Name(), ".") && d.Name() != "." {
-				return filepath.SkipDir
-			}
-			if ignore.matchDir(rel) {
+			if shouldSkipDirectory(d.Name(), rel, ignore) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -78,28 +108,44 @@ func Discover(root string) ([]SourceFile, error) {
 		if ignore.matchFile(rel) {
 			return nil
 		}
+		if err := verifyReadableSource(path); err != nil {
+			return fmt.Errorf("read discovered source %q: %w", rel, err)
+		}
 		files = append(files, SourceFile{AbsPath: path, RelPath: rel, Lang: lang})
 		return nil
 	})
+	if err == nil {
+		err = ctx.Err()
+	}
 	return files, err
 }
 
 type ignoreSet struct{ patterns []string }
 
 // loadIgnore reads the repo's .gitignore and .cbmignore into one matcher.
-func loadIgnore(root string) ignoreSet {
+func loadIgnore(root string) (ignoreSet, error) {
 	var pats []string
-	pats = append(pats, readIgnoreFile(filepath.Join(root, ".gitignore"))...)
-	pats = append(pats, readIgnoreFile(filepath.Join(root, ".cbmignore"))...)
-	return ignoreSet{patterns: pats}
+	gitignore, err := readIgnoreFile(filepath.Join(root, ".gitignore"))
+	if err != nil {
+		return ignoreSet{}, err
+	}
+	pats = append(pats, gitignore...)
+	cbmignore, err := readIgnoreFile(filepath.Join(root, ".cbmignore"))
+	if err != nil {
+		return ignoreSet{}, err
+	}
+	pats = append(pats, cbmignore...)
+	return ignoreSet{patterns: pats}, nil
 }
 
-func readIgnoreFile(file string) []string {
+func readIgnoreFile(file string) ([]string, error) {
 	f, err := os.Open(file)
 	if err != nil {
-		return nil
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read ignore file %q: %w", file, err)
 	}
-	defer f.Close()
 	var out []string
 	sc := bufio.NewScanner(f)
 	for sc.Scan() {
@@ -109,7 +155,71 @@ func readIgnoreFile(file string) []string {
 		}
 		out = append(out, filepath.ToSlash(line))
 	}
-	return out
+	scanErr := sc.Err()
+	closeErr := f.Close()
+	if scanErr != nil {
+		return nil, fmt.Errorf("read ignore file %q: %w", file, scanErr)
+	}
+	if closeErr != nil {
+		return nil, fmt.Errorf("close ignore file %q: %w", file, closeErr)
+	}
+	return out, nil
+}
+
+func shouldSkipDirectory(name, rel string, ignore ignoreSet) bool {
+	if rel == "." || rel == "" {
+		return false
+	}
+	return hardIgnoreDir[name] || strings.HasPrefix(name, ".") || ignore.matchDir(rel)
+}
+
+// classifyWalkError keeps ignored directories ignorable, but turns every other
+// walk failure into a visible rebuild error. Returning nil for an unreadable
+// source would make it look deleted/unchanged and silently corrupt freshness.
+func classifyWalkError(root, path string, ignore ignoreSet, walkErr error) error {
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return fmt.Errorf("discover %q: %w", path, walkErr)
+	}
+	rel = filepath.ToSlash(rel)
+	if rel == "." {
+		return fmt.Errorf("discover repository root: %w", walkErr)
+	}
+	if info, statErr := os.Stat(path); statErr == nil && info.IsDir() && shouldSkipDirectory(filepath.Base(path), rel, ignore) {
+		return filepath.SkipDir
+	}
+	if underIgnoredDirectory(rel, ignore) {
+		return filepath.SkipDir
+	}
+	if ignore.matchFile(rel) {
+		return nil
+	}
+	return fmt.Errorf("discover %q: %w", rel, walkErr)
+}
+
+func underIgnoredDirectory(rel string, ignore ignoreSet) bool {
+	parts := strings.Split(rel, "/")
+	for i := 1; i <= len(parts); i++ {
+		prefix := strings.Join(parts[:i], "/")
+		if prefix == rel {
+			break
+		}
+		name := parts[i-1]
+		if hardIgnoreDir[name] || strings.HasPrefix(name, ".") || ignore.matchDir(prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func verifyReadableSource(path string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	_, readErr := io.Copy(io.Discard, f)
+	closeErr := f.Close()
+	return errors.Join(readErr, closeErr)
 }
 
 func (ig ignoreSet) matchDir(rel string) bool  { return ig.match(rel) }

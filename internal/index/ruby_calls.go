@@ -1,6 +1,9 @@
 package index
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"os"
 	"strings"
 
@@ -10,32 +13,63 @@ import (
 	"github.com/Lordymine/codegraph/internal/scip"
 )
 
+// rubyCallTargets is the storage boundary for the Ruby resolver. The production
+// implementation is the graph store query; the seam makes storage-failure status
+// deterministic without weakening the narrow no-heuristic resolver policy.
+var rubyCallTargets = func(store *graph.Store, project string) ([]graph.RubyCallTarget, error) {
+	return store.RubySingletonCallTargets(project)
+}
+
 // resolveRubyCalls emits only calls whose receiver is an absolute Ruby constant
 // and whose singleton method has one explicit repository declaration. This is a
 // deliberately small static subset: no inferred receiver types, lexical constant
 // lookup, dynamic dispatch, send, or Rails metaprogramming can create an edge.
-func resolveRubyCalls(store *graph.Store, project string, files []SourceFile, enc scip.Enclosing, changed map[string]bool) ([]graph.Edge, error) {
-	if changed != nil && !changed["ruby"] {
-		return nil, nil
+func resolveRubyCalls(ctx context.Context, store *graph.Store, project string, files []SourceFile, enc scip.Enclosing, changed map[string]bool) ([]graph.Edge, ResolverScopeStatus, error) {
+	ctx = nonNilContext(ctx)
+	scopeStatus := ResolverScopeStatus{Resolver: "ruby-static", Scope: "ruby"}
+	if err := ctx.Err(); err != nil {
+		return nil, scopeStatus, err
 	}
-	targets, err := store.RubySingletonCallTargets(project)
+	// Do not let an old changed-map entry manufacture a Ruby scope for a
+	// repository that has no Ruby input. Applicability must precede Reused so
+	// the production report is exact rather than repaired by downstream filtering.
+	if !hasRuby(files) {
+		return nil, ResolverScopeStatus{}, nil
+	}
+	if changed != nil && !changed["ruby"] {
+		scopeStatus.Reused = true
+		return nil, scopeStatus, nil
+	}
+	scopeStatus.Attempted = true
+	targets, err := rubyCallTargets(store, project)
 	if err != nil {
-		return nil, err
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || ctx.Err() != nil {
+			return nil, scopeStatus, err
+		}
+		scopeStatus.Failed = true
+		scopeStatus.Error = fmt.Errorf("load Ruby call targets: %w", err).Error()
+		return nil, scopeStatus, nil
 	}
 	byOwnerAndName := uniqueRubyCallTargets(targets)
 	if len(byOwnerAndName) == 0 {
-		return nil, nil
+		scopeStatus.Succeeded = true
+		return nil, scopeStatus, nil
 	}
 
 	var edges []graph.Edge
 	seen := map[string]bool{}
 	for _, f := range files {
+		if err := ctx.Err(); err != nil {
+			return nil, scopeStatus, err
+		}
 		if f.Lang != LangRuby {
 			continue
 		}
 		src, err := os.ReadFile(f.AbsPath)
 		if err != nil {
-			continue // structural indexing remains usable when a file becomes unreadable
+			scopeStatus.Failed = true
+			scopeStatus.Error = fmt.Errorf("read Ruby source %q: %w", f.RelPath, err).Error()
+			return nil, scopeStatus, nil
 		}
 		for _, edge := range rubyCallEdgesInSource(project, f.RelPath, src, enc, byOwnerAndName) {
 			key := edge.SourceQN + "\x00" + edge.TargetQN
@@ -44,8 +78,12 @@ func resolveRubyCalls(store *graph.Store, project string, files []SourceFile, en
 				edges = append(edges, edge)
 			}
 		}
+		if err := ctx.Err(); err != nil {
+			return nil, scopeStatus, err
+		}
 	}
-	return edges, nil
+	scopeStatus.Succeeded = true
+	return edges, scopeStatus, nil
 }
 
 func uniqueRubyCallTargets(targets []graph.RubyCallTarget) map[string]string {

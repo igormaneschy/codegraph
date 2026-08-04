@@ -9,6 +9,7 @@
 package gocalls
 
 import (
+	"context"
 	"fmt"
 	"go/types"
 	"log"
@@ -23,10 +24,32 @@ import (
 	"github.com/Lordymine/codegraph/internal/graph"
 )
 
+// resolverVersion is part of the graph freshness identity. It covers the
+// in-process Go resolver and its VTA admission rules, not only x/tools' module
+// version.
+const resolverVersion = "go-vta-resolver-v2"
+
+// ResolverVersion returns the version recorded in an index manifest.
+func ResolverVersion() string { return resolverVersion }
+
 // CallEdges loads the Go packages under root and returns CALLS edges whose caller
-// and callee are both known nodes. Best-effort: load errors don't abort (it
-// builds the graph from whatever type-checked).
+// and callee are both known nodes. Package diagnostics and resolver panics are
+// returned as failures; the indexer may commit structural-only output on a
+// first run, but never certifies a partial resolver result as healthy.
 func CallEdges(project, root string, known func(qn string) bool) (edges []graph.Edge, err error) {
+	return CallEdgesContext(context.Background(), project, root, known)
+}
+
+// CallEdgesContext passes cancellation to go/packages and checks it around the
+// SSA/VTA phases, which do not expose a context-aware API. A canceled context
+// is returned instead of being downgraded to the resolver's best-effort path.
+func CallEdgesContext(ctx context.Context, project, root string, known func(qn string) bool) (edges []graph.Edge, err error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	// Defense in depth: the call-graph build avoids prog.RuntimeTypes() (the known
 	// generics panic — see safeAllFunctions), but recover anyway so any other
 	// x/tools edge case degrades to "no Go CALLS for this repo" rather than crashing
@@ -41,13 +64,25 @@ func CallEdges(project, root string, known func(qn string) bool) (edges []graph.
 
 	// Tests:true loads *_test.go too, so test functions contribute caller/callee
 	// edges (the dominant recall source for "who calls X" on library code).
-	cfg := &packages.Config{Mode: packages.LoadAllSyntax, Tests: true, Dir: root}
+	cfg := &packages.Config{Context: ctx, Mode: packages.LoadAllSyntax, Tests: true, Dir: root}
 	pkgs, loadErr := packages.Load(cfg, "./...")
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if loadErr != nil {
 		return nil, loadErr
 	}
+	if err := packageLoadErrors(pkgs); err != nil {
+		return nil, err
+	}
 	prog, _ := ssautil.AllPackages(pkgs, ssa.InstantiateGenerics)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	prog.Build()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	// VTA refines a CHA seed using the concrete types each variable can hold — far
 	// fewer false interface-dispatch edges than CHA alone, and no main needed. We use
 	// our own safeAllFunctions + chaCallGraph (see cha.go) instead of
@@ -58,9 +93,15 @@ func CallEdges(project, root string, known func(qn string) bool) (edges []graph.
 	// the candidate set it refines, so precision is unchanged on non-generic repos.
 	fns := safeAllFunctions(prog)
 	cg := vta.CallGraph(fns, chaCallGraph(fns))
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 
 	seen := make(map[string]bool)
 	for fn, node := range cg.Nodes {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		// Credit a call to the named function that lexically contains it: a call
 		// written inside a function literal (cobra's Run: func(){...}) lives in an
 		// anonymous closure that is not a graph node, so without this its edges are
@@ -89,6 +130,30 @@ func CallEdges(project, root string, known func(qn string) bool) (edges []graph.
 		}
 	}
 	return edges, nil
+}
+
+// packageLoadErrors catches diagnostics attached to individual packages. A
+// nil packages.Load error does not guarantee a complete type environment; if
+// any package failed, VTA over the remaining packages would be a silently
+// partial resolver result and must be reported as a failure instead.
+func packageLoadErrors(pkgs []*packages.Package) error {
+	var messages []string
+	for _, pkg := range pkgs {
+		for _, pkgErr := range pkg.Errors {
+			message := pkg.PkgPath + ": " + pkgErr.Msg
+			if pkgErr.Pos != "" {
+				message += " (" + pkgErr.Pos + ")"
+			}
+			messages = append(messages, message)
+			if len(messages) == 8 {
+				return fmt.Errorf("go package load failed: %s", strings.Join(messages, "; "))
+			}
+		}
+	}
+	if len(messages) == 0 {
+		return nil
+	}
+	return fmt.Errorf("go package load failed: %s", strings.Join(messages, "; "))
 }
 
 // enclosingNamed walks up from an anonymous function (closure) to the named

@@ -152,14 +152,64 @@ Production fixes shipped after dogfooding on large repos and long-running MCP se
 - **Memory-budget indexing** (`internal/memory`) — auto-tuned workers, batch size, Go
   heap limit, and scip Node heap cap from installed RAM; `memory.Gate()` between phases;
   batched definitions + streaming imports; SIMILAR skipped on low-RAM hosts.
-- **CALLS reuse via WAL snapshot** — `Run` opens a second store connection and pins a
-  read snapshot before `ReplaceProject`; `insertReusedCallEdges` streams unchanged
-  scopes' edges (replaces a same-connection stash table).
-- **MCP failure recovery** — on index failure the server reopens the intact graph,
-  keeps tools ready, and prepends the failure status to responses (stale-data context).
-  Closes the live DB handle before `RunAtomic` (Windows file lock).
+- **CALLS reuse gated by freshness** — unchanged scopes' edges are streamed from the
+  live graph store (`reuseFrom`) into the `.building` store in batches; a freshness
+  miss (unreadable/mismatched manifest, digest or integrity failure) disables reuse
+  entirely, so old CALLS are never certified against a newer repository.
+- **MCP failure recovery** — on index failure the server attempts to reopen the
+  intact graph and becomes ready only if the reopen succeeds, prepending the failure
+  status to responses (stale-data context); if the reopen fails, it reports the error
+  and stays not ready. Closes the live DB handle before `RunAtomic` (Windows file
+  lock).
 - **`Store`/`Engine` `Reopen`** — canonical reopen after atomic commit; `ScopesRun`
   counts only successful scip scopes.
+
+## Post-M5 hardening — freshness & integrity ✅
+
+The sidecar manifest turns "nothing changed" from a guess into a certified no-op:
+
+- **Sidecar manifest** (`<db>.manifest.json`, v2) — records analysis identity
+  (schema/analysis/discovery/resolver versions), the canonical root, a fingerprint of
+  every graph-affecting **sidecar input** (path + sha256, sorted) — configuration,
+  dependency, topology, and ignore files; source files are tracked separately by
+  per-file hashes on their nodes, compared during change observation — the graph
+  file identity (platform-native: dev/ino on Unix, file indices on Windows, metadata
+  fallback; changes only when a different database file is installed), the logical
+  content digest, and the status/resolver report. Written via tmp+fsync+rename and
+  committed **before** the graph replace; a crash between the two is detected by the
+  identity mismatch on the next run (fail-closed, never a certified no-op).
+- **Input/topology fingerprint** — `tsconfig*.json`/`jsconfig*.json` (with
+  `extends`/`references` expanded, package references resolved only through repo-local
+  `node_modules`), `go.mod`/`go.sum`/`go.work`, `package.json` + lockfiles,
+  `Gemfile`/`Gemfile.lock`, `.ruby-version`, workspace manifests (`pnpm-workspace`,
+  `turbo`, `nx`, `lerna`, `rush`, `workspace.json`), and the ignore rules themselves.
+  A topology change alters resolver scopes without touching any source file, so these
+  are fingerprinted even below soft-ignored directories.
+- **Stable bounded observation** — discovery, resolver scopes, and manifest inputs
+  come from one candidate-aware walk; a validating re-scan retries up to a bounded
+  number of times and fails closed on an unstable repository (no no-op, no rebuild
+  from a half-observed repo).
+- **Exact no-op gate** — `RunAtomic` certifies a no-op only when the fingerprint,
+  graph identity, `LogicalGraphDigest`, and `Store.ValidateIntegrity` (SQLite
+  `integrity_check`, FTS5 integrity-check, nodes↔FTS row-id correspondence, FTS
+  postings vs a rebuilt index, JSON properties, edge endpoints) all pass, with the
+  exact validator as the last operation. Mutations after the linearization point are
+  not claimed impossible — they are caught by the next run. As a point-in-time fact,
+  `go test -race ./... -timeout 20m` passed after the FTS-optimized integrity
+  validator landed; that single run is not a guarantee for future or timeout-less
+  executions. No freshness metric beyond the real gates is claimed.
+- **Resolver reports are complete** — every committed manifest covers exactly the
+  resolver scopes the repository implies (`ValidateExpected`); a healthy manifest
+  with a failed scope is rejected, and a degraded manifest must record a failure. A
+  resolver failure preserves the previous graph (status stale via `ResolverFailure`)
+  or commits an explicit degraded structural-only first graph (partial CALLS
+  removed) — never a healthy graph hiding a failure.
+- **Index lock + replacement recovery** — non-blocking per-database lock (shared
+  readers / exclusive writer) serializes CLI vs MCP indexers and excludes readers
+  during the two-file commit; interrupted replacements are recovered on the next
+  open; cancellation gates stop before the linearization point and cleanup of
+  `.building`/`.manifest.building` is attempted even on failure — cleanup errors are
+  reported and any leftovers are reconciled at the next start.
 
 ## Current focus - Ruby and Rails
 

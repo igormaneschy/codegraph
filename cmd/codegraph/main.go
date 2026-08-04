@@ -5,8 +5,12 @@
 package main
 
 import (
+	"context"
+	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -82,7 +86,7 @@ Usage:
   codegraph cli   <tool> <path> <json>   Run one query tool (search|callers|callees|neighbors|similar|dead_code|get_architecture|snippet)
   codegraph version               Print binary path + build identity (verify fork vs stale install)
 
-Store lives in ~/Library/Caches/codegraph/<project>.db (macOS) or ~/.cache/codegraph/
+Store lives in ~/Library/Caches/codegraph/<project>-<root-digest>.db (macOS) or ~/.cache/codegraph/
 `)
 }
 
@@ -130,35 +134,309 @@ func cmdVersion() {
 	fmt.Println("  features: ruby-static-calls, rails-routes, go-vta, scip-typescript")
 }
 
-func storePath(project string) (string, error) {
+func storePath(repoRoot string) (string, error) {
 	cache, err := os.UserCacheDir()
 	if err != nil {
 		return "", err
 	}
-	dir := filepath.Join(cache, "codegraph")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, project+".db"), nil
+	return cachePath(cache, repoRoot)
 }
 
-func openFor(root string) (*graph.Store, string, error) {
-	root, _ = filepath.Abs(root)
-	project := index.ProjectName(root)
-	sp, err := storePath(project)
+func cachePath(cacheRoot, repoRoot string) (string, error) {
+	repoRoot, err := absoluteRepoRoot(repoRoot)
 	if err != nil {
-		return nil, "", err
+		return "", err
+	}
+	dir := filepath.Join(cacheRoot, "codegraph")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	if runtime.GOOS != "windows" {
+		if err := os.Chmod(dir, 0o700); err != nil {
+			return "", err
+		}
+	}
+	project := index.ProjectName(repoRoot)
+	digest := sha256.Sum256([]byte(filepath.ToSlash(repoRoot)))
+	name := fmt.Sprintf("%s-%x.db", project, digest)
+	return filepath.Join(dir, name), nil
+}
+
+func absoluteRepoRoot(root string) (string, error) {
+	abs, err := index.ValidateRepositoryRoot(root)
+	if err != nil {
+		return "", fmt.Errorf("resolve repository root: %w", err)
+	}
+	return abs, nil
+}
+
+func openFor(root string) (*graph.Store, string, *index.Lock, error) {
+	var err error
+	root, err = absoluteRepoRoot(root)
+	if err != nil {
+		return nil, "", nil, err
+	}
+	project := index.ProjectName(root)
+	sp, err := storePath(root)
+	if err != nil {
+		return nil, "", nil, err
+	}
+	readerLock, err := index.AcquireReaderLock(sp)
+	if err != nil {
+		return nil, "", nil, err
 	}
 	st, err := graph.Open(sp)
 	if err != nil {
-		return nil, "", err
+		_ = readerLock.Release()
+		return nil, "", nil, err
 	}
-	return st, project, nil
+	return st, project, readerLock, nil
+}
+
+const (
+	mcpStartupRetryDeadline       = 2 * time.Second
+	mcpStartupRetryInitialBackoff = 5 * time.Millisecond
+	mcpStartupRetryMaxBackoff     = 50 * time.Millisecond
+)
+
+// mcpStartupRetryHook is a package-local deterministic test seam invoked only
+// after a real ErrIndexLocked result. Production startup has no hook.
+var mcpStartupRetryHook func()
+
+func openForWithRetry(root string) (*graph.Store, string, *index.Lock, error) {
+	deadline := time.Now().Add(mcpStartupRetryDeadline)
+	backoff := mcpStartupRetryInitialBackoff
+	for {
+		st, project, readerLock, err := openFor(root)
+		if err == nil {
+			return st, project, readerLock, nil
+		}
+		if !errors.Is(err, index.ErrIndexLocked) {
+			return nil, "", nil, err
+		}
+		if mcpStartupRetryHook != nil {
+			mcpStartupRetryHook()
+		}
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return nil, "", nil, fmt.Errorf("MCP startup lock contention exceeded %v: %w", mcpStartupRetryDeadline, err)
+		}
+		wait := backoff
+		if wait > remaining {
+			wait = remaining
+		}
+		timer := time.NewTimer(wait)
+		<-timer.C
+		if backoff < mcpStartupRetryMaxBackoff {
+			backoff *= 2
+			if backoff > mcpStartupRetryMaxBackoff {
+				backoff = mcpStartupRetryMaxBackoff
+			}
+		}
+	}
+}
+
+func reopenStoreFor(st *graph.Store, dbPath string) (*index.Lock, error) {
+	readerLock, err := index.AcquireReaderLock(dbPath)
+	if err != nil {
+		return nil, err
+	}
+	if err := st.Reopen(dbPath); err != nil {
+		_ = readerLock.Release()
+		return nil, err
+	}
+	return readerLock, nil
+}
+
+func reopenEngineFor(eng *query.Engine, dbPath string) (*index.Lock, error) {
+	readerLock, err := index.AcquireReaderLock(dbPath)
+	if err != nil {
+		return nil, err
+	}
+	if err := eng.Reopen(dbPath); err != nil {
+		_ = readerLock.Release()
+		return nil, err
+	}
+	return readerLock, nil
+}
+
+const (
+	mcpReopenRetryDeadline       = 2 * time.Second
+	mcpReopenRetryInitialBackoff = 5 * time.Millisecond
+	mcpReopenRetryMaxBackoff     = 50 * time.Millisecond
+)
+
+type mcpIndexHooks struct {
+	beforeRun        func()
+	beforeRunContext func(context.Context) error
+	reopenAttempt    func()
+}
+
+type mcpIndexOutcome struct {
+	result     index.Result
+	readerLock *index.Lock
+	ready      bool
+	status     string
+}
+
+func reopenEngineForWithRetry(ctx context.Context, eng *query.Engine, dbPath string, onAttempt func()) (*index.Lock, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	deadline := time.Now().Add(mcpReopenRetryDeadline)
+	backoff := mcpReopenRetryInitialBackoff
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
+
+		if onAttempt != nil {
+			onAttempt()
+		}
+		readerLock, err := reopenEngineFor(eng, dbPath)
+		if err == nil {
+			return readerLock, nil
+		}
+		if !errors.Is(err, index.ErrIndexLocked) {
+			return nil, err
+		}
+
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return nil, fmt.Errorf("reopen store lock contention exceeded %v: %w", mcpReopenRetryDeadline, err)
+		}
+		wait := backoff
+		if wait > remaining {
+			wait = remaining
+		}
+		timer := time.NewTimer(wait)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+		if backoff < mcpReopenRetryMaxBackoff {
+			backoff *= 2
+			if backoff > mcpReopenRetryMaxBackoff {
+				backoff = mcpReopenRetryMaxBackoff
+			}
+		}
+	}
+}
+
+func runMCPBackgroundIndex(eng *query.Engine, readerLock *index.Lock, dbPath, root, project, initialStatus string, ctx context.Context, hooks mcpIndexHooks) mcpIndexOutcome {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	out := mcpIndexOutcome{readerLock: readerLock, status: initialStatus}
+	if err := eng.Close(); err != nil {
+		closeErr := err
+		reopenAllowed := true
+		if out.readerLock != nil {
+			if releaseErr := out.readerLock.Release(); releaseErr != nil {
+				closeErr = errors.Join(closeErr, releaseErr)
+				reopenAllowed = false
+			}
+			out.readerLock = nil
+		}
+		out.status = "codegraph: close store before index failed: " + closeErr.Error()
+		if reopenAllowed && ctx.Err() == nil {
+			if lock, rerr := reopenEngineForWithRetry(ctx, eng, dbPath, hooks.reopenAttempt); rerr == nil {
+				out.readerLock = lock
+				out.ready = true
+			} else if ctx.Err() == nil {
+				out.status += "; reopen store failed: " + rerr.Error()
+			}
+		}
+		return out
+	}
+
+	if out.readerLock != nil {
+		if err := out.readerLock.Release(); err != nil {
+			out.readerLock = nil
+			out.status = "codegraph: release store before index failed: " + err.Error()
+			return out
+		}
+		out.readerLock = nil
+	}
+	if err := ctx.Err(); err != nil {
+		return out
+	}
+	if hooks.beforeRunContext != nil {
+		if err := hooks.beforeRunContext(ctx); err != nil {
+			out.status = "codegraph: indexing canceled: " + err.Error()
+			return out
+		}
+	}
+	if hooks.beforeRun != nil {
+		hooks.beforeRun()
+	}
+	if err := ctx.Err(); err != nil {
+		return out
+	}
+
+	res, ierr := index.RunAtomicContext(ctx, dbPath, root)
+	// The Go call-graph resolver (go/packages LoadAllSyntax + SSA + VTA) spikes the
+	// heap to several GB on large repos. Go's runtime keeps that arena reserved
+	// instead of returning it to the OS, so a long-running MCP server would sit at
+	// the indexing peak for its whole life — the "starts ~130MB, climbs past 10GB and
+	// stays there" growth users see. Hand the now-garbage pages back to the OS the
+	// moment indexing finishes; steady-state drops back to the query baseline
+	// (measured: goclaw 3091MB -> 149MB), with no effect on the graph's precision.
+	if ctx.Err() == nil {
+		debug.FreeOSMemory()
+	}
+	out.result = res
+	if ierr != nil {
+		if ctx.Err() != nil || errors.Is(ierr, context.Canceled) || errors.Is(ierr, context.DeadlineExceeded) {
+			out.status = "codegraph: indexing canceled: " + ierr.Error()
+			return out
+		}
+		// RunAtomic leaves the previous graph intact on disk; reopen so tools can
+		// still query it while surfacing the failure in the status message.
+		out.status = "codegraph: indexing " + project + " failed: " + ierr.Error()
+		if lock, rerr := reopenEngineForWithRetry(ctx, eng, dbPath, hooks.reopenAttempt); rerr == nil {
+			out.readerLock = lock
+			out.ready = true
+		} else if ctx.Err() == nil {
+			out.status += "; reopen store failed: " + rerr.Error()
+		}
+		return out
+	}
+
+	if err := ctx.Err(); err != nil {
+		return out
+	}
+	lock, err := reopenEngineForWithRetry(ctx, eng, dbPath, hooks.reopenAttempt)
+	if err != nil {
+		out.status = "codegraph: reopen store after index failed: " + err.Error()
+		return out
+	}
+	out.readerLock = lock
+	out.ready = true
+	if res.Status == index.StatusDegraded {
+		out.status = "codegraph: indexing degraded; resolver failed: " + res.Resolver.Summary()
+	} else {
+		out.status = ""
+	}
+	return out
 }
 
 func cmdIndex(root string) error {
-	root, _ = filepath.Abs(root)
-	sp, err := storePath(index.ProjectName(root))
+	var err error
+	root, err = absoluteRepoRoot(root)
+	if err != nil {
+		return err
+	}
+	sp, err := storePath(root)
 	if err != nil {
 		return err
 	}
@@ -168,12 +446,18 @@ func cmdIndex(root string) error {
 		return err
 	}
 	if res.Reused {
-		fmt.Printf("unchanged %s — reused index (files=%d nodes=%d edges=%d)\n",
-			res.Project, res.Files, res.Nodes, res.EdgesKept)
+		fmt.Printf("unchanged %s — reused index (files=%d nodes=%d edges=%d status=%s)\n",
+			res.Project, res.Files, res.Nodes, res.EdgesKept, res.Status)
+		if res.Status == index.StatusDegraded {
+			fmt.Printf("  resolver failed: %s\n", res.Resolver.Summary())
+		}
 		return nil
 	}
 	fmt.Printf("indexed %s\n  files=%d nodes=%d edges=%d (dropped %d unresolved)\n",
 		res.Project, res.Files, res.Nodes, res.EdgesKept, res.EdgesDropped)
+	if res.Status == index.StatusDegraded {
+		fmt.Printf("  status=degraded; resolver failed: %s\n", res.Resolver.Summary())
+	}
 	if res.ScipScopes > 0 {
 		line := fmt.Sprintf("  scip-typescript: %d scope(s), node heap cap %d MB",
 			res.ScipScopes, res.ScipHeapCapMB)
@@ -186,10 +470,11 @@ func cmdIndex(root string) error {
 }
 
 func cmdChanges(root string) error {
-	st, project, err := openFor(root)
+	st, project, readerLock, err := openFor(root)
 	if err != nil {
 		return err
 	}
+	defer readerLock.Release()
 	defer st.Close()
 	ch, err := index.DetectChanges(st, project, root)
 	if err != nil {
@@ -204,16 +489,22 @@ func cmdChanges(root string) error {
 }
 
 func cmdStats(root string) error {
-	st, project, err := openFor(root)
+	st, project, readerLock, err := openFor(root)
 	if err != nil {
 		return err
 	}
+	defer readerLock.Release()
 	defer st.Close()
 	n, e, err := st.Stats(project)
 	if err != nil {
 		return err
 	}
 	fmt.Printf("project=%s nodes=%d edges=%d\n", project, n, e)
+	if manifest, manifestErr := index.ReadManifest(st.DBPath()); manifestErr == nil {
+		fmt.Printf("status=%s\n", manifest.Status)
+	} else {
+		fmt.Printf("status=unknown (manifest unavailable: %v)\n", manifestErr)
+	}
 	return nil
 }
 
@@ -250,23 +541,30 @@ func cmdInstall() error {
 }
 
 func cmdMCP(root string) error {
-	root, _ = filepath.Abs(resolveRepo(root))
-	project := index.ProjectName(root)
-	sp, err := storePath(project)
+	return serveMCP(root, os.Stdin, os.Stdout)
+}
+
+func serveMCP(root string, in io.Reader, out io.Writer) error {
+	return serveMCPWithHooks(root, in, out, mcpIndexHooks{})
+}
+
+func serveMCPWithHooks(root string, in io.Reader, out io.Writer, hooks mcpIndexHooks) error {
+	var err error
+	root, err = absoluteRepoRoot(resolveRepo(root))
 	if err != nil {
 		return err
 	}
-	st, err := graph.Open(sp)
+	st, project, readerLock, err := openForWithRetry(root)
 	if err != nil {
 		return err
 	}
+	sp := st.DBPath()
 	eng := query.NewEngine(st, project, root)
-	defer eng.Close()
-	srv := mcp.NewServer(eng, os.Stdin, os.Stdout)
+	srv := mcp.NewServer(eng, in, out)
 
 	// Auto-index in the background so a repo "just works" the moment it's registered.
-	// Do not run `codegraph index` on the same repo while this server is active.
-	// the MCP handshake answers immediately while the graph builds, and tools report
+	// The per-database lock rejects a competing indexer without corrupting the graph.
+	// The MCP handshake answers immediately while the graph builds, and tools report
 	// "indexing" (via the readiness gate) until it's ready — never a half-built store.
 	// M3 makes this a ~no-op on an unchanged repo, so it runs on every launch and the
 	// agent always queries a fresh graph, with no manual `codegraph index` step.
@@ -278,53 +576,34 @@ func cmdMCP(root string) error {
 		defer mu.Unlock()
 		return ready, status
 	})
+	ctx, cancel := context.WithCancel(context.Background())
+	indexDone := make(chan struct{})
 	go func() {
-		// Release the live DB handle so RunAtomic can replace the file on Windows.
-		if err := eng.Close(); err != nil {
-			mu.Lock()
-			status = "codegraph: close store before index failed: " + err.Error()
-			if rerr := eng.Reopen(sp); rerr == nil {
-				ready = true
-			}
-			mu.Unlock()
-			return
-		}
-		res, ierr := index.RunAtomic(sp, root)
-		// The Go call-graph resolver (go/packages LoadAllSyntax + SSA + VTA) spikes the
-		// heap to several GB on large repos. Go's runtime keeps that arena reserved
-		// instead of returning it to the OS, so a long-running MCP server would sit at
-		// the indexing peak for its whole life — the "starts ~130MB, climbs past 10GB and
-		// stays there" growth users see. Hand the now-garbage pages back to the OS the
-		// moment indexing finishes; steady-state drops back to the query baseline
-		// (measured: goclaw 3091MB -> 149MB), with no effect on the graph's precision.
-		debug.FreeOSMemory()
-		mu.Lock()
-		defer mu.Unlock()
-		if ierr != nil {
-			// RunAtomic leaves the previous graph intact on disk; reopen so tools can
-			// still query it while surfacing the failure in the status message.
-			status = "codegraph: indexing " + project + " failed: " + ierr.Error()
-			if err := eng.Reopen(sp); err == nil {
-				ready = true
-			}
-			return
-		}
-		if err := eng.Reopen(sp); err != nil {
-			status = "codegraph: reopen store after index failed: " + err.Error()
-			return
-		}
-		if res.ScipScopes > 0 {
+		defer close(indexDone)
+		indexOutcome := runMCPBackgroundIndex(eng, readerLock, sp, root, project, status, ctx, hooks)
+		readerLock = indexOutcome.readerLock
+		if indexOutcome.result.ScipScopes > 0 {
 			msg := fmt.Sprintf("codegraph: scip-typescript %d scope(s), node heap cap %d MB",
-				res.ScipScopes, res.ScipHeapCapMB)
-			if res.ScipPeakRSS > 0 {
-				msg += fmt.Sprintf(", peak RSS %d MB", res.ScipPeakRSS/(1024*1024))
+				indexOutcome.result.ScipScopes, indexOutcome.result.ScipHeapCapMB)
+			if indexOutcome.result.ScipPeakRSS > 0 {
+				msg += fmt.Sprintf(", peak RSS %d MB", indexOutcome.result.ScipPeakRSS/(1024*1024))
 			}
 			fmt.Fprintln(os.Stderr, msg)
 		}
-		ready = true
+		mu.Lock()
+		status = indexOutcome.status
+		ready = indexOutcome.ready
+		mu.Unlock()
 	}()
 
-	return srv.Serve()
+	serveErr := srv.Serve()
+	cancel()
+	<-indexDone
+	closeErr := eng.Close()
+	if readerLock != nil {
+		closeErr = errors.Join(closeErr, readerLock.Release())
+	}
+	return errors.Join(serveErr, closeErr)
 }
 
 // resolveRepo picks the repo to serve: an explicit path arg wins; otherwise
@@ -346,31 +625,54 @@ func resolveRepo(arg string) string {
 // against two grep-based baselines. Answer-quality (83% vs 92%) is NOT measured —
 // that needs an LLM judge; this reports only deterministic numbers.
 func cmdBench(root string) error {
-	root, _ = filepath.Abs(root)
-	st, project, err := openFor(root)
+	var err error
+	root, err = absoluteRepoRoot(root)
+	if err != nil {
+		return err
+	}
+	st, project, readerLock, err := openFor(root)
 	if err != nil {
 		return err
 	}
 	eng := query.NewEngine(st, project, root)
-	defer eng.Close()
+	defer func() {
+		_ = eng.Close()
+		if readerLock != nil {
+			_ = readerLock.Release()
+		}
+	}()
 
 	// 1) Indexing speed (our win vs upstream's ~20 min on Windows). Time is
 	// measured clean (no MemStats sampling in the loop, which would STW and skew
 	// it); memory is read once after, as a footprint — not a sampled peak.
-	sp, err := storePath(project)
+	sp, err := storePath(root)
 	if err != nil {
 		return err
 	}
 	t0 := time.Now()
+	if err := eng.Close(); err != nil {
+		return fmt.Errorf("close store before index: %w", err)
+	}
+	if err := readerLock.Release(); err != nil {
+		readerLock = nil
+		return fmt.Errorf("release store before index: %w", err)
+	}
+	readerLock = nil
 	res, err := index.RunAtomic(sp, root)
 	if err != nil {
+		var reopenErr error
+		readerLock, reopenErr = reopenEngineFor(eng, sp)
+		if reopenErr != nil {
+			return fmt.Errorf("index: %w (reopen store: %v)", err, reopenErr)
+		}
 		return err
 	}
 	elapsed := time.Since(t0)
 	var m1 runtime.MemStats
 	runtime.ReadMemStats(&m1)
 
-	if err := eng.Reopen(sp); err != nil {
+	readerLock, err = reopenEngineFor(eng, sp)
+	if err != nil {
 		return err
 	}
 	// 2) Token / tool-call efficiency over the top call hubs.
@@ -469,22 +771,45 @@ func cmdQuality(args []string) error {
 }
 
 func cmdQualityGen(repo, outdir, lang string) error {
-	st, project, err := openFor(repo)
+	root, err := absoluteRepoRoot(repo)
 	if err != nil {
 		return err
 	}
-	defer st.Close()
+	st, project, readerLock, err := openFor(root)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = st.Close()
+		if readerLock != nil {
+			_ = readerLock.Release()
+		}
+	}()
 
 	// Index on demand so `gen` is self-contained.
 	if n, _, _ := st.Stats(project); n == 0 {
-		sp, err := storePath(project)
+		sp, err := storePath(root)
 		if err != nil {
 			return err
 		}
-		if _, err := index.RunAtomic(sp, repo); err != nil {
+		if err := st.Close(); err != nil {
+			return fmt.Errorf("close store before index: %w", err)
+		}
+		if err := readerLock.Release(); err != nil {
+			readerLock = nil
+			return fmt.Errorf("release store before index: %w", err)
+		}
+		readerLock = nil
+		if _, err := index.RunAtomic(sp, root); err != nil {
+			var reopenErr error
+			readerLock, reopenErr = reopenStoreFor(st, sp)
+			if reopenErr != nil {
+				return fmt.Errorf("index: %w (reopen store: %v)", err, reopenErr)
+			}
 			return err
 		}
-		if err := st.Reopen(sp); err != nil {
+		readerLock, err = reopenStoreFor(st, sp)
+		if err != nil {
 			return err
 		}
 	}
@@ -516,8 +841,7 @@ func cmdQualityGen(repo, outdir, lang string) error {
 	if err := writeJSON(filepath.Join(outdir, "answers.json"), []quality.Answer{}); err != nil {
 		return err
 	}
-	abs, _ := filepath.Abs(repo)
-	meta := map[string]any{"repo": abs, "project": project, "lang": lang, "questions": len(qs)}
+	meta := map[string]any{"repo": root, "project": project, "lang": lang, "questions": len(qs)}
 	if err := writeJSON(filepath.Join(outdir, "meta.json"), meta); err != nil {
 		return err
 	}
@@ -589,12 +913,13 @@ func cmdCLI(args []string) error {
 	}
 
 	root, _ = filepath.Abs(root)
-	st, project, err := openFor(root)
+	st, project, readerLock, err := openFor(root)
 	if err != nil {
 		return err
 	}
-	defer st.Close()
+	defer readerLock.Release()
 	eng := query.NewEngine(st, project, root)
+	defer eng.Close()
 
 	// Ref-returning tools print the compact wire format (one TSV line per ref);
 	// snippet prints raw source. Both are already token-minimal — no JSON wrapper.
