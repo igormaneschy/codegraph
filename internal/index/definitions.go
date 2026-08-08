@@ -4,12 +4,12 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"os"
 	"strings"
 
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 
 	"github.com/Lordymine/codegraph/internal/graph"
+	"github.com/Lordymine/codegraph/internal/securefile"
 )
 
 // definitions.go is the definitions pass: it parses a file with tree-sitter and
@@ -28,7 +28,7 @@ func ExtractDefinitions(project string, f SourceFile) ([]graph.Node, []graph.Edg
 // wrapper above retains the small test helper API, while indexing must not turn
 // a source read failure into an apparently successful file deletion.
 func ExtractDefinitionsChecked(project string, f SourceFile) ([]graph.Node, []graph.Edge, error) {
-	data, err := os.ReadFile(f.AbsPath)
+	data, err := securefile.ReadFile(f.AbsPath)
 	if err != nil {
 		return nil, nil, fmt.Errorf("read source %q: %w", f.RelPath, err)
 	}

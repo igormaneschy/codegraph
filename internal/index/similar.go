@@ -60,7 +60,6 @@ func resolveSimilarFromSpans(ctx context.Context, project, root string, spans []
 			return nil, fmt.Errorf("read source for similarity %q: %w", file, err)
 		}
 		lines := strings.Split(string(data), "\n")
-		data = nil
 		for _, sp := range fns {
 			span, err := linesOf(lines, sp.StartLine, sp.EndLine)
 			if err != nil {
@@ -75,7 +74,6 @@ func resolveSimilarFromSpans(ctx context.Context, project, root string, spans []
 				})
 			}
 		}
-		lines = nil
 		memory.Gate()
 	}
 	if err := ctx.Err(); err != nil {

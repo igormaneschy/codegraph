@@ -3,11 +3,11 @@ package index
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/Lordymine/codegraph/internal/graph"
+	"github.com/Lordymine/codegraph/internal/securefile"
 )
 
 // Changes is the set of files that differ from the indexed snapshot.
@@ -85,7 +85,7 @@ func detectChangesCanonicalContext(ctx context.Context, store *graph.Store, proj
 			return Changes{}, err
 		}
 		seen[f.RelPath] = true
-		data, err := os.ReadFile(f.AbsPath)
+		data, err := securefile.ReadFile(f.AbsPath)
 		if err != nil {
 			return Changes{}, fmt.Errorf("read discovered source %q: %w", f.RelPath, err)
 		}
@@ -132,12 +132,9 @@ func scopeOf(rel string, tsconfigDirs []string) string {
 
 const reusedCallEdgeBatch = 2048
 
-// forEachReusableCallEdge invokes fn for each stored CALLS edge whose caller scope
-// is not being re-resolved. source must still hold the pre-reindex graph.
-func forEachReusableCallEdge(source *graph.Store, project string, changed map[string]bool, tsconfigDirs []string, fn func(graph.Edge) error) error {
-	return forEachReusableCallEdgeContext(context.Background(), source, project, changed, tsconfigDirs, fn)
-}
-
+// forEachReusableCallEdgeContext invokes fn for each stored CALLS edge whose
+// caller scope is not being re-resolved. source must still hold the pre-reindex
+// graph.
 func forEachReusableCallEdgeContext(ctx context.Context, source *graph.Store, project string, changed map[string]bool, tsconfigDirs []string, fn func(graph.Edge) error) error {
 	ctx = nonNilContext(ctx)
 	if err := ctx.Err(); err != nil {
@@ -163,13 +160,9 @@ func forEachReusableCallEdgeContext(ctx context.Context, source *graph.Store, pr
 	})
 }
 
-// insertReusedCallEdges streams reusable CALLS edges from source into target in batches.
-// source must hold a pre-wipe graph snapshot (second connection + BeginReadSnapshot for
-// Run, or the main store file for RunAtomic).
-func insertReusedCallEdges(target, source *graph.Store, project string, changed map[string]bool, tsconfigDirs []string) (inserted, dropped int, err error) {
-	return insertReusedCallEdgesContext(context.Background(), target, source, project, changed, tsconfigDirs)
-}
-
+// insertReusedCallEdgesContext streams reusable CALLS edges from source into
+// target in batches. source must hold a pre-wipe graph snapshot (second
+// connection + BeginReadSnapshot for Run, or the main store file for RunAtomic).
 func insertReusedCallEdgesContext(ctx context.Context, target, source *graph.Store, project string, changed map[string]bool, tsconfigDirs []string) (inserted, dropped int, err error) {
 	ctx = nonNilContext(ctx)
 	var batch []graph.Edge
@@ -223,7 +216,6 @@ func changedScopes(ch Changes, tsconfigDirs []string) map[string]bool {
 // is not fully resolved by the lightweight import pass, so a guessed reverse
 // importer set is not safe for CALLS reuse.
 func changedScopesWithTSDependencies(ctx context.Context, ch Changes, tsconfigDirs []string) (map[string]bool, error) {
-	ctx = nonNilContext(ctx)
 	out := changedScopes(ch, tsconfigDirs)
 	for _, paths := range [][]string{ch.Changed, ch.Added, ch.Deleted} {
 		for _, rel := range paths {

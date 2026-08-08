@@ -90,10 +90,7 @@ func walkRubyMethod(n *tree_sitter.Node, src []byte, scope rubyScope, explicitSi
 	if explicitSingleton {
 		receiver := rubyNodeName(n.ChildByFieldName("object"), src)
 		if receiver != "" && receiver != "self" {
-			owner = receiver
-			if strings.HasPrefix(owner, "::") {
-				owner = strings.TrimPrefix(owner, "::")
-			}
+			owner = strings.TrimPrefix(receiver, "::")
 		}
 	}
 	label := graph.LabelMethod

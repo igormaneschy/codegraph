@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/Lordymine/codegraph/internal/securefile"
 )
 
 // Lang is a detected source language for a file.
@@ -80,6 +82,11 @@ func discoverCanonicalContext(ctx context.Context, root string) ([]SourceFile, e
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	canonicalRoot, err := ValidateRepositoryRoot(root)
+	if err != nil {
+		return nil, err
+	}
+	root = canonicalRoot
 	ignore, err := loadIgnore(root)
 	if err != nil {
 		return nil, err
@@ -92,6 +99,13 @@ func discoverCanonicalContext(ctx context.Context, root string) ([]SourceFile, e
 		}
 		if walkErr != nil {
 			return classifyWalkError(root, path, ignore, walkErr)
+		}
+		// Never index or open symlink entries: a symlinked source can point
+		// outside the repository root, and following it would read an untrusted
+		// external file. WalkDir does not descend into symlinked directories,
+		// so skipping the entry covers file and directory symlinks alike.
+		if d.Type()&os.ModeSymlink != 0 {
+			return nil
 		}
 		rel, _ := filepath.Rel(root, path)
 		rel = filepath.ToSlash(rel)
@@ -139,7 +153,9 @@ func loadIgnore(root string) (ignoreSet, error) {
 }
 
 func readIgnoreFile(file string) ([]string, error) {
-	f, err := os.Open(file)
+	// #nosec G703 -- caller loadIgnore joins the validated repository root with
+	// the fixed basenames ".gitignore"/".cbmignore"; no user-controlled component.
+	f, err := securefile.OpenRead(file)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
@@ -185,6 +201,8 @@ func classifyWalkError(root, path string, ignore ignoreSet, walkErr error) error
 	if rel == "." {
 		return fmt.Errorf("discover repository root: %w", walkErr)
 	}
+	// #nosec G703 -- path is supplied by filepath.WalkDir under the validated
+	// repository root; stat only classifies the walk error for skip/error routing.
 	if info, statErr := os.Stat(path); statErr == nil && info.IsDir() && shouldSkipDirectory(filepath.Base(path), rel, ignore) {
 		return filepath.SkipDir
 	}
@@ -213,7 +231,9 @@ func underIgnoredDirectory(rel string, ignore ignoreSet) bool {
 }
 
 func verifyReadableSource(path string) error {
-	f, err := os.Open(path)
+	// #nosec G703 -- path is a WalkDir-discovered source under the validated
+	// repository root; open only probes readability before indexing.
+	f, err := securefile.OpenRead(path)
 	if err != nil {
 		return err
 	}

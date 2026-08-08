@@ -144,7 +144,9 @@ func installOpencode(bin string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(path, merged, 0o644)
+	// User-scoped agent config; owner-only perms are the safe default and the
+	// agents read it as the same user.
+	return os.WriteFile(path, merged, 0o600)
 }
 
 func opencodeManual(bin string) string {
@@ -170,6 +172,9 @@ func opencodeConfigPath() string {
 	return filepath.Join(dir, "opencode.json")
 }
 
+// #nosec G703 -- path is built internally from XDG_CONFIG_HOME (the user's own
+// config dir) or os.UserHomeDir plus fixed component names; os.Stat is a read-only
+// existence probe, never an execution or write target.
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
@@ -215,7 +220,10 @@ func installGrok(bin string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(path, merged, 0o644)
+	// #nosec G703 -- path comes from grokConfigPath(): os.UserHomeDir plus the
+	// fixed ".grok/config.toml" components, never from user-supplied input.
+	// User-scoped agent config; owner-only perms are the safe default.
+	return os.WriteFile(path, merged, 0o600)
 }
 
 func grokManual(bin string) string {
@@ -242,6 +250,11 @@ func onPath(name string) bool {
 	return err == nil
 }
 
+// runCmd executes a pre-built argv without a shell. argv is always constructed
+// internally by ClaudeCommand/CodexCommand from fixed literal flags plus the
+// running codegraph binary path (os.Executable in cmdInstall); no user input or
+// environment data reaches it, and exec.Command never interprets metacharacters.
+// #nosec G204 -- argv is program-built (fixed literals + own binary path), no shell
 func runCmd(argv []string) error {
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr

@@ -28,7 +28,7 @@ func TestOpencodeConfigPath_PrefersExistingJsonc(t *testing.T) {
 		t.Fatal(err)
 	}
 	jsonc := filepath.Join(ocDir, "opencode.jsonc")
-	if err := os.WriteFile(jsonc, []byte(`{"instructions":["x"]}`), 0o644); err != nil {
+	if err := os.WriteFile(jsonc, []byte(`{"instructions":["x"]}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if got := opencodeConfigPath(); got != jsonc {

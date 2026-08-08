@@ -25,6 +25,7 @@ import (
 	"github.com/Lordymine/codegraph/internal/mcp"
 	"github.com/Lordymine/codegraph/internal/quality"
 	"github.com/Lordymine/codegraph/internal/query"
+	"github.com/Lordymine/codegraph/internal/securefile"
 )
 
 func main() {
@@ -148,13 +149,8 @@ func cachePath(cacheRoot, repoRoot string) (string, error) {
 		return "", err
 	}
 	dir := filepath.Join(cacheRoot, "codegraph")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return "", err
-	}
-	if runtime.GOOS != "windows" {
-		if err := os.Chmod(dir, 0o700); err != nil {
-			return "", err
-		}
+	if err := securefile.MkdirAllPrivate(dir); err != nil {
+		return "", fmt.Errorf("prepare private cache directory: %w", err)
 	}
 	project := index.ProjectName(repoRoot)
 	digest := sha256.Sum256([]byte(filepath.ToSlash(repoRoot)))
@@ -469,12 +465,16 @@ func cmdIndex(root string) error {
 	return nil
 }
 
-func cmdChanges(root string) error {
+func cmdChanges(root string) (retErr error) {
 	st, project, readerLock, err := openFor(root)
 	if err != nil {
 		return err
 	}
-	defer readerLock.Release()
+	defer func() {
+		if releaseErr := readerLock.Release(); releaseErr != nil {
+			retErr = errors.Join(retErr, releaseErr)
+		}
+	}()
 	defer st.Close()
 	ch, err := index.DetectChanges(st, project, root)
 	if err != nil {
@@ -488,12 +488,16 @@ func cmdChanges(root string) error {
 	return nil
 }
 
-func cmdStats(root string) error {
+func cmdStats(root string) (retErr error) {
 	st, project, readerLock, err := openFor(root)
 	if err != nil {
 		return err
 	}
-	defer readerLock.Release()
+	defer func() {
+		if releaseErr := readerLock.Release(); releaseErr != nil {
+			retErr = errors.Join(retErr, releaseErr)
+		}
+	}()
 	defer st.Close()
 	n, e, err := st.Stats(project)
 	if err != nil {
@@ -743,7 +747,7 @@ func ratioOf(a, b int) float64 {
 // workflow to fill; `score` reads them back and writes report.md.
 func cmdQuality(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: codegraph quality <gen|score> ...")
+		return fmt.Errorf("usage: codegraph quality <gen|score>")
 	}
 	switch args[0] {
 	case "gen":
@@ -822,7 +826,7 @@ func cmdQualityGen(repo, outdir, lang string) error {
 		return fmt.Errorf("no questions generated (is the repo indexed with CALLS edges?)")
 	}
 
-	if err := os.MkdirAll(outdir, 0o755); err != nil {
+	if err := securefile.MkdirAllPrivate(outdir); err != nil {
 		return err
 	}
 	// truth scaffold: one entry per structural question for the oracle to fill.
@@ -853,6 +857,9 @@ func cmdQualityGen(repo, outdir, lang string) error {
 }
 
 func cmdQualityScore(dir string) error {
+	if err := securefile.MkdirAllPrivate(dir); err != nil {
+		return fmt.Errorf("prepare private quality directory: %w", err)
+	}
 	var qs []quality.Question
 	var truth []quality.Truth
 	var answers []quality.Answer
@@ -866,11 +873,19 @@ func cmdQualityScore(dir string) error {
 		return err
 	}
 	report := quality.Report(qs, truth, answers)
-	if err := os.WriteFile(filepath.Join(dir, "report.md"), []byte(report), 0o644); err != nil {
+	if err := writePrivate(filepath.Join(dir, "report.md"), []byte(report)); err != nil {
 		return err
 	}
 	fmt.Print(report)
 	return nil
+}
+
+// writePrivate writes a quality-harness artifact with owner-only permissions.
+// The helper writes a private temporary file and atomically replaces the
+// destination entry, so a destination symlink is replaced rather than
+// followed. Content, naming, and CLI flow remain unchanged.
+func writePrivate(path string, data []byte) error {
+	return securefile.WritePrivate(path, data)
 }
 
 func writeJSON(path string, v any) error {
@@ -878,11 +893,11 @@ func writeJSON(path string, v any) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, b, 0o644)
+	return writePrivate(path, b)
 }
 
 func readJSON(path string, v any) error {
-	b, err := os.ReadFile(path)
+	b, err := securefile.ReadFile(path)
 	if err != nil {
 		return err
 	}
@@ -890,7 +905,7 @@ func readJSON(path string, v any) error {
 }
 
 // cmdCLI: codegraph cli <tool> <path> <json-args>
-func cmdCLI(args []string) error {
+func cmdCLI(args []string) (retErr error) {
 	if len(args) < 2 {
 		return fmt.Errorf("usage: codegraph cli <tool> <path> [json]")
 	}
@@ -917,7 +932,11 @@ func cmdCLI(args []string) error {
 	if err != nil {
 		return err
 	}
-	defer readerLock.Release()
+	defer func() {
+		if releaseErr := readerLock.Release(); releaseErr != nil {
+			retErr = errors.Join(retErr, releaseErr)
+		}
+	}()
 	eng := query.NewEngine(st, project, root)
 	defer eng.Close()
 

@@ -57,6 +57,9 @@ func ValidateRepositoryRoot(root string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("resolve repository root %q: %w", root, err)
 	}
+	// #nosec G703 -- canonical is the user-selected repository root after
+	// CanonicalPath (absolute, cleaned, symlinks resolved); stat enforces the
+	// documented existing-directory contract for that explicitly chosen root.
 	info, err := os.Stat(canonical)
 	if err != nil {
 		return "", fmt.Errorf("inspect repository root %q: %w", canonical, err)

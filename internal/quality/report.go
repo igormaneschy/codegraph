@@ -21,8 +21,8 @@ func Report(qs []Question, truths []Truth, answers []Answer) string {
 	b.WriteString("|---|--:|--:|--:|\n")
 	for _, mode := range modesOf(aggs) {
 		a := aggs[mode]
-		b.WriteString(fmt.Sprintf("| **%s** | %.0f%% | %d | %d |\n",
-			mode, 100*a.MeanQuality, a.TotalTokens, a.TotalCalls))
+		fmt.Fprintf(&b, "| **%s** | %.0f%% | %d | %d |\n",
+			mode, 100*a.MeanQuality, a.TotalTokens, a.TotalCalls)
 	}
 
 	// Per-type quality.
@@ -38,7 +38,7 @@ func Report(qs []Question, truths []Truth, answers []Answer) string {
 		b.WriteString("| **" + mode + "** |")
 		for _, t := range types {
 			if v, ok := a.ByType[t]; ok {
-				b.WriteString(fmt.Sprintf(" %.0f%% |", 100*v))
+				fmt.Fprintf(&b, " %.0f%% |", 100*v)
 			} else {
 				b.WriteString(" – |")
 			}
@@ -58,8 +58,8 @@ func Report(qs []Question, truths []Truth, answers []Answer) string {
 	}
 	for _, q := range qs {
 		m := byID[q.ID]
-		b.WriteString(fmt.Sprintf("| `%s` | %s | %s | %s |\n",
-			q.ID, q.Type, pct(m["graph"]), pct(m["baseline"])))
+		fmt.Fprintf(&b, "| `%s` | %s | %s | %s |\n",
+			q.ID, q.Type, pct(m["graph"]), pct(m["baseline"]))
 	}
 
 	b.WriteString("\n> Quality = F1 vs the oracle truth for callers/callees, " +

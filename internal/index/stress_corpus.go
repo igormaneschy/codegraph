@@ -13,7 +13,7 @@ import (
 func writeSyntheticGoModule(t *testing.T, nFiles int) (dir string, sourceBytes int64) {
 	t.Helper()
 	dir = t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module stress.test\n\ngo 1.22\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module stress.test\n\ngo 1.22\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	stressDir := filepath.Join(dir, "stress")
@@ -24,7 +24,7 @@ func writeSyntheticGoModule(t *testing.T, nFiles int) (dir string, sourceBytes i
 		path := filepath.Join(stressDir, fmt.Sprintf("f%d.go", i))
 		body := syntheticGoFile(i, nFiles)
 		sourceBytes += int64(len(body))
-		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -60,7 +60,7 @@ func writeSyntheticTSCorpus(t *testing.T, nFiles int) (dir string, sourceBytes i
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -70,9 +70,9 @@ func writeSyntheticTSCorpus(t *testing.T, nFiles int) (dir string, sourceBytes i
 func syntheticTSFile(i int) string {
 	var b strings.Builder
 	b.WriteString("import { helper")
-	b.WriteString(fmt.Sprint(i % 7))
+	fmt.Fprint(&b, i%7)
 	b.WriteString(" } from './h")
-	b.WriteString(fmt.Sprint(i % 7))
+	fmt.Fprint(&b, i%7)
 	b.WriteString("';\n")
 	for j := 0; j < 3; j++ {
 		fmt.Fprintf(&b, "export function fn%d_%d(x: number, y: string) {\n", i, j)

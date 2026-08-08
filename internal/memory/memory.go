@@ -6,6 +6,7 @@
 package memory
 
 import (
+	"math"
 	"os"
 	"runtime"
 	"runtime/debug"
@@ -46,7 +47,13 @@ func ApplyTuning() {
 	if ram := systemRAMBytes(); ram > 0 {
 		// Split RAM: ~50% Go heap, ~25% reserved for scip-typescript (NODE_OPTIONS),
 		// rest for cgo tree-sitter, SQLite, and the OS. See NodeHeapMB().
-		debug.SetMemoryLimit(int64(ram * 50 / 100))
+		// Clamp before the uint64->int64 conversion: installed RAM never comes close
+		// to MaxInt64, but the conversion must be provably lossless.
+		limit := ram * 50 / 100
+		if limit > uint64(math.MaxInt64) {
+			limit = uint64(math.MaxInt64)
+		}
+		debug.SetMemoryLimit(int64(limit))
 	}
 }
 
@@ -205,7 +212,14 @@ func nodeHeapMBFor(ram uint64, host string) int {
 	case "low-ram":
 		pct = 15
 	}
-	mb := int(ram * uint64(pct) / 100 / 1024 / 1024)
+	// The value is clamped to the 512-6144 MB window below; the explicit
+	// max-int guard makes the uint64->int conversion provably lossless on any
+	// platform width.
+	mb64 := ram * uint64(pct) / 100 / 1024 / 1024
+	if mb64 > uint64(math.MaxInt) {
+		mb64 = uint64(math.MaxInt)
+	}
+	mb := int(mb64)
 	return clamp(mb, 512, 6144)
 }
 

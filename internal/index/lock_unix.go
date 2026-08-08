@@ -30,6 +30,9 @@ func unlockFile(file *os.File) error {
 }
 
 func secureIndexLockFile(path string) error {
+	// #nosec G703 -- path is the canonicalized database path (normalizeIndexPath,
+	// abs + symlink-resolved) plus the fixed lockSuffix; chmod secures the exact
+	// lock file the caller requested.
 	if err := os.Chmod(path, 0o600); err != nil && !os.IsNotExist(err) {
 		return err
 	}

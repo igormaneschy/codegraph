@@ -54,7 +54,6 @@ func Read(path string) (*scippb.Index, error) {
 	if err := proto.Unmarshal(data, idx); err != nil {
 		return nil, fmt.Errorf("unmarshal scip: %w", err)
 	}
-	data = nil
 	return idx, nil
 }
 
@@ -119,10 +118,6 @@ func validateSCIPOutput(path string) error {
 		return fmt.Errorf("SCIP invocation output %q is not a regular file", path)
 	}
 	return nil
-}
-
-func runScip(dir, outPath string) (RunStats, error) {
-	return runScipContext(context.Background(), dir, outPath)
 }
 
 func runScipContext(ctx context.Context, dir, outPath string) (st RunStats, retErr error) {

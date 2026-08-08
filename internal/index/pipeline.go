@@ -49,6 +49,11 @@ var (
 	similarPassOverride         func(context.Context, string, string, []graph.FunctionSpan) ([]graph.Edge, error)
 )
 
+// Keep the platform replacement hook linked for compatibility with platform
+// recovery tests and callers; the live manifest path now uses writeManifestFile
+// so the source entry is descriptor-checked before installation.
+var _ = replaceManifestPlatform
+
 // Run indexes root into an already-open store (tests/temp dirs). Prefer RunAtomic
 // for CLI/MCP so a failed re-index does not wipe the previous graph.
 func Run(store *graph.Store, root string) (Result, error) {
@@ -269,7 +274,10 @@ func runAtomicContext(ctx context.Context, dbPath, root string, strictFreshness 
 	if replaceManifestErr != nil {
 		return res, fmt.Errorf("commit index manifest: %w", replaceManifestErr)
 	}
-	if err := replaceManifestPlatform(manifestBuilding, ManifestPath(dbPath)); err != nil {
+	// Install the live sidecar through securefile's descriptor-anchored atomic
+	// boundary. Do not rename the prebuilt sidecar by path: a substituted
+	// *.manifest.building entry could otherwise be moved into the live name.
+	if err := writeManifestFile(ManifestPath(dbPath), resManifest); err != nil {
 		return res, fmt.Errorf("commit index manifest: %w", err)
 	}
 	if manifestPostReplaceHook != nil {
@@ -289,6 +297,86 @@ func nonNilContext(ctx context.Context) context.Context {
 		return context.Background()
 	}
 	return ctx
+}
+
+// stableResolverHandoff performs the final repository observation immediately
+// before any parser or external resolver receives a path. It rejects config/
+// scope/source-shape drift since prepareIndexingContext, refreshes incremental
+// invalidation for source bytes that changed in that interval, and stages the
+// observed bytes into a private sibling snapshot. No downstream consumer gets
+// the original repository path.
+func stableResolverHandoff(ctx context.Context, in pipelineInput) (files []SourceFile, tsdirs []string, resolverRoot string, verify func() error, cleanup func() error, changed map[string]bool, err error) {
+	ctx = nonNilContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return nil, nil, "", nil, nil, nil, err
+	}
+	changed = cloneChangedScopes(in.changed)
+	if !resolverHandoffRequired(in) {
+		return in.files, in.tsdirs, in.root, nil, nil, changed, nil
+	}
+	scan, err := scanRepositoryContext(ctx, in.root)
+	if err != nil {
+		return nil, nil, "", nil, nil, nil, fmt.Errorf("resolver handoff scan: %w", err)
+	}
+	if !sameManifestFingerprint(in.manifest, scan.manifest) {
+		return nil, nil, "", nil, nil, nil, errors.New("repository configuration changed before resolver handoff")
+	}
+	if !sameResolverSourceShape(in.files, scan.files) || !sameStringSlice(in.tsdirs, scan.tsdirs) {
+		return nil, nil, "", nil, nil, nil, errors.New("repository source or resolver scope changed before resolver handoff")
+	}
+
+	if in.reuseFrom != nil {
+		storedHashes, hashErr := in.reuseFrom.FileHashes(in.project)
+		if hashErr != nil {
+			return nil, nil, "", nil, nil, nil, fmt.Errorf("read pre-reindex source hashes: %w", hashErr)
+		}
+		observedChanges := changesFromRepositoryScan(scan, storedHashes)
+		observedScopes, scopeErr := changedScopesWithTSDependencies(ctx, observedChanges, scan.tsdirs)
+		if scopeErr != nil {
+			return nil, nil, "", nil, nil, nil, scopeErr
+		}
+		for scope, isChanged := range observedScopes {
+			if isChanged {
+				changed[scope] = true
+			}
+		}
+	}
+
+	resolverRoot, verify, cleanup, err = resolverSnapshotForScan(ctx, scan)
+	if err != nil {
+		return nil, nil, "", nil, nil, nil, fmt.Errorf("stage resolver handoff: %w", err)
+	}
+	return sourceFilesAtResolverRoot(resolverRoot, scan.files), scan.tsdirs, resolverRoot, verify, cleanup, changed, nil
+}
+
+func resolverHandoffRequired(in pipelineInput) bool {
+	if len(in.tsdirs) > 0 {
+		return true
+	}
+	return hasGo(in.files) && hasGoResolverConfig(in.root)
+}
+
+func cloneChangedScopes(changed map[string]bool) map[string]bool {
+	if len(changed) == 0 {
+		return make(map[string]bool)
+	}
+	out := make(map[string]bool, len(changed))
+	for scope, isChanged := range changed {
+		out[scope] = isChanged
+	}
+	return out
+}
+
+func sameResolverSourceShape(a, b []SourceFile) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].RelPath != b[i].RelPath || a[i].Lang != b[i].Lang {
+			return false
+		}
+	}
+	return true
 }
 
 func commitBuiltIndex(ctx context.Context, building, dbPath string) error {
@@ -313,11 +401,7 @@ func commitBuiltIndex(ctx context.Context, building, dbPath string) error {
 	return replaceBuiltIndexPlatform(building, dbPath)
 }
 
-func runPipeline(store *graph.Store, in pipelineInput) (Result, error) {
-	return runPipelineContext(context.Background(), store, in)
-}
-
-func runPipelineContext(ctx context.Context, store *graph.Store, in pipelineInput) (Result, error) {
+func runPipelineContext(ctx context.Context, store *graph.Store, in pipelineInput) (result Result, err error) {
 	ctx = nonNilContext(ctx)
 	if err := ctx.Err(); err != nil {
 		return Result{}, err
@@ -339,9 +423,22 @@ func runPipelineContext(ctx context.Context, store *graph.Store, in pipelineInpu
 	if !in.repositoryScanned {
 		return Result{}, errors.New("pipeline requires a validated repository observation")
 	}
-	files := in.files
-	tsdirs := in.tsdirs
-	var err error
+	files, tsdirs, resolverRoot, verifyResolverRoot, resolverCleanup, changed, err := stableResolverHandoff(ctx, in)
+	if err != nil {
+		return Result{}, err
+	}
+	if resolverCleanup != nil {
+		defer func() {
+			if cleanupErr := resolverCleanup(); cleanupErr != nil {
+				err = errors.Join(err, fmt.Errorf("cleanup resolver snapshot: %w", cleanupErr))
+			}
+		}()
+	}
+	if verifyResolverRoot != nil {
+		if verifyErr := verifyResolverRoot(); verifyErr != nil {
+			return Result{}, fmt.Errorf("verify resolver snapshot before pipeline: %w", verifyErr)
+		}
+	}
 	if err := ctx.Err(); err != nil {
 		return Result{}, err
 	}
@@ -368,7 +465,6 @@ func runPipelineContext(ctx context.Context, store *graph.Store, in pipelineInpu
 		return Result{}, err
 	}
 	edgesKept, edgesDropped := k, d
-	defEdges = nil
 	memory.Gate()
 
 	importEdges, err := collectImportsStreamingContext(ctx, in.project, files)
@@ -387,7 +483,6 @@ func runPipelineContext(ctx context.Context, store *graph.Store, in pipelineInpu
 	}
 	edgesKept += k
 	edgesDropped += d
-	importEdges = nil
 	memory.Gate()
 
 	spans, err := store.FunctionSpans(in.project)
@@ -400,7 +495,7 @@ func runPipelineContext(ctx context.Context, store *graph.Store, in pipelineInpu
 	enc := scip.BuildEnclosingFromSpans(spans)
 	expectedScopes := expectedResolverScopeKeys(in.root, files, tsdirs)
 
-	scipRep, err := resolveTSCallsWithDirs(ctx, store, in.project, in.root, tsdirs, enc, in.changed)
+	scipRep, err := resolveTSCallsWithDirs(ctx, store, in.project, resolverRoot, verifyResolverRoot, tsdirs, enc, changed)
 	if err != nil {
 		return Result{}, fmt.Errorf("ts calls: %w", err)
 	}
@@ -410,7 +505,7 @@ func runPipelineContext(ctx context.Context, store *graph.Store, in pipelineInpu
 	edgesDropped += scipRep.EdgesDropped
 	memory.Gate()
 
-	goEdges, goScope, err := resolveGoCalls(ctx, in.project, in.root, files, enc, in.changed)
+	goEdges, goScope, err := resolveGoCallsAtRoot(ctx, in.project, resolverRoot, verifyResolverRoot, files, enc, changed)
 	if err != nil {
 		return Result{}, fmt.Errorf("go calls: %w", err)
 	}
@@ -427,12 +522,11 @@ func runPipelineContext(ctx context.Context, store *graph.Store, in pipelineInpu
 	edgesKept += k
 	edgesDropped += d
 	resolverEdgesKept += k
-	goEdges = nil
 	memory.Gate()
 
 	// A Ruby scope is either re-resolved here or streamed unchanged below; changed
 	// scope gating makes the two paths mutually exclusive.
-	rubyEdges, rubyScope, err := resolveRubyCalls(ctx, store, in.project, files, enc, in.changed)
+	rubyEdges, rubyScope, err := resolveRubyCalls(ctx, store, in.project, files, enc, changed)
 	if err != nil {
 		return Result{}, fmt.Errorf("ruby calls: %w", err)
 	}
@@ -449,7 +543,6 @@ func runPipelineContext(ctx context.Context, store *graph.Store, in pipelineInpu
 	edgesKept += k
 	edgesDropped += d
 	resolverEdgesKept += k
-	rubyEdges = nil
 	memory.Gate()
 
 	if err := resolverReport.ValidateExpected(expectedScopes); err != nil {
@@ -475,7 +568,7 @@ func runPipelineContext(ctx context.Context, store *graph.Store, in pipelineInpu
 	}
 
 	if in.reuseFrom != nil {
-		k, d, err = insertReusedCallEdgesContext(ctx, store, in.reuseFrom, in.project, in.changed, tsdirs)
+		k, d, err = insertReusedCallEdgesContext(ctx, store, in.reuseFrom, in.project, changed, tsdirs)
 		if err != nil {
 			return Result{}, fmt.Errorf("insert reused call edges: %w", err)
 		}
@@ -485,15 +578,19 @@ func runPipelineContext(ctx context.Context, store *graph.Store, in pipelineInpu
 			return Result{}, err
 		}
 	}
-	enc = nil
 	memory.Gate()
 
 	if !memory.SkipSimilar() || similarPassOverride != nil {
+		if verifyResolverRoot != nil {
+			if verifyErr := verifyResolverRoot(); verifyErr != nil {
+				return Result{}, fmt.Errorf("verify resolver snapshot before similarity pass: %w", verifyErr)
+			}
+		}
 		similarPass := resolveSimilarFromSpans
 		if similarPassOverride != nil {
 			similarPass = similarPassOverride
 		}
-		simEdges, err := similarPass(ctx, in.project, in.root, spans)
+		simEdges, err := similarPass(ctx, in.project, resolverRoot, spans)
 		if err != nil {
 			return Result{}, err
 		}
@@ -504,10 +601,14 @@ func runPipelineContext(ctx context.Context, store *graph.Store, in pipelineInpu
 		if err := ctx.Err(); err != nil {
 			return Result{}, err
 		}
+		if verifyResolverRoot != nil {
+			if verifyErr := verifyResolverRoot(); verifyErr != nil {
+				return Result{}, fmt.Errorf("verify resolver snapshot after similarity pass: %w", verifyErr)
+			}
+		}
 		edgesKept += k
 		edgesDropped += d
 	}
-	spans = nil
 	memory.Gate()
 
 	status := StatusHealthy
@@ -525,9 +626,10 @@ func runPipelineContext(ctx context.Context, store *graph.Store, in pipelineInpu
 	}, nil
 }
 
-// indexDefinitionsBatched extracts definitions with bounded parallelism, flushes
-// nodes to SQLite per batch, and returns DEFINES edges to insert in one shot (edges
-// are tiny vs nodes — holding them all is cheap; reloading idByQN per batch is not).
+// indexDefinitionsBatchedContext extracts definitions with bounded parallelism,
+// flushes nodes to SQLite per batch, and returns DEFINES edges to insert in one
+// shot (edges are tiny vs nodes — holding them all is cheap; reloading idByQN
+// per batch is not).
 func indexDefinitionsBatchedContext(ctx context.Context, store *graph.Store, project string, files []SourceFile) (nodes int, defEdges []graph.Edge, err error) {
 	ctx = nonNilContext(ctx)
 	workers := memory.MaxWorkers()
@@ -591,10 +693,6 @@ func indexDefinitionsBatchedContext(ctx context.Context, store *graph.Store, pro
 		memory.Gate()
 	}
 	return nodes, defEdges, nil
-}
-
-func indexDefinitionsBatched(store *graph.Store, project string, files []SourceFile) (nodes int, defEdges []graph.Edge, err error) {
-	return indexDefinitionsBatchedContext(context.Background(), store, project, files)
 }
 
 // ProjectName derives a stable project key from the repo root (matches the

@@ -13,6 +13,7 @@ import (
 
 	"github.com/Lordymine/codegraph/internal/graph"
 	"github.com/Lordymine/codegraph/internal/index"
+	"github.com/Lordymine/codegraph/internal/quality"
 	"github.com/Lordymine/codegraph/internal/query"
 )
 
@@ -274,7 +275,7 @@ func TestOpenForWithRetry_WaitsForHeldWriterLock(t *testing.T) {
 
 func TestServeMCP_StdinCloseCancelsBlockedIndexing(t *testing.T) {
 	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "x.go"), []byte("package x\nfunc F() {}\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "x.go"), []byte("package x\nfunc F() {}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	input, inputWriter := io.Pipe()
@@ -321,7 +322,7 @@ func mustUserCacheDir(t *testing.T) string {
 
 func TestMCPBackgroundIndex_ReopensAfterTransientWriterContention(t *testing.T) {
 	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "x.go"), []byte("package x\nfunc F() {}\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "x.go"), []byte("package x\nfunc F() {}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	dbPath := filepath.Join(t.TempDir(), "graph.db")
@@ -424,5 +425,94 @@ func TestMCPBackgroundIndex_ReopensAfterTransientWriterContention(t *testing.T) 
 	}
 	if _, err := eng.Search("x", "", 1); err != nil {
 		t.Fatalf("reopened MCP engine is not queryable: %v", err)
+	}
+}
+
+// TestQualityArtifacts_RestrictPreexistingFileModes pins that quality artifacts
+// end up owner-only even when the file already exists: os.WriteFile's mode only
+// applies at creation, so a leftover 0644 artifact must be explicitly Chmod'd
+// to 0600 by writeJSON and by the report path inside cmdQualityScore.
+func TestQualityArtifacts_RestrictPreexistingFileModes(t *testing.T) {
+	dir := t.TempDir()
+
+	// Simulate a leftover world-readable artifact from a previous run (write
+	// private, then widen): os.WriteFile's mode only applies at creation.
+	questionsPath := filepath.Join(dir, "questions.json")
+	if err := os.WriteFile(questionsPath, []byte("[]"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(questionsPath, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeJSON(questionsPath, []quality.Question{}); err != nil {
+		t.Fatal(err)
+	}
+	assertPrivateMode(t, questionsPath)
+
+	// The score path must do the same for report.md over a pre-existing 0644.
+	if err := os.WriteFile(filepath.Join(dir, "truth.json"), []byte("[]"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "answers.json"), []byte("[]"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	reportPath := filepath.Join(dir, "report.md")
+	if err := os.WriteFile(reportPath, []byte("# stale report\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(reportPath, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := cmdQualityScore(dir); err != nil {
+		t.Fatal(err)
+	}
+	assertPrivateMode(t, reportPath)
+}
+
+func TestQualityArtifacts_ReplaceSymlinkDestination(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(t.TempDir(), "target.md")
+	destination := filepath.Join(dir, "report.md")
+	if err := os.WriteFile(target, []byte("keep target\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, destination); err != nil {
+		t.Skipf("symlink creation unavailable: %v", err)
+	}
+	if err := writePrivate(destination, []byte("new report\n")); err != nil {
+		t.Fatal(err)
+	}
+	targetData, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(targetData) != "keep target\n" {
+		t.Fatalf("symlink target changed to %q", targetData)
+	}
+	info, err := os.Lstat(destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !info.Mode().IsRegular() {
+		t.Fatalf("destination mode=%s, want regular file", info.Mode())
+	}
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
+		t.Fatalf("destination mode=%o, want 600", info.Mode().Perm())
+	}
+}
+
+// assertPrivateMode fails unless path is owner-only 0600. Windows does not
+// expose Unix permission bits, so the assertion is skipped there.
+func assertPrivateMode(t *testing.T, path string) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		return
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Fatalf("%s mode=%o, want 600", path, got)
 	}
 }

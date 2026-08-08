@@ -5,6 +5,7 @@ on:
   push:
     branches: [main]
 
+# Least privilege: only reading the repository is needed.
 permissions:
   contents: read
 
@@ -14,14 +15,16 @@ concurrency:
 
 jobs:
   validate:
-    name: build · vet · test
+    name: build · vet · test · race · coverage
     runs-on: ubuntu-latest
     env:
       CGO_ENABLED: "1" # tree-sitter is cgo
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           cache: true
@@ -33,6 +36,12 @@ jobs:
             echo "These files are not gofmt-ed:"; echo "$unformatted"; exit 1
           fi
 
+      - name: go mod verify
+        run: go mod verify
+
+      - name: go mod tidy check
+        run: go mod tidy -diff
+
       - name: go vet
         run: go vet ./...
 
@@ -41,3 +50,42 @@ jobs:
 
       - name: test
         run: go test ./...
+
+      - name: test (race detector)
+        run: go test -race ./...
+
+      - name: coverage
+        run: go test ./... -coverprofile=coverage.out -covermode=set
+
+      - name: coverage summary
+        run: go tool cover -func=coverage.out
+
+      - name: upload coverage artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage
+          path: coverage.out
+          if-no-files-found: error
+          retention-days: 7
+
+  lint:
+    name: golangci-lint
+    runs-on: ubuntu-latest
+    env:
+      CGO_ENABLED: "1" # tree-sitter is cgo; analyzers load packages
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # Config is versioned in-repo (.golangci.yml); the golangci-lint version
+      # is pinned here so runs are reproducible (no @latest / floating tags).
+      - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          version: v2.12.2
+          args: run ./...

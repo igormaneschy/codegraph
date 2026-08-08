@@ -16,6 +16,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/Lordymine/codegraph/internal/securefile"
+
 	_ "modernc.org/sqlite" // pure-Go SQLite driver (no cgo) — driver name "sqlite"
 )
 
@@ -423,6 +425,8 @@ func compareFTSPostings(tx *sql.Tx, expectedTable, liveTable string) (missing, e
 
 func validateGraphProperties(db *sql.DB) error {
 	for _, table := range []string{"nodes", "edges"} {
+		// #nosec G202 -- table comes from the hardcoded allowlist {"nodes","edges"}
+		// immediately above; no user-controlled value can reach an SQL identifier.
 		rows, err := db.Query("SELECT id, properties FROM " + table + " ORDER BY id")
 		if err != nil {
 			return fmt.Errorf("query %s properties: %w", table, err)
@@ -596,12 +600,18 @@ func digestGraphField(h hash.Hash, value string) {
 
 // ReplaceProject wipes a project's nodes/edges/FTS so a re-index is clean.
 // (Incremental indexing — only changed files — is a later milestone.)
-func (s *Store) ReplaceProject(project string) error {
+func (s *Store) ReplaceProject(project string) (retErr error) {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() {
+		// sql.ErrTxDone after a successful commit is expected; a real rollback
+		// failure is joined so cleanup errors are not hidden.
+		if rbErr := tx.Rollback(); rbErr != nil && !errors.Is(rbErr, sql.ErrTxDone) {
+			retErr = errors.Join(retErr, rbErr)
+		}
+	}()
 	// Contentless FTS5 rejects a plain DELETE; rows are removed via the special
 	// 'delete' command, fed the originally-indexed column values (still present in
 	// nodes at this point) so the right terms are purged. Must run before the
@@ -624,12 +634,18 @@ func (s *Store) ReplaceProject(project string) error {
 }
 
 // InsertNodes inserts nodes and assigns IDs, keeping the FTS index in sync.
-func (s *Store) InsertNodes(nodes []Node) error {
+func (s *Store) InsertNodes(nodes []Node) (retErr error) {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() {
+		// sql.ErrTxDone after a successful commit is expected; a real rollback
+		// failure is joined so cleanup errors are not hidden.
+		if rbErr := tx.Rollback(); rbErr != nil && !errors.Is(rbErr, sql.ErrTxDone) {
+			retErr = errors.Join(retErr, rbErr)
+		}
+	}()
 
 	insNode, err := tx.Prepare(`INSERT OR IGNORE INTO nodes
 		(project,label,name,qualified_name,file_path,start_line,end_line,properties)
@@ -782,7 +798,13 @@ func (s *Store) InsertEdges(edges []Edge) (inserted, dropped int, err error) {
 	if err != nil {
 		return 0, 0, err
 	}
-	defer tx.Rollback()
+	defer func() {
+		// sql.ErrTxDone after a successful commit is expected; a real rollback
+		// failure is joined so cleanup errors are not hidden.
+		if rbErr := tx.Rollback(); rbErr != nil && !errors.Is(rbErr, sql.ErrTxDone) {
+			err = errors.Join(err, rbErr)
+		}
+	}()
 
 	ins, err := tx.Prepare(`INSERT OR IGNORE INTO edges(project,source_id,target_id,type,properties) VALUES (?,?,?,?,?)`)
 	if err != nil {
@@ -841,6 +863,7 @@ func (s *Store) TopByInboundCalls(project string, limit int) ([]Node, error) {
 	if limit <= 0 {
 		limit = 20
 	}
+	// #nosec G202 -- ftsCols("n.") prefixes the internal nodeCols constant; values stay parameters.
 	q := `SELECT ` + ftsCols("n.") + ` FROM edges e
 		JOIN nodes n ON n.id = e.target_id
 		WHERE e.project=? AND e.type='CALLS'
@@ -869,6 +892,7 @@ func (s *Store) TopByOutboundCalls(project string, limit int) ([]Node, error) {
 	if limit <= 0 {
 		limit = 20
 	}
+	// #nosec G202 -- ftsCols("n.") prefixes the internal nodeCols constant; values stay parameters.
 	q := `SELECT ` + ftsCols("n.") + ` FROM edges e
 		JOIN nodes n ON n.id = e.source_id
 		WHERE e.project=? AND e.type='CALLS'
@@ -903,6 +927,7 @@ func (s *Store) CallHubs(project string, limit int) ([]HubCount, error) {
 	if limit <= 0 {
 		limit = 20
 	}
+	// #nosec G202 -- ftsCols("n.") prefixes the internal nodeCols constant; values stay parameters.
 	q := `SELECT ` + ftsCols("n.") + `, COUNT(*) FROM edges e
 		JOIN nodes n ON n.id = e.target_id
 		WHERE e.project=? AND e.type='CALLS'
@@ -936,6 +961,7 @@ func (s *Store) TopByComplexity(project string, limit int) ([]Node, error) {
 	if limit <= 0 {
 		limit = 20
 	}
+	// #nosec G202 -- ftsCols("n.") prefixes the internal nodeCols constant; values stay parameters.
 	q := `SELECT ` + ftsCols("n.") + ` FROM nodes n
 		WHERE n.project=? AND n.label IN ('Function','Method')
 		AND json_extract(n.properties,'$.complexity') IS NOT NULL
@@ -1006,6 +1032,7 @@ func (s *Store) countBy(q, project string) (map[string]int, error) {
 func (s *Store) FunctionsWithoutInboundCalls(project string) ([]Node, error) {
 	// source_id <> n.id ignores self-edges: a function reachable only by its own
 	// recursion is still unreachable from the rest of the repo, so it stays dead.
+	// #nosec G202 -- ftsCols("n.") prefixes the internal nodeCols constant; values stay parameters.
 	q := `SELECT ` + ftsCols("n.") + ` FROM nodes n
 		WHERE n.project=? AND n.label IN ('Function','Method')
 		AND NOT EXISTS (
@@ -1160,6 +1187,7 @@ func (s *Store) Search(project, query, label string, limit int) ([]SearchHit, er
 	if limit <= 0 {
 		limit = 25
 	}
+	// #nosec G202 -- ftsCols("n.") prefixes the internal nodeCols constant; values stay parameters.
 	q := `SELECT ` + ftsCols("n.") + `, fts.rank
 		FROM nodes_fts fts JOIN nodes n ON n.id = fts.rowid
 		WHERE nodes_fts MATCH ? AND n.project = ?`
@@ -1293,7 +1321,7 @@ func Snippet(repoRoot, filePath string, start, end int) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	data, err := os.ReadFile(abs)
+	data, err := securefile.ReadFile(abs)
 	if err != nil {
 		return "", err
 	}
@@ -1312,10 +1340,20 @@ func Snippet(repoRoot, filePath string, start, end int) (string, error) {
 
 // resolveRepoFile maps a repo-relative path to an absolute path confined under
 // repoRoot. Used by Snippet so MCP/CLI callers cannot escape the indexed tree.
+// Confinement is physical, not lexical: the root and the candidate are both
+// resolved through EvalSymlinks before the relative check, so a symlink whose
+// target lies outside the root is rejected even when its spelling looks
+// internal.
 func resolveRepoFile(repoRoot, filePath string) (string, error) {
 	root, err := filepath.Abs(repoRoot)
 	if err != nil {
 		return "", fmt.Errorf("repo root: %w", err)
+	}
+	// Resolve the root itself so the confinement comparison happens between
+	// physical locations; a symlinked root alias still confines its children.
+	root, err = filepath.EvalSymlinks(root)
+	if err != nil {
+		return "", fmt.Errorf("resolve repository root: %w", err)
 	}
 	rel := filepath.FromSlash(filePath)
 	if filepath.IsAbs(rel) {
@@ -1330,13 +1368,51 @@ func resolveRepoFile(repoRoot, filePath string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("resolve path: %w", err)
 	}
-	// filepath.Rel on Windows accepts case-insensitive roots; good enough for confinement.
-	out, err := filepath.Rel(root, full)
+	// Resolve every symlink component of the candidate — including a symlink at
+	// the leaf — so a spelling that only looks internal cannot escape the root.
+	resolved, err := filepath.EvalSymlinks(full)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return "", fmt.Errorf("resolve path: %w", err)
+		}
+		// A missing leaf cannot be a symlink; resolve its existing ancestors so
+		// a symlinked parent cannot smuggle the path outside the root, then
+		// rejoin the missing suffix unchanged so the caller still surfaces the
+		// original not-found read error.
+		existing, missing, merr := resolveExistingAncestor(full)
+		if merr != nil {
+			return "", fmt.Errorf("resolve path: %w", merr)
+		}
+		resolved = filepath.Join(append([]string{existing}, missing...)...)
+	}
+	out, err := filepath.Rel(root, resolved)
 	if err != nil {
 		return "", fmt.Errorf("path outside repository root")
 	}
 	if out == ".." || strings.HasPrefix(out, ".."+string(filepath.Separator)) {
 		return "", fmt.Errorf("path outside repository root")
 	}
-	return full, nil
+	return resolved, nil
+}
+
+// resolveExistingAncestor resolves the longest existing prefix of path through
+// EvalSymlinks and returns it with the remaining missing components in order.
+func resolveExistingAncestor(path string) (string, []string, error) {
+	current := path
+	var missing []string
+	for {
+		resolved, err := filepath.EvalSymlinks(current)
+		if err == nil {
+			return resolved, missing, nil
+		}
+		if !os.IsNotExist(err) {
+			return "", nil, err
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			return "", nil, err
+		}
+		missing = append([]string{filepath.Base(current)}, missing...)
+		current = parent
+	}
 }
