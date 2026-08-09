@@ -51,10 +51,13 @@ jobs:
         with:
           persist-credentials: false
 
+      # cache: false — tag builds must not read a mutable Go/module cache
+      # (zizmor cache-poisoning finding). Module content is still pinned by
+      # go.sum; only the shared cache namespace is excluded.
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-          cache: true
+          cache: false
 
       - name: build
         shell: bash

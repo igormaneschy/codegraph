@@ -136,19 +136,15 @@ func TestDiscover_RejectsSymlinkedIgnoreFiles(t *testing.T) {
 }
 
 // TestScanRepositoryContext_SkipsExternalSymlinks pins that the repository
-// scan neither hashes symlinked sources nor fingerprints symlinked analysis
-// inputs: a symlink can point outside the root, and the manifest must not
-// certify an external file as a repository input.
+// scan never hashes or fingerprints unrecognized symlinked sources: a symlink
+// can point outside the root, and an external file must not be certified as a
+// repository source or analysis input.
 func TestScanRepositoryContext_SkipsExternalSymlinks(t *testing.T) {
 	dir := t.TempDir()
 	outside := t.TempDir()
 	writeFile(t, dir, "main.go", "package main\n")
 	writeFile(t, outside, "secret.go", "package secret\n")
-	writeFile(t, outside, "package.json", `{"name":"outside"}`)
 	if err := os.Symlink(filepath.Join(outside, "secret.go"), filepath.Join(dir, "leak.go")); err != nil {
-		t.Skipf("symlink creation unavailable: %v", err)
-	}
-	if err := os.Symlink(filepath.Join(outside, "package.json"), filepath.Join(dir, "package.json")); err != nil {
 		t.Skipf("symlink creation unavailable: %v", err)
 	}
 
@@ -161,11 +157,6 @@ func TestScanRepositoryContext_SkipsExternalSymlinks(t *testing.T) {
 			t.Fatalf("symlinked external source was scanned: %+v", scan.files)
 		}
 	}
-	for _, input := range scan.manifest.Inputs {
-		if input.Path == "package.json" {
-			t.Fatalf("symlinked external analysis input was fingerprinted: %+v", scan.manifest.Inputs)
-		}
-	}
 	foundMain := false
 	for _, f := range scan.files {
 		if f.RelPath == "main.go" {
@@ -174,5 +165,25 @@ func TestScanRepositoryContext_SkipsExternalSymlinks(t *testing.T) {
 	}
 	if !foundMain {
 		t.Errorf("regular source dropped from scan: %+v", scan.files)
+	}
+}
+
+// TestScanRepositoryContext_RejectsSymlinkedManifestInput pins that a
+// recognized manifest/resolver input must never be a symlink: silently
+// skipping it would drop a resolver scope or certify an attempted input change
+// as fresh, so the scan fails closed with securefile.ErrUnsafePath instead of
+// fingerprinting the external file.
+func TestScanRepositoryContext_RejectsSymlinkedManifestInput(t *testing.T) {
+	dir := t.TempDir()
+	outside := t.TempDir()
+	writeFile(t, dir, "main.go", "package main\n")
+	writeFile(t, outside, "package.json", `{"name":"outside"}`)
+	if err := os.Symlink(filepath.Join(outside, "package.json"), filepath.Join(dir, "package.json")); err != nil {
+		t.Skipf("symlink creation unavailable: %v", err)
+	}
+
+	_, err := scanRepositoryContext(context.Background(), dir)
+	if err == nil || !errors.Is(err, securefile.ErrUnsafePath) {
+		t.Fatalf("symlinked manifest input scan error=%v, want ErrUnsafePath", err)
 	}
 }

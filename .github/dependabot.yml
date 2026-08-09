@@ -7,6 +7,10 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    # Cooldown (default 3 days): delay version updates until a dependency has
+    # been released for at least 7 days.
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 10
     commit-message:
       prefix: "deps(gomod)"
@@ -17,6 +21,10 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    # Cooldown (default 3 days): delay version updates until a dependency has
+    # been released for at least 7 days.
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 10
     commit-message:
       prefix: "deps(actions)"
