@@ -27,7 +27,7 @@ func TestMemorySimulation_SyntheticTS(t *testing.T) {
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -49,6 +49,11 @@ func TestMemorySimulation_SyntheticTS(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		// Deterministic measurement baseline: drop corpus-builder and prior-test
+		// residual heap (same explicit GC+FreeOSMemory gate the production
+		// pipeline uses between heavy phases) so each phase is measured from a
+		// clean heap instead of whatever the previous allocation left behind.
+		memory.Gate()
 		legacyPeak = memory.PeakHeap(func() {
 			if err := runLegacyRAMFirst(store, project, dir, files); err != nil {
 				t.Fatal(err)
@@ -64,6 +69,10 @@ func TestMemorySimulation_SyntheticTS(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		// The RAM-first phase leaves the heap at its peak; release it before
+		// sampling so budgetPeak reflects the budget pipeline's own allocations,
+		// not leftover legacy heap that would mask the A/B comparison.
+		memory.Gate()
 		budgetPeak = memory.PeakHeap(func() {
 			var err error
 			res, err = Run(store, dir)

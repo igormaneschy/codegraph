@@ -16,6 +16,8 @@ var sqliteSidecarSuffixes = []string{"-wal", "-shm", "-journal"}
 func removeSQLiteSidecars(base string) error {
 	var errs []error
 	for _, suffix := range sqliteSidecarSuffixes {
+		// #nosec G703 -- base is an internal caller path; only SQLite-regenerable
+		// sidecars (-wal/-shm/-journal) are removed here, never the live database.
 		if err := os.Remove(base + suffix); err != nil && !os.IsNotExist(err) {
 			errs = append(errs, fmt.Errorf("%s: %w", suffix, err))
 		}
@@ -29,6 +31,8 @@ func removeSQLiteSidecars(base string) error {
 // path is absent so startup recovery can restore it.
 func removeIndexArtifacts(building string) error {
 	var errs []error
+	// #nosec G703 -- building is the internally constructed atomic temp path
+	// (base+BuildingSuffix), never a caller-supplied user path or the live DB.
 	if err := os.Remove(building); err != nil && !os.IsNotExist(err) {
 		errs = append(errs, fmt.Errorf("building file: %w", err))
 	}
@@ -44,6 +48,8 @@ func removeIndexArtifacts(building string) error {
 func removeManifestArtifacts(building string) error {
 	var errs []error
 	for _, path := range []string{building, building + ".tmp"} {
+		// #nosec G703 -- paths are internally derived from building (manifest
+		// artifact + its temp sibling), never user input.
 		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 			errs = append(errs, fmt.Errorf("%s: %w", path, err))
 		}
@@ -60,12 +66,16 @@ func removeReplacementArtifact(building string) error {
 		return nil
 	}
 	backup := dbPath + ".backup"
+	// #nosec G703 -- backup/dbPath are derived internally (CutSuffix + fixed
+	// suffixes) and only inspected on the Windows replacement path.
 	if _, err := os.Stat(backup); err != nil {
 		if os.IsNotExist(err) {
 			return nil
 		}
 		return fmt.Errorf("inspect replacement backup %q: %w", backup, err)
 	}
+	// #nosec G703 -- canonical graph path is the caller's dbPath with the
+	// .building suffix stripped; inspection guards the recovery decision.
 	if _, err := os.Stat(dbPath); err != nil {
 		if os.IsNotExist(err) {
 			// The backup may be the only remaining copy of the live graph.
@@ -73,6 +83,8 @@ func removeReplacementArtifact(building string) error {
 		}
 		return fmt.Errorf("inspect canonical graph %q: %w", dbPath, err)
 	}
+	// #nosec G703 -- backup is derived internally (strings.CutSuffix + ".backup")
+	// and only removed when the canonical DB exists; recovery policy is unchanged.
 	if err := os.Remove(backup); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("remove stale replacement backup %q: %w", backup, err)
 	}

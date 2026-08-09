@@ -3,13 +3,13 @@ package index
 import (
 	"context"
 	"fmt"
-	"os"
 	"path"
 	"strings"
 
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 
 	"github.com/Lordymine/codegraph/internal/graph"
+	"github.com/Lordymine/codegraph/internal/securefile"
 )
 
 // imports.go is the IMPORTS-edge pass for TS/JS: importer File -> imported File.
@@ -33,7 +33,7 @@ type fileSrc struct {
 func ResolveImports(project string, files []SourceFile) []graph.Edge {
 	srcs := make([]fileSrc, 0, len(files))
 	for _, f := range files {
-		data, err := os.ReadFile(f.AbsPath)
+		data, err := securefile.ReadFile(f.AbsPath)
 		if err != nil {
 			continue
 		}
@@ -42,15 +42,11 @@ func ResolveImports(project string, files []SourceFile) []graph.Edge {
 	return resolveImports(project, srcs)
 }
 
-// collectImportsStreaming resolves IMPORTS one file at a time. Source bytes are not
-// retained for the whole repo; only the small edge list grows until a single insert.
-func collectImportsStreaming(project string, files []SourceFile) ([]graph.Edge, error) {
-	return collectImportsStreamingContext(context.Background(), project, files)
-}
-
-// collectImportsStreamingContext checks cancellation at each file boundary in
-// both the existence pass and the source-reading pass. The caller can therefore
-// stop a large import collection without waiting for every remaining file.
+// collectImportsStreamingContext resolves IMPORTS one file at a time. Source
+// bytes are not retained for the whole repo; only the small edge list grows
+// until a single insert. It checks cancellation at each file boundary in both
+// the existence pass and the source-reading pass. The caller can therefore stop
+// a large import collection without waiting for every remaining file.
 func collectImportsStreamingContext(ctx context.Context, project string, files []SourceFile) ([]graph.Edge, error) {
 	ctx = nonNilContext(ctx)
 	if err := ctx.Err(); err != nil {
@@ -72,12 +68,11 @@ func collectImportsStreamingContext(ctx context.Context, project string, files [
 		if err := ctx.Err(); err != nil {
 			return edges, err
 		}
-		data, err := os.ReadFile(f.AbsPath)
+		data, err := securefile.ReadFile(f.AbsPath)
 		if err != nil {
 			return edges, fmt.Errorf("read source for imports %q: %w", f.RelPath, err)
 		}
 		edges = append(edges, importEdgesForSource(project, fileSrc{RelPath: f.RelPath, Lang: f.Lang, Data: data}, exists, rubyLoadPaths)...)
-		data = nil
 	}
 	if err := ctx.Err(); err != nil {
 		return edges, err
@@ -219,11 +214,6 @@ func rubyRequireLoadPaths(files []fileSrc) []string {
 	return nil
 }
 
-func rubyRequireLoadPathsFromSourceFiles(files []SourceFile) []string {
-	paths, _ := rubyRequireLoadPathsFromSourceFilesContext(context.Background(), files)
-	return paths
-}
-
 func rubyRequireLoadPathsFromSourceFilesContext(ctx context.Context, files []SourceFile) ([]string, error) {
 	ctx = nonNilContext(ctx)
 	for _, f := range files {
@@ -233,7 +223,7 @@ func rubyRequireLoadPathsFromSourceFilesContext(ctx context.Context, files []Sou
 		if f.RelPath != "config/application.rb" || f.Lang != LangRuby {
 			continue
 		}
-		data, err := os.ReadFile(f.AbsPath)
+		data, err := securefile.ReadFile(f.AbsPath)
 		if err != nil {
 			return nil, fmt.Errorf("read Ruby application config %q: %w", f.RelPath, err)
 		}

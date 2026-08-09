@@ -76,7 +76,7 @@ func TestCanonicalPath_ResolvesDarwinVarAliasWhenExposed(t *testing.T) {
 func TestValidateRepositoryRootRejectsMissingAndRegularFile(t *testing.T) {
 	base := t.TempDir()
 	regular := filepath.Join(base, "repo.txt")
-	if err := os.WriteFile(regular, []byte("not a repository"), 0o644); err != nil {
+	if err := os.WriteFile(regular, []byte("not a repository"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	missing := filepath.Join(base, "missing-repository")

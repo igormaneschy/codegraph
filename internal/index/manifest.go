@@ -18,6 +18,7 @@ import (
 	"github.com/Lordymine/codegraph/internal/gocalls"
 	"github.com/Lordymine/codegraph/internal/graph"
 	"github.com/Lordymine/codegraph/internal/scip"
+	"github.com/Lordymine/codegraph/internal/securefile"
 )
 
 const (
@@ -64,7 +65,7 @@ func manifestBuildingPath(dbPath string) string { return dbPath + manifestBuildi
 // ReadManifest reads and validates the sidecar. A missing, malformed, or
 // incomplete manifest is intentionally an ordinary freshness miss to callers.
 func ReadManifest(dbPath string) (Manifest, error) {
-	data, err := os.ReadFile(ManifestPath(dbPath))
+	data, err := securefile.ReadFile(ManifestPath(dbPath))
 	if err != nil {
 		return Manifest{}, err
 	}
@@ -128,7 +129,7 @@ func validSHA256(value string) bool {
 }
 
 func hashFile(path string) (string, error) {
-	f, err := os.Open(path)
+	f, err := securefile.OpenRead(path)
 	if err != nil {
 		return "", err
 	}
@@ -172,6 +173,343 @@ type sourceObservation struct {
 	hash string
 }
 
+// resolverSnapshotForScan creates the only repository path handed to the Go
+// and SCIP resolvers. Source/config bytes are copied through securefile into a
+// private sibling directory, so a later replacement of an original path cannot
+// change what the external resolver observes. The sibling placement preserves
+// relative module/workspace paths such as a Go replace to ../shared. Dependency
+// symlinks that escape the repository are rejected; links that target an
+// in-repository file or directory are copied and rewritten to a snapshot-local
+// relative target. The private directory retains its parent and child
+// descriptors for identity verification and descriptor-relative cleanup; its
+// lexical path is never EvalSymlinks'ed.
+func resolverSnapshotForScan(ctx context.Context, scan repositoryScan) (snapshotRoot string, verify func() error, cleanup func() error, err error) {
+	ctx = nonNilContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return "", nil, nil, err
+	}
+	root := scan.manifest.CanonicalRoot
+	if !resolverNeedsSnapshot(root, scan.files, scan.tsdirs) {
+		return root, nil, nil, nil
+	}
+	// Keep the snapshot beside the canonical root rather than under an unrelated
+	// system temp directory. Go replace directives and workspace references are
+	// resolved relative to the module root; sibling placement preserves those
+	// documented relative paths without rewriting go.mod/tsconfig contents.
+	private, err := securefile.MkdirTempPrivate(filepath.Dir(root), ".codegraph-resolver-")
+	if err != nil {
+		return "", nil, nil, fmt.Errorf("create private resolver snapshot: %w", err)
+	}
+	snapshot := private.Path()
+	snapshotVerify := private.Verify
+	snapshotCleanup := private.Cleanup
+	failed := true
+	defer func() {
+		if failed {
+			if cleanupErr := snapshotCleanup(); cleanupErr != nil {
+				err = errors.Join(err, fmt.Errorf("cleanup failed private resolver snapshot: %w", cleanupErr))
+			}
+		}
+	}()
+	if err := snapshotVerify(); err != nil {
+		return "", nil, nil, fmt.Errorf("verify private resolver snapshot: %w", err)
+	}
+
+	copied := make(map[string]bool, len(scan.files)+len(scan.manifest.Inputs))
+	expectedHashes := make(map[string]string, len(scan.sourceObservations)+len(scan.manifest.Inputs))
+	for _, observation := range scan.sourceObservations {
+		expectedHashes[observation.path] = observation.hash
+	}
+	for _, input := range scan.manifest.Inputs {
+		expectedHashes[input.Path] = input.SHA256
+	}
+	for _, file := range scan.files {
+		if err := ctx.Err(); err != nil {
+			return "", nil, nil, err
+		}
+		if err := snapshotVerify(); err != nil {
+			return "", nil, nil, fmt.Errorf("verify resolver snapshot before source staging: %w", err)
+		}
+		if err := copyResolverFile(ctx, root, snapshot, file.RelPath, expectedHashes[file.RelPath]); err != nil {
+			return "", nil, nil, fmt.Errorf("snapshot source %q: %w", file.RelPath, err)
+		}
+		copied[file.RelPath] = true
+	}
+	for _, input := range scan.manifest.Inputs {
+		if err := ctx.Err(); err != nil {
+			return "", nil, nil, err
+		}
+		if err := snapshotVerify(); err != nil {
+			return "", nil, nil, fmt.Errorf("verify resolver snapshot before input staging: %w", err)
+		}
+		if copied[input.Path] {
+			continue
+		}
+		if err := copyResolverFile(ctx, root, snapshot, input.Path, expectedHashes[input.Path]); err != nil {
+			return "", nil, nil, fmt.Errorf("snapshot resolver input %q: %w", input.Path, err)
+		}
+		copied[input.Path] = true
+	}
+	for _, dependencyRoot := range []string{"node_modules", "vendor"} {
+		if err := ctx.Err(); err != nil {
+			return "", nil, nil, err
+		}
+		if err := snapshotVerify(); err != nil {
+			return "", nil, nil, fmt.Errorf("verify resolver snapshot before dependency staging: %w", err)
+		}
+		if err := copyResolverDependencyTree(ctx, root, snapshot, dependencyRoot, copied); err != nil {
+			return "", nil, nil, err
+		}
+	}
+	if err := snapshotVerify(); err != nil {
+		return "", nil, nil, fmt.Errorf("verify private resolver snapshot after staging: %w", err)
+	}
+	failed = false
+	return snapshot, snapshotVerify, snapshotCleanup, nil
+}
+
+func resolverSnapshotForRoot(ctx context.Context, root string) (string, func() error, func() error, error) {
+	scan, err := scanRepositoryContext(ctx, root)
+	if err != nil {
+		return "", nil, nil, err
+	}
+	return resolverSnapshotForScan(ctx, scan)
+}
+
+// sourceFilesAtResolverRoot keeps repository-relative identity unchanged while
+// moving every disk consumer onto the staged bytes. Qualified names and graph
+// file paths continue to use RelPath; only the private handoff path changes.
+func sourceFilesAtResolverRoot(root string, files []SourceFile) []SourceFile {
+	if root == "" {
+		return files
+	}
+	out := make([]SourceFile, len(files))
+	copy(out, files)
+	for i := range out {
+		out[i].AbsPath = filepath.Join(root, filepath.FromSlash(out[i].RelPath))
+	}
+	return out
+}
+
+func resolverNeedsSnapshot(root string, files []SourceFile, tsdirs []string) bool {
+	// A snapshot is required only when a path-based external resolver will walk
+	// the repository. Local parser/import/fingerprint consumers use securefile's
+	// descriptor-stable reads directly; keeping the no-resolver path streaming is
+	// important for the bounded-memory large-corpus pipeline.
+	return len(tsdirs) > 0 || (hasGo(files) && hasGoResolverConfig(root))
+}
+
+func copyResolverFile(ctx context.Context, root, snapshot, rel, expectedHash string) error {
+	rel, err := cleanResolverRelativePath(rel)
+	if err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	src := filepath.Join(root, filepath.FromSlash(rel))
+	data, err := securefile.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	if expectedHash != "" && hashBytes(data) != expectedHash {
+		return fmt.Errorf("repository input %q changed while staging resolver snapshot", rel)
+	}
+	dst := filepath.Join(snapshot, filepath.FromSlash(rel))
+	if err := securefile.MkdirAllPrivate(filepath.Dir(dst)); err != nil {
+		return err
+	}
+	return securefile.WritePrivate(dst, data)
+}
+
+func cleanResolverRelativePath(rel string) (string, error) {
+	rel = filepath.ToSlash(filepath.Clean(filepath.FromSlash(rel)))
+	if rel == "." || rel == "" || filepath.IsAbs(filepath.FromSlash(rel)) || rel == ".." || strings.HasPrefix(rel, "../") {
+		return "", fmt.Errorf("resolver path %q is not repository-relative", rel)
+	}
+	return rel, nil
+}
+
+func copyResolverDependencyTree(ctx context.Context, root, snapshot, rel string, copied map[string]bool) error {
+	return copyResolverDependencyTreeVisited(ctx, root, snapshot, rel, copied, make(map[string]bool))
+}
+
+func copyResolverDependencyTreeVisited(ctx context.Context, root, snapshot, rel string, copied, visiting map[string]bool) error {
+	if copied[rel] {
+		return nil
+	}
+	if visiting[rel] {
+		return fmt.Errorf("cyclic dependency symlink at %q", rel)
+	}
+	visiting[rel] = true
+	defer delete(visiting, rel)
+
+	source := filepath.Join(root, filepath.FromSlash(rel))
+	info, err := os.Lstat(source)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("inspect dependency root %q: %w", rel, err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		if err := copyResolverDependencySymlink(ctx, root, snapshot, source, rel, copied, visiting); err != nil {
+			return err
+		}
+		copied[rel] = true
+		return nil
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("dependency root %q is not a directory", rel)
+	}
+	err = filepath.WalkDir(source, func(path string, entry os.DirEntry, walkErr error) error {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
+		if walkErr != nil {
+			return walkErr
+		}
+		entryRel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		entryRel = filepath.ToSlash(entryRel)
+		if entry.Type()&os.ModeSymlink != 0 {
+			if copied[entryRel] {
+				return nil
+			}
+			if err := copyResolverDependencySymlink(ctx, root, snapshot, path, entryRel, copied, visiting); err != nil {
+				return err
+			}
+			copied[entryRel] = true
+			return nil
+		}
+		dst := filepath.Join(snapshot, filepath.FromSlash(entryRel))
+		if entry.IsDir() {
+			return securefile.MkdirAllPrivate(dst)
+		}
+		if copied[entryRel] {
+			return nil
+		}
+		if err := copyResolverFile(ctx, root, snapshot, entryRel, ""); err != nil {
+			return fmt.Errorf("copy dependency %q: %w", entryRel, err)
+		}
+		copied[entryRel] = true
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("snapshot dependency tree %q: %w", rel, err)
+	}
+	return nil
+}
+
+func copyResolverDependencySymlink(ctx context.Context, root, snapshot, source, rel string, copied, visiting map[string]bool) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	// #nosec G703 -- source is built from the validated repository root and a
+	// repository-relative dependency entry; Lstat does not follow the symlink
+	// leaf, and the after-check below rejects identity replacement.
+	before, err := os.Lstat(source)
+	if err != nil {
+		return fmt.Errorf("inspect dependency symlink %q: %w", rel, err)
+	}
+	if before.Mode()&os.ModeSymlink == 0 {
+		return fmt.Errorf("dependency path %q is no longer a symlink", rel)
+	}
+	target, err := os.Readlink(source)
+	if err != nil {
+		return fmt.Errorf("read dependency symlink %q: %w", rel, err)
+	}
+	// #nosec G703 -- the same confined path is rechecked with no-follow Lstat;
+	// this must remain an identity check rather than a path-following read.
+	after, err := os.Lstat(source)
+	if err != nil {
+		return fmt.Errorf("reinspect dependency symlink %q: %w", rel, err)
+	}
+	if !os.SameFile(before, after) || after.Mode()&os.ModeSymlink == 0 {
+		return fmt.Errorf("%w: dependency symlink %q changed while staging", securefile.ErrUnsafePath, rel)
+	}
+	targetPath := filepath.Clean(target)
+	if !filepath.IsAbs(targetPath) {
+		targetPath = filepath.Join(filepath.Dir(source), targetPath)
+	}
+	targetPath, err = filepath.Abs(targetPath)
+	if err != nil {
+		return fmt.Errorf("absolute dependency symlink target %q: %w", rel, err)
+	}
+	targetPath = filepath.Clean(targetPath)
+	targetRel, ok := resolverPathWithin(root, targetPath)
+	if !ok || targetRel == "." || targetRel == "" {
+		return fmt.Errorf("%w: dependency symlink %q targets outside repository: %q", securefile.ErrUnsafePath, rel, target)
+	}
+	if err := resolverDependencyTargetSafe(root, targetRel); err != nil {
+		return fmt.Errorf("dependency symlink %q target %q: %w", rel, targetRel, err)
+	}
+	dst := filepath.Join(snapshot, filepath.FromSlash(rel))
+	if err := securefile.MkdirAllPrivate(filepath.Dir(dst)); err != nil {
+		return err
+	}
+	if !copied[targetRel] {
+		info, statErr := os.Lstat(filepath.Join(root, filepath.FromSlash(targetRel)))
+		if statErr != nil {
+			return fmt.Errorf("inspect in-repository dependency target %q: %w", targetRel, statErr)
+		}
+		switch {
+		case info.IsDir(), info.Mode()&os.ModeSymlink != 0:
+			if err := copyResolverDependencyTreeVisited(ctx, root, snapshot, targetRel, copied, visiting); err != nil {
+				return fmt.Errorf("copy in-repository dependency target %q: %w", targetRel, err)
+			}
+		case info.Mode().IsRegular():
+			if err := copyResolverFile(ctx, root, snapshot, targetRel, ""); err != nil {
+				return fmt.Errorf("copy in-repository dependency target %q: %w", targetRel, err)
+			}
+			copied[targetRel] = true
+		default:
+			return fmt.Errorf("in-repository dependency target %q is not a regular file, directory, or symlink", targetRel)
+		}
+	}
+	targetSnapshotPath := filepath.Join(snapshot, filepath.FromSlash(targetRel))
+	linkTarget, err := filepath.Rel(filepath.Dir(dst), targetSnapshotPath)
+	if err != nil {
+		return fmt.Errorf("relativize dependency symlink %q: %w", rel, err)
+	}
+	if err := securefile.SymlinkPrivate(linkTarget, dst); err != nil {
+		if os.IsExist(err) {
+			return fmt.Errorf("dependency symlink destination %q already exists", rel)
+		}
+		return fmt.Errorf("write dependency symlink %q: %w", rel, err)
+	}
+	return nil
+}
+
+func resolverDependencyTargetSafe(root, rel string) error {
+	parts := strings.Split(filepath.ToSlash(rel), "/")
+	current := root
+	for i, part := range parts {
+		if part == "" || part == "." || part == ".." {
+			return fmt.Errorf("%w: invalid dependency target path %q", securefile.ErrUnsafePath, rel)
+		}
+		current = filepath.Join(current, filepath.FromSlash(part))
+		info, err := os.Lstat(current)
+		if err != nil {
+			return fmt.Errorf("inspect dependency target %q: %w", rel, err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 && i != len(parts)-1 {
+			return fmt.Errorf("%w: dependency target %q contains a symlink component", securefile.ErrUnsafePath, rel)
+		}
+	}
+	return nil
+}
+
+func resolverPathWithin(root, candidate string) (string, bool) {
+	rel, err := filepath.Rel(root, candidate)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return "", false
+	}
+	return filepath.ToSlash(rel), true
+}
+
 // manifestWalkDir is a narrow deterministic test seam for walk failures. The
 // production value is filepath.WalkDir; tests can inject a synthetic callback
 // error without relying on platform-specific filesystem permissions.
@@ -190,18 +528,6 @@ var validateStoreIntegrity = func(store *graph.Store) error {
 // the one exact no-op gate, proving that deduplication does not hide a mutation.
 var freshManifestBeforeIntegrityHook func()
 
-// fingerprintRepository fingerprints every configuration/dependency input that
-// can affect discovery or resolver output. It retains the historical helper
-// shape for callers that only need a manifest, while the production preparation
-// path consumes scanRepositoryContext and reuses its complete result.
-func fingerprintRepository(ctx context.Context, root string) (Manifest, error) {
-	scan, err := scanRepositoryContext(ctx, root)
-	if err != nil {
-		return Manifest{}, err
-	}
-	return scan.manifest, nil
-}
-
 // scanRepositoryContext validates discoverable source files, enumerates usable
 // TypeScript scopes, and fingerprints manifest inputs in one candidate-aware
 // walk. Soft-ignored directories remain traversable for recognized manifest
@@ -212,6 +538,11 @@ func scanRepositoryContext(ctx context.Context, root string) (repositoryScan, er
 	if err := ctx.Err(); err != nil {
 		return repositoryScan{}, err
 	}
+	canonicalRoot, err := ValidateRepositoryRoot(root)
+	if err != nil {
+		return repositoryScan{}, err
+	}
+	root = canonicalRoot
 	ignore, err := loadIgnore(root)
 	if err != nil {
 		return repositoryScan{}, err
@@ -227,6 +558,17 @@ func scanRepositoryContext(ctx context.Context, root string) (repositoryScan, er
 		}
 		if walkErr != nil {
 			return classifyManifestWalkError(root, path, entry, walkErr)
+		}
+		// Never hash, fingerprint, or read an unrecognized symlink entry: it may
+		// point outside the repository root. Recognized manifest/resolver inputs
+		// are different: silently skipping one would remove a resolver scope or
+		// turn an attempted input change into a false fresh/no-op result.
+		if entry.Type()&os.ModeSymlink != 0 {
+			rel := filepath.ToSlash(mustRel(root, path))
+			if isManifestInput(rel) || rel == ".gitignore" || rel == ".cbmignore" {
+				return fmt.Errorf("unsafe manifest/resolver input %q: %w", rel, securefile.ErrUnsafePath)
+			}
+			return nil
 		}
 		if entry.IsDir() {
 			// Soft ignore rules cannot prune this walk: a supported manifest input
@@ -260,7 +602,7 @@ func scanRepositoryContext(ctx context.Context, root string) (repositoryScan, er
 		if !isAnalysisInput && !isIgnoreInput {
 			return nil
 		}
-		data, err := os.ReadFile(path)
+		data, err := securefile.ReadFile(path)
 		if err != nil {
 			return fmt.Errorf("read analysis input %q: %w", rel, err)
 		}
@@ -452,8 +794,13 @@ type tsConfigReferences struct {
 // manifest input set. Referenced configs may live below node_modules or another
 // ignored directory; explicit resolver inputs still get fingerprinted.
 func readTSConfigInput(root, rel string, inputs map[string]InputFingerprint) ([]byte, error) {
+	canonicalRoot, err := ValidateRepositoryRoot(root)
+	if err != nil {
+		return nil, fmt.Errorf("resolve repository root for referenced TypeScript config %q: %w", rel, err)
+	}
+	root = canonicalRoot
 	path := filepath.Join(root, filepath.FromSlash(rel))
-	data, err := os.ReadFile(path)
+	data, err := securefile.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read referenced TypeScript config %q: %w", rel, err)
 	}
@@ -616,9 +963,12 @@ func resolveTSConfigReference(root, fromRel, spec string) (string, error) {
 	case strings.HasPrefix(spec, "./") || strings.HasPrefix(spec, "../") || spec == "." || spec == "..":
 		bases = append(bases, filepath.Join(filepath.Dir(fromAbs), specPath))
 	default:
-		// Package extends are resolved through repository-local node_modules only.
-		// A package symlink that escapes the repository is rejected by the safety
-		// check instead of becoming an untracked resolver input.
+		// First try a repository-relative path. TypeScript project references are
+		// commonly written as "packages/app" (without "./"), while package
+		// extends still fall through to repository-local node_modules when that
+		// path does not exist. A package symlink that escapes the repository is
+		// rejected by the safety check instead of becoming an untracked input.
+		bases = append(bases, filepath.Join(filepath.Dir(fromAbs), specPath))
 		for dir := filepath.Dir(fromAbs); ; dir = filepath.Dir(dir) {
 			bases = append(bases, filepath.Join(dir, "node_modules", specPath))
 			if dir == root {
@@ -676,35 +1026,20 @@ func safeConfigCandidate(root, candidate string) (string, bool, error) {
 	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
 		return "", false, fmt.Errorf("config reference %q escapes repository root", candidate)
 	}
-	info, err := os.Stat(abs)
+	f, err := securefile.OpenRead(abs)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return "", false, nil
 		}
+		if errors.Is(err, securefile.ErrNotRegular) {
+			return "", false, nil
+		}
 		return "", false, fmt.Errorf("inspect config reference %q: %w", filepath.ToSlash(rel), err)
 	}
-	if info.IsDir() {
-		return "", false, nil
+	if err := f.Close(); err != nil {
+		return "", false, fmt.Errorf("close config reference %q: %w", filepath.ToSlash(rel), err)
 	}
-	if !info.Mode().IsRegular() {
-		return "", false, fmt.Errorf("config reference %q is not a regular file", filepath.ToSlash(rel))
-	}
-	resolved, err := filepath.EvalSymlinks(abs)
-	if err != nil {
-		return "", false, fmt.Errorf("resolve config reference %q: %w", filepath.ToSlash(rel), err)
-	}
-	resolved, err = filepath.Abs(resolved)
-	if err != nil {
-		return "", false, fmt.Errorf("absolute resolved config path %q: %w", filepath.ToSlash(rel), err)
-	}
-	resolvedRel, err := filepath.Rel(root, filepath.Clean(resolved))
-	if err != nil {
-		return "", false, fmt.Errorf("relativize resolved config %q: %w", filepath.ToSlash(rel), err)
-	}
-	if resolvedRel == ".." || strings.HasPrefix(resolvedRel, ".."+string(filepath.Separator)) || filepath.IsAbs(resolvedRel) {
-		return "", false, fmt.Errorf("config reference %q resolves outside repository", filepath.ToSlash(rel))
-	}
-	return filepath.ToSlash(resolvedRel), true, nil
+	return filepath.ToSlash(rel), true, nil
 }
 
 func sameManifestInputs(a, b []InputFingerprint) bool {
@@ -712,6 +1047,8 @@ func sameManifestInputs(a, b []InputFingerprint) bool {
 		return false
 	}
 	for i := range a {
+		// #nosec G602 -- the equal-length guard immediately above proves the
+		// corresponding index exists in both slices.
 		if a[i] != b[i] {
 			return false
 		}
@@ -747,6 +1084,8 @@ func sameStringSlice(a, b []string) bool {
 		return false
 	}
 	for i := range a {
+		// #nosec G602 -- the equal-length guard immediately above proves the
+		// corresponding index exists in both slices.
 		if a[i] != b[i] {
 			return false
 		}
@@ -771,6 +1110,8 @@ func classifyManifestWalkError(root, path string, entry os.DirEntry, walkErr err
 		return filepath.SkipDir
 	}
 	if entry == nil {
+		// #nosec G703 -- path comes from the manifest WalkDir under the validated
+		// root; stat only classifies the walk error for skip/error routing.
 		if info, statErr := os.Stat(path); statErr == nil && info.IsDir() && hasHardOrHiddenDirectory(rel) {
 			return filepath.SkipDir
 		}
@@ -890,26 +1231,9 @@ func writeManifestFile(path string, manifest Manifest) error {
 	if err != nil {
 		return err
 	}
-	tmp := path + ".tmp"
-	if err := os.Remove(tmp); err != nil && !os.IsNotExist(err) {
-		return err
-	}
-	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
-	if err != nil {
-		return err
-	}
-	writeErr := error(nil)
-	if _, writeErr = f.Write(data); writeErr == nil {
-		writeErr = f.Sync()
-	}
-	closeErr := f.Close()
-	if writeErr != nil || closeErr != nil {
-		_ = os.Remove(tmp)
-		return errors.Join(writeErr, closeErr)
-	}
-	if err := replaceManifestPlatform(tmp, path); err != nil {
-		_ = os.Remove(tmp)
-		return err
-	}
-	return nil
+	// securefile owns the same-directory temporary entry, Sync, no-follow
+	// parent traversal, temporary identity check, and atomic destination
+	// replacement. In particular, a sidecar symlink is replaced as a directory
+	// entry rather than followed, and a temporary-entry substitution fails closed.
+	return securefile.WritePrivate(path, data)
 }

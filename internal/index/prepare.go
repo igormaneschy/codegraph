@@ -3,7 +3,6 @@ package index
 import (
 	"context"
 	"fmt"
-	"os"
 
 	"github.com/Lordymine/codegraph/internal/graph"
 )
@@ -19,7 +18,7 @@ type pipelineInput struct {
 	// captured by the same validated observation. The pipeline must use this
 	// handoff rather than rediscovering the repository after freshness checks.
 	repositoryScanned bool
-	reuseFrom         *graph.Store // pre-reindex DB; CALLS streamed via insertReusedCallEdges
+	reuseFrom         *graph.Store // pre-reindex DB; CALLS streamed via insertReusedCallEdgesContext
 	manifest          Manifest
 	existingGraph     bool
 	// graphFreshnessMiss means the old graph could not be trusted as a CALLS
@@ -140,7 +139,6 @@ func prepareIndexingContext(ctx context.Context, store *graph.Store, root string
 		changes = changesFromRepositoryScan(scan, storedHashes)
 	}
 	scan.sourceObservations = nil
-
 	var storedManifest Manifest
 	var manifestFresh bool
 	if !graphFreshnessMiss {
@@ -196,8 +194,9 @@ func prepareIndexingContext(ctx context.Context, store *graph.Store, root string
 	}
 	return pipelineInput{
 		project: project, root: root, changed: changed, files: files,
-		tsdirs: tsdirs, repositoryScanned: true,
-		manifest: currentManifest, existingGraph: existingGraph,
+		tsdirs:            tsdirs,
+		repositoryScanned: true,
+		manifest:          currentManifest, existingGraph: existingGraph,
 		graphFreshnessMiss: graphFreshnessMiss || !manifestFresh || !rubyAnalysisCurrent,
 	}, nil, nil
 }
@@ -254,39 +253,4 @@ func changesFromRepositoryScan(scan repositoryScan, stored map[string]string) Ch
 	}
 	changes.files = scan.files
 	return changes
-}
-
-// detectChangesFromStoredFiles is retained for callers that need the historical
-// re-read helper. Production preparation uses changesFromRepositoryScan so the
-// source membership and hashes remain part of the final validated observation.
-func detectChangesFromStoredFiles(ctx context.Context, files []SourceFile, stored map[string]string) (Changes, error) {
-	ctx = nonNilContext(ctx)
-	var changes Changes
-	seen := make(map[string]bool, len(files))
-	for _, file := range files {
-		if err := ctx.Err(); err != nil {
-			return Changes{}, err
-		}
-		seen[file.RelPath] = true
-		data, err := os.ReadFile(file.AbsPath)
-		if err != nil {
-			return Changes{}, fmt.Errorf("read discovered source %q: %w", file.RelPath, err)
-		}
-		switch previous, ok := stored[file.RelPath]; {
-		case !ok:
-			changes.Added = append(changes.Added, file.RelPath)
-		case previous != hashBytes(data):
-			changes.Changed = append(changes.Changed, file.RelPath)
-		}
-	}
-	for path := range stored {
-		if err := ctx.Err(); err != nil {
-			return Changes{}, err
-		}
-		if !seen[path] {
-			changes.Deleted = append(changes.Deleted, path)
-		}
-	}
-	changes.files = files
-	return changes, nil
 }

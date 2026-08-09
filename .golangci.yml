@@ -1,0 +1,28 @@
+# golangci-lint configuration (v2 schema). Versioned in-repo so CI runs are
+# reproducible (the CI action pins the golangci-lint version too).
+# Docs: https://golangci-lint.run/
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - gosec
+    - govet
+    - ineffassign
+    - misspell
+    - staticcheck
+    - unused
+  exclusions:
+    # Treat files with a "Code generated ... DO NOT EDIT" header as generated.
+    generated: lax
+    # Standard, well-known false-positive exclusion presets (the same classes
+    # golangci-lint used to ship as defaults). Never used to hide real findings.
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling

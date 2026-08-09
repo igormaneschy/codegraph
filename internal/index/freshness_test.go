@@ -18,6 +18,7 @@ import (
 
 	"github.com/Lordymine/codegraph/internal/graph"
 	"github.com/Lordymine/codegraph/internal/scip"
+	"github.com/Lordymine/codegraph/internal/securefile"
 	_ "modernc.org/sqlite"
 )
 
@@ -617,6 +618,55 @@ func TestManifest_FingerprintsReferencedTSConfigsAndRejectsBrokenReferences(t *t
 	}
 }
 
+func TestRepositoryInputsRejectSymlinksAtEveryReadBoundary(t *testing.T) {
+	root := t.TempDir()
+	var err error
+	root, err = filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	outside := t.TempDir()
+	writeFreshnessFile(t, outside, "go.mod", "module outside.test\n")
+	writeFreshnessFile(t, outside, "go.work", "go 1.26\n\nuse .\n")
+	writeFreshnessFile(t, outside, "base.json", "{}\n")
+	if err := os.Symlink(filepath.Join(outside, "go.mod"), filepath.Join(root, "go.mod")); err != nil {
+		t.Skipf("symlink creation unavailable: %v", err)
+	}
+	if err := os.Symlink(filepath.Join(outside, "go.work"), filepath.Join(root, "go.work")); err != nil {
+		t.Skipf("symlink creation unavailable: %v", err)
+	}
+	if err := os.Symlink(filepath.Join(outside, "base.json"), filepath.Join(root, "base.json")); err != nil {
+		t.Skipf("symlink creation unavailable: %v", err)
+	}
+
+	if hasGoResolverConfig(root) {
+		t.Fatal("symlinked go.mod was accepted as resolver configuration")
+	}
+	if _, err := hashFile(filepath.Join(root, "go.mod")); err == nil || !errors.Is(err, securefile.ErrUnsafePath) {
+		t.Fatalf("symlinked source hash error=%v, want ErrUnsafePath", err)
+	}
+	inputs := make(map[string]InputFingerprint)
+	if _, err := readTSConfigInput(root, "base.json", inputs); err == nil || !errors.Is(err, securefile.ErrUnsafePath) {
+		t.Fatalf("symlinked referenced config error=%v, want ErrUnsafePath", err)
+	}
+	writeFreshnessFile(t, root, "tsconfig.json", `{"extends":"./base.json"}`)
+	if _, err := scanRepositoryContext(context.Background(), root); err == nil || !errors.Is(err, securefile.ErrUnsafePath) {
+		t.Fatalf("symlinked referenced config scan error=%v, want ErrUnsafePath", err)
+	}
+}
+
+func TestTSConfigDirsRejectsSymlinkedConfig(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	writeFreshnessFile(t, outside, "tsconfig.json", "{}\n")
+	if err := os.Symlink(filepath.Join(outside, "tsconfig.json"), filepath.Join(root, "tsconfig.json")); err != nil {
+		t.Skipf("symlink creation unavailable: %v", err)
+	}
+	if _, err := tsconfigDirsContext(context.Background(), root); err == nil || !errors.Is(err, securefile.ErrUnsafePath) {
+		t.Fatalf("symlinked tsconfig error=%v, want ErrUnsafePath", err)
+	}
+}
+
 func TestManifest_WorkspaceMetadataChangeDoesNotReuseStaleTSCalls(t *testing.T) {
 	root := t.TempDir()
 	writeFreshnessFile(t, root, "tsconfig.json", `{}`)
@@ -795,8 +845,11 @@ func TestTSConfigScopes_KeepRootFilesAlongsideChildConfigs(t *testing.T) {
 	if len(report.Scopes) != 2 || len(called) != 2 {
 		t.Fatalf("root/child resolver report=%+v calls=%v", report, called)
 	}
-	if !slices.Contains(called, root) || !slices.Contains(called, filepath.Join(root, "packages/app")) {
-		t.Fatalf("resolver did not attempt root and child scopes: %v", called)
+	if slices.Contains(called, root) || slices.Contains(called, filepath.Join(root, "packages/app")) {
+		t.Fatalf("resolver received original repository path: %v", called)
+	}
+	if filepath.Base(called[0]) != filepath.Base(filepath.Dir(filepath.Dir(called[1]))) || filepath.Base(called[1]) != "app" {
+		t.Fatalf("resolver did not preserve root/child snapshot scopes: %v", called)
 	}
 }
 
@@ -1126,6 +1179,8 @@ func TestRunAtomic_SimilarityReadFailurePreservesExistingGraph(t *testing.T) {
 		if filepath.Base(path) == filepath.Base(source) {
 			return nil, errors.New("similarity source unavailable")
 		}
+		// #nosec G703 -- test seam delegates to the explicitly supplied source
+		// path; production similarity reads are outside this injected failure.
 		return os.ReadFile(path)
 	}
 	similarPassOverride = resolveSimilarFromSpans

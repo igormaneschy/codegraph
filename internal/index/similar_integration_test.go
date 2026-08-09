@@ -35,7 +35,7 @@ export function gamma(s: string) {
   return s.toUpperCase().split(",").map((w) => w.trim()).join("-");
 }
 `
-	if err := os.WriteFile(filepath.Join(dir, "a.ts"), []byte(src), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "a.ts"), []byte(src), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	store, err := graph.Open(filepath.Join(dir, "g.db"))

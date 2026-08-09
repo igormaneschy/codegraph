@@ -16,6 +16,7 @@ import (
 	"github.com/Lordymine/codegraph/internal/graph"
 	"github.com/Lordymine/codegraph/internal/memory"
 	"github.com/Lordymine/codegraph/internal/scip"
+	"github.com/Lordymine/codegraph/internal/securefile"
 )
 
 // ScipReport summarizes scip-typescript resource use across all TS scopes in one
@@ -41,12 +42,13 @@ var (
 // same scope concurrently, and cleanup must never remove another invocation's
 // output.
 func runSCIPInvocation(ctx context.Context, dir string) (idx *scippb.Index, st scip.RunStats, err error) {
-	tempDir, err := os.MkdirTemp("", "codegraph-scip-")
+	private, err := securefile.MkdirTempPrivate("", "codegraph-scip-")
 	if err != nil {
 		return nil, st, fmt.Errorf("create private SCIP output directory: %w", err)
 	}
+	tempDir := private.Path()
 	defer func() {
-		if cleanupErr := os.RemoveAll(tempDir); cleanupErr != nil {
+		if cleanupErr := private.Cleanup(); cleanupErr != nil {
 			cleanupErr = fmt.Errorf("cleanup private SCIP output directory %q: %w", tempDir, cleanupErr)
 			if err == nil {
 				err = cleanupErr
@@ -55,25 +57,52 @@ func runSCIPInvocation(ctx context.Context, dir string) (idx *scippb.Index, st s
 			}
 		}
 	}()
+	if err := private.Verify(); err != nil {
+		return nil, st, fmt.Errorf("verify private SCIP output directory: %w", err)
+	}
 	outPath := filepath.Join(tempDir, "index.scip")
-	return scipRunAndRead(ctx, dir, outPath)
+	idx, st, err = scipRunAndRead(ctx, dir, outPath)
+	if verifyErr := private.Verify(); verifyErr != nil {
+		if err != nil {
+			err = errors.Join(err, fmt.Errorf("verify private SCIP output directory after resolver: %w", verifyErr))
+		} else {
+			err = fmt.Errorf("verify private SCIP output directory after resolver: %w", verifyErr)
+		}
+	}
+	return idx, st, err
 }
 
 // resolveTSCalls runs scip-typescript per tsconfig scope in isolation: one scope at
 // a time, CALLS edges flushed to SQLite immediately, protobuf and Node heap released
 // via memory.Gate() before the next scope or the Go VTA pass — same pattern as Go.
-func resolveTSCalls(ctx context.Context, store *graph.Store, project, root string, enc scip.Enclosing, changed map[string]bool) (ScipReport, error) {
-	dirs, err := tsconfigDirsContext(ctx, root)
+func resolveTSCalls(ctx context.Context, store *graph.Store, project, root string, enc scip.Enclosing, changed map[string]bool) (report ScipReport, err error) {
+	scan, err := scanRepositoryContext(ctx, root)
 	if err != nil {
 		return ScipReport{}, err
 	}
-	return resolveTSCallsWithDirs(ctx, store, project, root, dirs, enc, changed)
+	resolverRoot, verify, cleanup, err := resolverSnapshotForScan(ctx, scan)
+	if err != nil {
+		return ScipReport{}, err
+	}
+	if cleanup != nil {
+		defer func() {
+			if cleanupErr := cleanup(); cleanupErr != nil {
+				err = errors.Join(err, fmt.Errorf("cleanup resolver snapshot: %w", cleanupErr))
+			}
+		}()
+	}
+	if verify != nil {
+		if verifyErr := verify(); verifyErr != nil {
+			return ScipReport{}, fmt.Errorf("verify resolver snapshot before SCIP: %w", verifyErr)
+		}
+	}
+	return resolveTSCallsWithDirs(ctx, store, project, resolverRoot, verify, scan.tsdirs, enc, changed)
 }
 
 // resolveTSCallsWithDirs consumes the scope list captured by preparation. The
 // production path must not walk the repository again after the freshness scan;
 // the wrapper above remains for focused callers that do not already have a scan.
-func resolveTSCallsWithDirs(ctx context.Context, store *graph.Store, project, root string, dirs []string, enc scip.Enclosing, changed map[string]bool) (ScipReport, error) {
+func resolveTSCallsWithDirs(ctx context.Context, store *graph.Store, project, root string, verify func() error, dirs []string, enc scip.Enclosing, changed map[string]bool) (ScipReport, error) {
 	ctx = nonNilContext(ctx)
 	var rep ScipReport
 
@@ -87,6 +116,11 @@ func resolveTSCallsWithDirs(ctx context.Context, store *graph.Store, project, ro
 			})
 			continue
 		}
+		if verify != nil {
+			if err := verify(); err != nil {
+				return rep, fmt.Errorf("verify resolver snapshot before SCIP scope %q: %w", dir, err)
+			}
+		}
 		scopeStatus := ResolverScopeStatus{Resolver: "scip-typescript", Scope: dir, Attempted: true}
 		abs := filepath.Join(root, filepath.FromSlash(dir))
 		idx, st, err := runSCIPInvocation(ctx, abs)
@@ -95,6 +129,11 @@ func resolveTSCallsWithDirs(ctx context.Context, store *graph.Store, project, ro
 		}
 		if st.PeakRSSBytes > rep.PeakRSS {
 			rep.PeakRSS = st.PeakRSSBytes
+		}
+		if verify != nil {
+			if verifyErr := verify(); verifyErr != nil {
+				return rep, fmt.Errorf("verify resolver snapshot after SCIP scope %q: %w", dir, verifyErr)
+			}
 		}
 		if err != nil {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || ctx.Err() != nil {
@@ -118,7 +157,6 @@ func resolveTSCallsWithDirs(ctx context.Context, store *graph.Store, project, ro
 		scopeStatus.Succeeded = true
 		rep.Scopes = append(rep.Scopes, scopeStatus)
 		scopeEdges := scip.CallEdges(idx, project, dir, enc)
-		idx = nil
 		kept, dropped, err := store.InsertEdges(scopeEdges)
 		if err != nil {
 			return rep, err
@@ -128,7 +166,6 @@ func resolveTSCallsWithDirs(ctx context.Context, store *graph.Store, project, ro
 		if err := ctx.Err(); err != nil {
 			return rep, err
 		}
-		scopeEdges = nil
 		memory.Gate()
 	}
 	return rep, nil
@@ -139,7 +176,7 @@ func resolveTSCallsWithDirs(ctx context.Context, store *graph.Store, project, ro
 // can observe ctx before and after SSA/VTA, but x/tools' prog.Build is explicitly
 // non-interruptible; the synchronous pipeline keeps Engine/store ownership until
 // this call returns instead of detaching work during MCP shutdown.
-func resolveGoCalls(ctx context.Context, project, root string, files []SourceFile, enc scip.Enclosing, changed map[string]bool) ([]graph.Edge, ResolverScopeStatus, error) {
+func resolveGoCalls(ctx context.Context, project, root string, files []SourceFile, enc scip.Enclosing, changed map[string]bool) (edges []graph.Edge, scope ResolverScopeStatus, err error) {
 	ctx = nonNilContext(ctx)
 	scopeStatus := ResolverScopeStatus{Resolver: "go-vta", Scope: "go"}
 	if err := ctx.Err(); err != nil {
@@ -156,16 +193,63 @@ func resolveGoCalls(ctx context.Context, project, root string, files []SourceFil
 		scopeStatus.Reused = true
 		return nil, scopeStatus, nil
 	}
+	resolverRoot, verify, cleanup, err := resolverSnapshotForRoot(ctx, root)
+	if err != nil {
+		return nil, scopeStatus, err
+	}
+	if cleanup != nil {
+		defer func() {
+			if cleanupErr := cleanup(); cleanupErr != nil {
+				err = errors.Join(err, fmt.Errorf("cleanup resolver snapshot: %w", cleanupErr))
+			}
+		}()
+	}
+	if verify != nil {
+		if verifyErr := verify(); verifyErr != nil {
+			return nil, scopeStatus, fmt.Errorf("verify resolver snapshot before Go resolver: %w", verifyErr)
+		}
+	}
+	return resolveGoCallsAtRoot(ctx, project, resolverRoot, verify, files, enc, changed)
+}
+
+func resolveGoCallsAtRoot(ctx context.Context, project, root string, verify func() error, files []SourceFile, enc scip.Enclosing, changed map[string]bool) ([]graph.Edge, ResolverScopeStatus, error) {
+	ctx = nonNilContext(ctx)
+	scopeStatus := ResolverScopeStatus{Resolver: "go-vta", Scope: "go"}
+	if err := ctx.Err(); err != nil {
+		return nil, scopeStatus, err
+	}
+	if verify != nil {
+		if err := verify(); err != nil {
+			return nil, scopeStatus, fmt.Errorf("verify resolver snapshot before Go applicability: %w", err)
+		}
+	}
+	if !hasGo(files) || !hasGoResolverConfig(root) {
+		return nil, ResolverScopeStatus{}, nil
+	}
+	if changed != nil && !changed["go"] {
+		scopeStatus.Reused = true
+		return nil, scopeStatus, nil
+	}
+	if verify != nil {
+		if err := verify(); err != nil {
+			return nil, scopeStatus, fmt.Errorf("verify resolver snapshot before Go resolver: %w", err)
+		}
+	}
 	scopeStatus.Attempted = true
 	edges, err := goCallEdges(ctx, project, root, enc.Has)
 	memory.Gate()
+	if verify != nil {
+		if verifyErr := verify(); verifyErr != nil {
+			return nil, scopeStatus, fmt.Errorf("verify resolver snapshot after Go resolver: %w", verifyErr)
+		}
+	}
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || ctx.Err() != nil {
 			return nil, scopeStatus, err
 		}
 		scopeStatus.Failed = true
 		scopeStatus.Error = err.Error()
-		log.Printf("codegraph: go calls skipped for %s: %v", root, err)
+		log.Printf("codegraph: go calls skipped: %v", err)
 		return nil, scopeStatus, nil
 	}
 	scopeStatus.Succeeded = true
@@ -182,32 +266,41 @@ func hasGo(files []SourceFile) bool {
 }
 
 func hasGoResolverConfig(root string) bool {
+	canonicalRoot, err := ValidateRepositoryRoot(root)
+	if err != nil {
+		return false
+	}
+	root = canonicalRoot
 	for _, name := range []string{"go.mod", "go.work"} {
-		info, err := os.Stat(filepath.Join(root, name))
-		if err == nil && !info.IsDir() {
+		f, err := securefile.OpenRead(filepath.Join(root, name))
+		if err == nil {
+			if closeErr := f.Close(); closeErr != nil {
+				continue
+			}
 			return true
 		}
 	}
 	return false
 }
 
-// tsconfigDirs finds the repo-relative directories scip-typescript should index,
-// one per tsconfig.json. node_modules and hidden dirs are skipped. Monorepos have
-// their tsconfigs in subprojects (apps/api, packages/x); a single-package repo
-// (e.g. a TS library) has only a root tsconfig — in that case we return [""] to run
-// scip at the root. When a root tsconfig and child configs coexist, the root is
-// retained only when repository TS/JS files exist outside every child scope, so
-// root-level calls are not silently dropped and child scopes are not duplicated.
-func tsconfigDirs(root string) []string {
-	dirs, _ := tsconfigDirsContext(context.Background(), root)
-	return dirs
-}
-
+// tsconfigDirsContext finds the repo-relative directories scip-typescript should
+// index, one per tsconfig.json. node_modules and hidden dirs are skipped.
+// Monorepos have their tsconfigs in subprojects (apps/api, packages/x); a
+// single-package repo (e.g. a TS library) has only a root tsconfig — in that case
+// we return [""] to run scip at the root. When a root tsconfig and child configs
+// coexist, the root is retained only when repository TS/JS files exist outside
+// every child scope, so root-level calls are not silently dropped and child
+// scopes are not duplicated.
 func tsconfigDirsContext(ctx context.Context, root string) ([]string, error) {
 	ctx = nonNilContext(ctx)
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	canonicalRoot, err := ValidateRepositoryRoot(root)
+	if err != nil {
+		return nil, err
+	}
+	root = canonicalRoot
 	var subDirs []string
 	rootHas := false
 	var sourceRels []string
@@ -223,6 +316,19 @@ func tsconfigDirsContext(ctx context.Context, root string) ([]string, error) {
 			return classifyWalkError(root, path, ignore, walkErr)
 		}
 		rel := filepath.ToSlash(mustRel(root, path))
+		// Keep the resolver scope handoff aligned with discovery and the
+		// manifest scan: SCIP must never be allowed to walk a repository symlink
+		// entry. Documented dependency trees are handled by the private resolver
+		// snapshot, not by this repository-source/config scope enumeration.
+		if d.Type()&os.ModeSymlink != 0 {
+			if d.Name() == "tsconfig.json" || d.Name() == "jsconfig.json" {
+				if _, err := securefile.OpenRead(path); err != nil {
+					return fmt.Errorf("read TypeScript config %q: %w", rel, err)
+				}
+				return fmt.Errorf("read TypeScript config %q: %w", rel, securefile.ErrUnsafePath)
+			}
+			return nil
+		}
 		if d.IsDir() {
 			if shouldSkipDirectory(d.Name(), rel, ignore) {
 				return filepath.SkipDir

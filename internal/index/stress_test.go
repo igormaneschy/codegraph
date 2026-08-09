@@ -42,8 +42,12 @@ func TestStress_TS_LargeCorpus(t *testing.T) {
 		ceiling = 128 * 1024 * 1024
 	}
 	// TS-only (no tsconfig → no scip): bound relative to corpus + fixed overhead.
-	if rel := uint64(sourceBytes*3) + 64*1024*1024; rel < ceiling {
-		ceiling = rel
+	// sourceBytes is a non-negative synthetic corpus byte count, so the
+	// int64->uint64 conversion is lossless (guard kept explicit for the analyzer).
+	if sourceBytes >= 0 {
+		if rel := uint64(sourceBytes)*3 + 64*1024*1024; rel < ceiling {
+			ceiling = rel
+		}
 	}
 
 	t.Logf("TS stress: %d files, %.2f MB source, %d nodes, %d edges",
@@ -148,6 +152,8 @@ func TestStress_TS_WithScip(t *testing.T) {
 	if root == "" {
 		t.Skip("set CODEGRAPH_STRESS_TS_ROOT to a repo with tsconfig.json + node_modules")
 	}
+	// #nosec G703 -- test-only: user-set CODEGRAPH_STRESS_TS_ROOT env path joined
+	// with the fixed basename "tsconfig.json"; absence only triggers a skip.
 	if _, err := os.Stat(filepath.Join(root, "tsconfig.json")); err != nil {
 		t.Skip("CODEGRAPH_STRESS_TS_ROOT has no tsconfig.json")
 	}

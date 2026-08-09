@@ -26,6 +26,8 @@ func TestScipProcessTreeDescendant(t *testing.T) {
 	if os.Getenv("CODEGRAPH_SCIP_DESCENDANT") != "1" {
 		return
 	}
+	// #nosec G703 -- readiness path comes from CODEGRAPH_SCIP_CHILD_READY, which
+	// this test sets to a t.TempDir() path; the forked child only writes its PID.
 	if err := os.WriteFile(os.Getenv("CODEGRAPH_SCIP_CHILD_READY"), []byte(strconv.Itoa(os.Getpid())), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -163,6 +165,8 @@ cp "$CODEGRAPH_SCIP_FIXTURE" "$output"
 
 func writeExecutable(t *testing.T, path, body string) {
 	t.Helper()
+	// #nosec G306 -- fixture shell script must stay executable (0755): it stands in
+	// for npx in the fake PATH and is launched by the scip runner under test.
 	if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
 		t.Fatal(err)
 	}

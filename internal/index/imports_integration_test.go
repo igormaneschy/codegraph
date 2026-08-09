@@ -16,10 +16,12 @@ func TestImports_EndToEndGraph(t *testing.T) {
 	dir := t.TempDir()
 	write := func(rel, content string) {
 		p := filepath.Join(dir, filepath.FromSlash(rel))
+		// #nosec G703 -- test-only fixture under the test's private t.TempDir().
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+		// #nosec G703 -- test-only fixture under the test's private t.TempDir().
+		if err := os.WriteFile(p, []byte(content), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -53,10 +55,12 @@ func TestImports_RubyRequireEndToEndGraph(t *testing.T) {
 	dir := t.TempDir()
 	write := func(rel, content string) {
 		p := filepath.Join(dir, filepath.FromSlash(rel))
+		// #nosec G703 -- test-only fixture under the test's private t.TempDir().
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+		// #nosec G703 -- test-only fixture under the test's private t.TempDir().
+		if err := os.WriteFile(p, []byte(content), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}

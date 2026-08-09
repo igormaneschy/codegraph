@@ -4,13 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 
 	"github.com/Lordymine/codegraph/internal/graph"
 	"github.com/Lordymine/codegraph/internal/scip"
+	"github.com/Lordymine/codegraph/internal/securefile"
 )
 
 // rubyCallTargets is the storage boundary for the Ruby resolver. The production
@@ -65,7 +65,7 @@ func resolveRubyCalls(ctx context.Context, store *graph.Store, project string, f
 		if f.Lang != LangRuby {
 			continue
 		}
-		src, err := os.ReadFile(f.AbsPath)
+		src, err := securefile.ReadFile(f.AbsPath)
 		if err != nil {
 			scopeStatus.Failed = true
 			scopeStatus.Error = fmt.Errorf("read Ruby source %q: %w", f.RelPath, err).Error()

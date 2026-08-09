@@ -122,6 +122,10 @@ One command registers codegraph as an MCP server in every supported agent on you
 codegraph install
 ```
 
+Run it as your normal user — agent configs live in your user profile, so do not
+run `codegraph install` (or `make install-agents`) under `sudo` — and restart
+OpenCode after registration.
+
 - **Claude Code** and **Codex** — via their own CLI (`claude mcp add --scope user` /
   `codex mcp add`), so it works in **every** repo you open.
 - **opencode** — merged into your `opencode.jsonc`/`.json` (existing config preserved).
@@ -158,6 +162,53 @@ go build -o codegraph ./cmd/codegraph          # needs cgo (tree-sitter)
 ```
 
 Store lives in `~/.cache/codegraph/<project>.db`.
+
+## Building and installing
+
+`make install` is the safe build + local install flow. It builds the binary
+exactly like `make build`, then installs it to `$(PREFIX)/bin/codegraph`
+(default `/usr/local/bin`):
+
+```bash
+make install                          # needs write access to /usr/local/bin
+sudo make install PREFIX=/usr/local   # when your user cannot write /usr/local/bin
+make install PREFIX=$HOME/.local      # user-local install, no sudo needed
+```
+
+The install is **atomic**: the new binary is staged as a temp file *inside* the
+destination directory and made executable. The staged file is verified to be
+byte-identical to the freshly built binary (`cmp`) and executable (`test -x`)
+**before** the rename — the rename is the last fallible step. Any build,
+permission, or validation failure aborts before the swap, so the previously
+installed binary is never left partially written. The temp file is removed on
+success and on failure, including when the build is interrupted by a signal.
+If `$(PREFIX)/bin/codegraph` already exists as a directory (or a symlink to
+one), `make install` refuses and aborts **before** staging anything, leaving
+the directory untouched.
+
+`make install` only installs the binary. Agent registration and restart are
+**separate, user-scoped steps** — run them as your normal user (never under
+`sudo`), then restart OpenCode. First install the binary (privileged only if
+needed):
+
+```bash
+sudo make install PREFIX=/usr/local   # only when your user cannot write /usr/local/bin
+```
+
+Then register agents with the **same `PREFIX`** you installed with (omit it for
+the default `/usr/local`):
+
+```bash
+make install-agents                   # default /usr/local, after the install above
+make install-agents PREFIX=$HOME/.local   # user-local: same PREFIX as make install
+```
+
+`install-agents` does not rebuild or reinstall the binary: it only checks that
+`$(PREFIX)/bin/codegraph` exists and is executable, then runs
+`codegraph install` to register the MCP server for your user.
+
+`make install` never edits agent configs and never starts the MCP server or any
+persistent service.
 
 ## Validated on real repositories
 

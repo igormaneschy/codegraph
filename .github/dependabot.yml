@@ -1,0 +1,32 @@
+# Dependabot keeps dependencies and pinned Actions versions up to date.
+# Actions are pinned to full commit SHAs in the workflows; Dependabot updates
+# both the SHA and the trailing `# vX.Y.Z` comment.
+version: 2
+updates:
+  - package-ecosystem: "gomod"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    # Cooldown (default 3 days): delay version updates until a dependency has
+    # been released for at least 7 days.
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: "deps(gomod)"
+    labels:
+      - "dependencies"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    # Cooldown (default 3 days): delay version updates until a dependency has
+    # been released for at least 7 days.
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: "deps(actions)"
+    labels:
+      - "dependencies"

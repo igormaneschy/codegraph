@@ -19,7 +19,7 @@ import (
 func TestRunAtomic_PreservesGraphOnFailure(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "main.go")
-	if err := os.WriteFile(p, []byte("package main\nfunc main() {}\n"), 0o644); err != nil {
+	if err := os.WriteFile(p, []byte("package main\nfunc main() {}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	dbPath := filepath.Join(dir, "g.db")
@@ -38,7 +38,7 @@ func TestRunAtomic_PreservesGraphOnFailure(t *testing.T) {
 		t.Fatalf("expected indexed graph, nodes=%d err=%v", nBefore, err)
 	}
 
-	if err := os.WriteFile(p, []byte("package main\nfunc main() { panic(1) }\n"), 0o644); err != nil {
+	if err := os.WriteFile(p, []byte("package main\nfunc main() { panic(1) }\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	pipelinePreflightErr = errors.New("injected pipeline failure")
@@ -68,14 +68,14 @@ func TestRunAtomic_PreservesGraphOnFailure(t *testing.T) {
 func TestRunAtomic_CancellationImmediatelyBeforeReplacementKeepsLiveGraph(t *testing.T) {
 	dir := t.TempDir()
 	source := filepath.Join(dir, "x.go")
-	if err := os.WriteFile(source, []byte("package x\nfunc oldSymbol() {}\n"), 0o644); err != nil {
+	if err := os.WriteFile(source, []byte("package x\nfunc oldSymbol() {}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	dbPath := filepath.Join(dir, "graph.db")
 	if _, err := RunAtomic(dbPath, dir); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(source, []byte("package x\nfunc newSymbol() {}\n"), 0o644); err != nil {
+	if err := os.WriteFile(source, []byte("package x\nfunc newSymbol() {}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -112,7 +112,7 @@ func TestRunAtomic_CancellationImmediatelyBeforeReplacementKeepsLiveGraph(t *tes
 
 func TestRunAtomic_CommitsOnSuccess(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "x.go"), []byte("package x\nfunc F() {}\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "x.go"), []byte("package x\nfunc F() {}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	dbPath := filepath.Join(dir, "g.db")
@@ -142,7 +142,7 @@ func TestRunAtomic_CommitsOnSuccess(t *testing.T) {
 func TestRunAtomic_RejectsInvalidRepositoryBeforeCreatingGraph(t *testing.T) {
 	root := t.TempDir()
 	regular := filepath.Join(root, "source.go")
-	if err := os.WriteFile(regular, []byte("package source\n"), 0o644); err != nil {
+	if err := os.WriteFile(regular, []byte("package source\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	missing := filepath.Join(root, "missing-repository")
@@ -161,7 +161,7 @@ func TestRunAtomic_RejectsInvalidRepositoryBeforeCreatingGraph(t *testing.T) {
 
 func TestRunAtomicContext_CancelsBlockedPipelineAndReleasesLock(t *testing.T) {
 	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "x.go"), []byte("package x\nfunc F() {}\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "x.go"), []byte("package x\nfunc F() {}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	dbPath := filepath.Join(t.TempDir(), "canceled.db")
@@ -236,7 +236,7 @@ func TestRunAndRunAtomic_CanonicalizeSymlinkRootIdentity(t *testing.T) {
 	if err := os.Mkdir(realRoot, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(realRoot, "x.go"), []byte("package x\nfunc F() {}\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(realRoot, "x.go"), []byte("package x\nfunc F() {}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Symlink(realRoot, aliasRoot); err != nil {
@@ -317,7 +317,7 @@ func TestRunAndRunAtomic_CanonicalizeSymlinkRootIdentity(t *testing.T) {
 func TestRunAtomic_PreservesGraphOnReplacementFailure(t *testing.T) {
 	dir := t.TempDir()
 	source := filepath.Join(dir, "x.go")
-	if err := os.WriteFile(source, []byte("package x\nfunc oldSymbol() {}\n"), 0o644); err != nil {
+	if err := os.WriteFile(source, []byte("package x\nfunc oldSymbol() {}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	dbPath := filepath.Join(dir, "g.db")
@@ -326,7 +326,7 @@ func TestRunAtomic_PreservesGraphOnReplacementFailure(t *testing.T) {
 	}
 	project := ProjectName(dir)
 
-	if err := os.WriteFile(source, []byte("package x\nfunc newSymbol() {}\n"), 0o644); err != nil {
+	if err := os.WriteFile(source, []byte("package x\nfunc newSymbol() {}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	replaceBuiltIndexErr = errors.New("injected replacement failure")
@@ -370,7 +370,7 @@ func TestRunAtomic_PreservesGraphOnReplacementFailure(t *testing.T) {
 
 func TestRunAtomic_RejectsConcurrentSameDatabase(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "x.go"), []byte("package x\nfunc F() {}\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "x.go"), []byte("package x\nfunc F() {}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	dbPath := filepath.Join(dir, "g.db")
@@ -420,7 +420,7 @@ func TestRunAtomic_RejectsConcurrentSameDatabase(t *testing.T) {
 func TestRunAtomic_RefusesReplacementWhileReaderHoldsWAL(t *testing.T) {
 	dir := t.TempDir()
 	source := filepath.Join(dir, "x.go")
-	if err := os.WriteFile(source, []byte("package x\nfunc oldSymbol() {}\n"), 0o644); err != nil {
+	if err := os.WriteFile(source, []byte("package x\nfunc oldSymbol() {}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	dbPath := filepath.Join(dir, "g.db")
@@ -456,7 +456,7 @@ func TestRunAtomic_RefusesReplacementWhileReaderHoldsWAL(t *testing.T) {
 		t.Fatalf("reader-held WAL fixture missing: %v", err)
 	}
 
-	if err := os.WriteFile(source, []byte("package x\nfunc newSymbol() {}\n"), 0o644); err != nil {
+	if err := os.WriteFile(source, []byte("package x\nfunc newSymbol() {}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := RunAtomic(dbPath, dir); err == nil {
@@ -518,6 +518,9 @@ func TestIndexLock_CrossProcess(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			dbPath := filepath.Join(t.TempDir(), "cross-process.db")
+			// #nosec G204,G702 -- test-only self-exec: re-runs this test binary with a
+			// fixed -test.run filter (os.Args[0] is the test binary itself), no
+			// user input, no shell.
 			cmd := exec.Command(os.Args[0], "-test.run=^TestIndexLock_CrossProcess$")
 			mode := "exclusive"
 			if tc.childShared {

@@ -172,7 +172,11 @@ func TestStore_ReadSnapshotPreservesPreWipeCalls(t *testing.T) {
 	if err := reader.BeginReadSnapshot(); err != nil {
 		t.Fatal(err)
 	}
-	defer reader.EndReadSnapshot()
+	defer func() {
+		if err := reader.EndReadSnapshot(); err != nil {
+			t.Errorf("end read snapshot: %v", err)
+		}
+	}()
 
 	if err := writer.ReplaceProject("p"); err != nil {
 		t.Fatal(err)
@@ -444,7 +448,11 @@ func TestStore_ValidateIntegrityDetectsFTSAndEndpointCorruption(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer tx.Rollback()
+		defer func() {
+			if err := tx.Rollback(); err != nil {
+				t.Errorf("rollback test transaction: %v", err)
+			}
+		}()
 		if _, err := tx.Exec(`CREATE TEMP TABLE expected_duplicate_vocab(term TEXT, doc INTEGER, col TEXT, offset INTEGER)`); err != nil {
 			t.Fatal(err)
 		}
