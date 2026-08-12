@@ -1,6 +1,6 @@
 # Rails route oracle fixture
 
-This fixture pins Rails 8.0.2 and exercises only the literal route forms supported
+This fixture pins Rails 8.0.5.1 and exercises only the literal route forms supported
 by codegraph. It is a minimal bootable Rails application: from this directory, run
 `bundle install` followed by `bundle exec ruby script/verify_oracle.rb`. The verifier
 boots Rails, normalizes application routes to `VERB PATH`, and compares them with
