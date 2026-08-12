@@ -89,7 +89,7 @@ for every emitted route.
   engine mounts, and application-defined route macros out of scope.
 - Add fixture tests for every accepted form and a negative test for every rejected
   dynamic form.
-- Completed: `internal/index/testdata/rails_routes_oracle` pins Rails 8.0.2 and
+- Completed: `internal/index/testdata/rails_routes_oracle` pins Rails 8.0.5.1 and
   verifies a normalized `rails routes` oracle for supported literal verbs, scopes,
   resource options, path overrides, and rejected dynamic forms without booting Rails
   during Go tests.
@@ -149,8 +149,9 @@ candidate supplies the evidence and stable bridge required for broad codegraph
 
 Exit gate: publish a `docs/QUALITY.md` result with an agreed corpus and thresholds.
 The resolver must improve answer quality without introducing false `CALLS` edges.
-Otherwise Ruby remains structural-only. The 2026-07-21 spike exercised the pinned
-Rails 8.0.2 fixture and rejected both candidates before a `CALLS` quality score:
+Otherwise Ruby remains structural-only. The 2026-07-21 spike exercised the then-pinned
+Rails 8.0.2 fixture and rejected both candidates before a `CALLS` quality score. The
+fixture is now maintained at Rails 8.0.5.1:
 Rubydex lacks a stable batch call-target export, while released scip-ruby requires
 Sorbet-oriented output and has no proven mapping to codegraph Ruby qualified names.
 
