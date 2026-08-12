@@ -39,6 +39,20 @@ func TestStripAndNormalizeRoundTrip(t *testing.T) {
 	}
 }
 
+func TestNormalizeQNAcceptsGoGuesses(t *testing.T) {
+	e := &Engine{project: "proj"}
+	cases := map[string]string{
+		"src/a.go.(*T).Method":                           "proj:src/a.go.T.Method",
+		"github.com/acme/repo/src/a.go.(*T).Method":      "proj:src/a.go.T.Method",
+		"proj:github.com/acme/repo/src/a.go.(*T).Method": "proj:src/a.go.T.Method",
+	}
+	for input, want := range cases {
+		if got := e.normalizeQN(input); got != want {
+			t.Errorf("normalizeQN(%q) = %q, want %q", input, got, want)
+		}
+	}
+}
+
 func TestStripProjectPrefixNoColon(t *testing.T) {
 	if got := StripProjectPrefix("noprefix"); got != "noprefix" {
 		t.Fatalf("got %q", got)

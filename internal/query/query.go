@@ -200,12 +200,48 @@ func hasDecorators(props map[string]any) bool {
 
 // normalizeQN lets callers pass a qualified name with or without the project
 // prefix — the compact wire format strips it, so a returned qn comes back short.
+// It also accepts common Go symbol notation that agents infer from package docs.
 func (e *Engine) normalizeQN(qn string) string {
 	prefix := e.project + ":"
-	if strings.HasPrefix(qn, prefix) {
+	short := strings.TrimPrefix(qn, prefix)
+	short = stripGoModulePrefix(short)
+	short = stripGoPointerReceiver(short)
+	return prefix + short
+}
+
+// stripGoModulePrefix removes github.com/<owner>/<repo>/ from an inferred Go QN.
+// Stored QNs are rooted at repository-relative source paths, not module paths.
+func stripGoModulePrefix(qn string) string {
+	const marker = "github.com/"
+	if !strings.HasPrefix(qn, marker) {
 		return qn
 	}
-	return prefix + qn
+	rest := strings.TrimPrefix(qn, marker)
+	ownerEnd := strings.IndexByte(rest, '/')
+	if ownerEnd < 0 {
+		return qn
+	}
+	repoEnd := strings.IndexByte(rest[ownerEnd+1:], '/')
+	if repoEnd < 0 {
+		return qn
+	}
+	return rest[ownerEnd+1+repoEnd+1:]
+}
+
+// stripGoPointerReceiver turns Go's (*T).Method spelling into T.Method.
+func stripGoPointerReceiver(qn string) string {
+	for {
+		start := strings.Index(qn, "(*")
+		if start < 0 {
+			return qn
+		}
+		end := strings.Index(qn[start+2:], ").")
+		if end < 0 {
+			return qn
+		}
+		end += start + 2
+		qn = qn[:start] + qn[start+2:end] + qn[end+1:]
+	}
 }
 
 func (e *Engine) neighbors(qn, dir, edgeType string, limit int) ([]Ref, error) {
