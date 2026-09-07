@@ -213,6 +213,11 @@ The sidecar manifest turns "nothing changed" from a guess into a certified no-op
 
 ## Current focus - Ruby and Rails
 
+Cross-cutting efficiency work is planned in
+[`EFFICIENCY_PLAN.md`](EFFICIENCY_PLAN.md): MCP refresh coordination, bounded
+responses, equivalent-answer benchmarks, and measurement-gated indexing improvements.
+This is a pending execution plan, not a completed milestone.
+
 Ruby and Rails are the next product priority. The completed M1 structural baseline,
 the staged implementation plan, evaluation gates, and non-goals are maintained in
 [`RUBY_ROADMAP.md`](RUBY_ROADMAP.md). M6 remains deferred until that roadmap reaches
