@@ -26,6 +26,15 @@ import (
 	"github.com/Lordymine/codegraph/internal/query"
 )
 
+// Method stamps the wire format the graph side meters. Historical headline
+// numbers stay tagged with the method that produced them (tsv-uncapped-v0
+// before P2) and must not be compared directly with paged-wire-v1 runs.
+const Method = "paged-wire-v1"
+
+// ProductPageRefs is the page size the MCP/CLI tools serve by default; the
+// benchmark meters that same size unless a test overrides it.
+const ProductPageRefs = 500
+
 // windowRadius is how many lines above and below a grep match the efficient
 // baseline agent reads to see the enclosing function. ±10 is generous to the
 // baseline (more context than strictly needed) — it makes the graph's win a
@@ -65,6 +74,13 @@ type Outcome struct {
 	BaselineFile Cost // grep + read whole file per match
 	MatchFiles   int  // distinct files the grep baseline had to open
 	GraphResults int  // nodes the graph returned
+	// Completeness against an independent oracle (see oracle.go). Oracle < 0
+	// means unknown (e.g. `codegraph bench` on a real repo, where no oracle
+	// exists); otherwise Complete reports whether the graph returned exactly
+	// the oracle's caller set — never just "the graph agrees with itself".
+	Oracle      int
+	Complete    bool
+	IndexStatus string // manifest status behind this outcome (healthy/degraded)
 }
 
 // QuestionsFromHubs turns call hubs into "who calls X" questions.
@@ -141,35 +157,83 @@ func (c *Corpus) baselineCost(name string) (win, file Cost) {
 	return win, file
 }
 
-// graphCost runs the actual graph query and meters its compact result.
-func graphCost(eng *query.Engine, q Question) (Cost, int, error) {
-	var refs []query.Ref
-	var err error
-	switch q.Kind {
-	case "callees":
-		refs, err = eng.Callees(q.QN, 200)
-	default: // "callers"
-		refs, err = eng.Callers(q.QN, 200)
+// graphCostPages runs the actual graph query and meters it in the SAME paged
+// wire format the MCP/CLI tools return — every real page, trailer lines
+// included — so the reported ratio reflects the real product, not a
+// measurement trick. Calls counts one round-trip per page walked. The product
+// default (500) is what ships; smaller sizes exist so tests can prove a hub
+// question returns the identical set at any page size — shrinking the page
+// must never manufacture a cheaper-looking answer by truncating it.
+func graphCostPages(eng *query.Engine, q Question, pageSize int) (Cost, map[string]bool, error) {
+	var (
+		tokens int
+		calls  int
+		cursor string
+	)
+	set := map[string]bool{}
+	for {
+		var (
+			page query.RefPage
+			err  error
+		)
+		switch q.Kind {
+		case "callees":
+			page, err = eng.CalleesPage(q.QN, pageSize, cursor)
+		default: // "callers"
+			page, err = eng.CallersPage(q.QN, pageSize, cursor)
+		}
+		if err != nil {
+			return Cost{}, nil, err
+		}
+		tokens += EstimateTokens(page.WireText())
+		calls++
+		for _, r := range page.Refs {
+			set[r.QualifiedName] = true
+		}
+		if !page.HasMore {
+			break
+		}
+		cursor = page.Cursor
 	}
-	if err != nil {
-		return Cost{}, 0, err
-	}
-	// Meter the SAME compact wire format the MCP/CLI tools actually return, so the
-	// reported ratio reflects the real product, not a measurement trick.
-	return Cost{Tokens: EstimateTokens(query.CompactRefs(refs)), Calls: 1}, len(refs), nil
+	return Cost{Tokens: tokens, Calls: calls}, set, nil
 }
 
-// RunOne benchmarks a single question across all three strategies.
+// RunOne benchmarks a single question across all three strategies. The oracle
+// is unknown (-1): no completeness claim.
 func RunOne(eng *query.Engine, c *Corpus, q Question) (Outcome, error) {
-	g, n, err := graphCost(eng, q)
+	return RunOneWithOracle(eng, c, q, nil)
+}
+
+// RunOneWithOracle benchmarks one question and checks completeness against an
+// independent oracle set (qualified names; nil = unknown, no claim). Complete
+// is true only when the graph returns exactly the oracle set — same question
+// semantics on both sides, no truncation win.
+func RunOneWithOracle(eng *query.Engine, c *Corpus, q Question, oracle map[string]bool) (Outcome, error) {
+	g, set, err := graphCostPages(eng, q, ProductPageRefs)
 	if err != nil {
 		return Outcome{}, err
 	}
 	win, file := c.baselineCost(q.Name)
-	return Outcome{
+	o := Outcome{
 		Question: q, Graph: g, BaselineWin: win, BaselineFile: file,
-		MatchFiles: win.Calls - 1, GraphResults: n,
-	}, nil
+		MatchFiles: win.Calls - 1, GraphResults: len(set),
+		Oracle: -1,
+	}
+	if oracle != nil {
+		o.Oracle = len(oracle)
+		o.Complete = len(set) == len(oracle)
+		if o.Complete {
+			for qn := range set {
+				// Oracle keys are project-relative (see oracle.go); strip the
+				// served prefix before comparing — same question semantics.
+				if !oracle[query.StripProjectPrefix(qn)] {
+					o.Complete = false
+					break
+				}
+			}
+		}
+	}
+	return o, nil
 }
 
 // Summary aggregates outcomes. Two aggregate ratios are reported because they

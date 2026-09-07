@@ -41,8 +41,8 @@ nodes_fts  -- FTS5(name, qualified_name, label, file_path) → BM25
 ```
 
 `Store` (internal/graph/store.go) is the only thing that touches SQL:
-`InsertNodes` (keeps FTS in sync), `InsertEdges` (resolves QN→id, drops
-unresolved), `Search` (BM25), `Neighbors` (in/out/both, the basis for
+`InsertNodes` (keeps FTS in sync), `InsertEdges` (resolves QN→id via a
+Store-scoped phase map, drops unresolved), `Search` (BM25), `Neighbors` (in/out/both, the basis for
 callers/callees), `Snippet` (reads file lines), `Stats`, `FileHashes`,
 `ForEachCallEdge` (streaming CALLS for incremental reuse), `ReplaceProject`,
 `DBPath`, `Reopen`, `Checkpoint` (finalizes WAL before an atomic file
@@ -50,6 +50,11 @@ replacement), `ValidateIntegrity` (exact SQLite/FTS/properties/endpoint
 validation), `LogicalGraphDigest` (deterministic content digest), and
 `BeginReadSnapshot`/`EndReadSnapshot` (pin a WAL read transaction — used by tests
 to prove a live reader vetoes `RunAtomic`'s replacement while holding the WAL).
+Two bounded-memory rules (P5): dead-code candidates stream in batches
+(`DeadCodeCandidates` + query-side filtering — memory ∝ batch, never total),
+and the QN→id map is built once per node-stable phase and invalidated
+explicitly by `InsertNodes`/`ReplaceProject`/`Reopen`/`Close` (never global,
+never stale: all node writes go through those methods).
 
 ## Indexing pipeline (internal/index)
 
@@ -169,7 +174,12 @@ batch indexers — scip-typescript for TS/JS (`internal/scip`) and go/packages +
 call graph for Go (`internal/gocalls`) — dropping callees that aren't known graph symbols.
 Incremental (M3, incremental.go): `DetectChanges` gates a no-op when nothing changed, and
 a re-index re-resolves only the changed scopes, reusing the stored CALLS edges of the rest
-via `forEachReusableCallEdge` + batched `insertReusedCallEdges`. Ruby File nodes carry a
+via `forEachReusableCallEdge` + batched `insertReusedCallEdges`. TS scope narrowing (P7,
+tsdeps.go): Modified-only `.ts` transitions invalidate owning scopes plus proven
+dependents (project references transitively closed + observed direct importers from the
+old graph's IMPORTS); added/deleted files, configs, unverifiable tsconfigs and
+root-loose files keep invalidate-all, and the policy version rides the manifest
+fingerprint. Ruby File nodes carry a
 `ruby_analysis_version`; changing it forces one full Ruby analysis rebuild even when source
 hashes are unchanged, so parser/resolver upgrades are visible without requiring an edit.
 
@@ -182,9 +192,17 @@ count, definition batch size, Go `debug.SetMemoryLimit`, scip-typescript
 `memory.Gate()` runs between pipeline phases (and after each scip scope) to hand freed
 heap back to the OS, which matters for the long-running MCP server after a large index.
 
-M4 enrichment: `ResolveSimilar` (similar.go) emits `SIMILAR_TO` near-clone edges from a
+M4 enrichment: similarity emits `SIMILAR_TO` near-clone edges from a
 MinHash signature + LSH banding over each function's token shingles (`internal/similar`,
-no embeddings). The definitions pass also stamps McCabe cyclomatic complexity onto each
+no embeddings). The LSH pass runs under a resource budget (P4 — `similar.Limits`:
+pair budget + edge cap, env-overridable for debugging): buckets are processed in
+sorted order over QN-sorted docs, so a binding budget keeps a deterministic,
+stable prefix instead of a map-random sample, and cancellation is honored
+between pairs. Coverage (`complete`/`partial`/`omitted`) travels in `Result`
+and the manifest — a partial pass never degrades CALLS trust, and the
+algorithm+budget version participates in the no-op fingerprint, so a budget
+change rebuilds instead of certifying one budget's output as another's.
+`similar` answers and `status` surface the coverage with an actionable notice. The definitions pass also stamps McCabe cyclomatic complexity onto each
 Function/Method (`complexity.go`, one tree-sitter subtree walk) into `properties.complexity`.
 The Go/TS call resolvers credit calls inside closures to the enclosing named function and
 keep recursive self-edges — recall fixes that took intra-repo callers to ~100% (see
@@ -234,31 +252,93 @@ to `scope controller:`. Missing, dynamic, and malformed targets drop.
 
 ## Query layer (internal/query)
 
-`Engine` exposes the agent-facing operations: `Search`, `Callers`, `Callees`,
-`Neighbors`, `Similar`, `DeadCode` (each returning `[]Ref`), `Architecture` (the repo
-map — languages/counts/packages/hotspots, rendered compactly), `Snippet`, and
-`DetectChanges`. `Close`/`Reopen` wrap the underlying `Store` — the MCP server closes
-before a background `RunAtomic` (Windows file lock), then reopens the committed graph.
-This is the contract both the CLI and the MCP server use, so behavior is identical
-across entry points. Relationship queries default to limit 500 (a hub can have hundreds
-of callers — a low cap would silently truncate the answer).
+`Engine` exposes the agent-facing operations as **pages**: `SearchPage`,
+`CallersPage`, `CalleesPage`, `NeighborsPage`, `SimilarPage`, `DeadCodePage`
+(each returning a `RefPage`), `SnippetPage`, plus `Architecture` (the repo map
+— languages/counts/packages/hotspots, rendered compactly) and `DetectChanges`.
+`Close`/`Reopen` wrap the underlying `Store`. This is the contract both the CLI
+and the MCP server use, so behavior is identical across entry points.
+
+Paged wire format (P2): every ref/snippet answer ends with one `#` trailer
+line carrying `has_more`, an opaque `cursor`, and the served `generation`
+(short manifest digest). A truncated answer therefore never looks exhaustive —
+the client passes the cursor back for the next page. Cursors bind to the exact
+query (tool + normalized target + page size) and generation: a cursor from
+another question or a post-refresh graph is rejected with orientation to
+restart, never mixing snapshots. `has_more` is derived from a limit+1 probe
+row (no COUNT); byte budgets (32 KiB text per page) prevail over counts
+(500 refs / 200 snippet lines default, giants clamp before any allocation);
+single oversize refs/lines go whole, never split into invalid references.
+Snippet pages stream incrementally (memory ∝ page, not file) and resume at
+line starts; a file modified between pages fails the next page instead of
+shifting lines silently. Relationship rows come back in stable
+`qualified_name` order with LIMIT/OFFSET over the immutable generation, and the
+`both`-direction UNION (not UNION ALL) still dedups bidirectional hits,
+self-edges and cross-type duplicates.
+
+## MCP refresh protocol (P1 — per-operation locks + generation revalidation)
+
+Refresh ownership: any client may own an update — the MCP `refresh` tool
+(explicit, async, deduped per process: a second call while one is in flight
+answers "already updating") or an external `codegraph index` (the writer).
+There is deliberately **no file watcher**; staleness is never promised
+continuously. A session converges by running `refresh` (which re-runs the
+atomic core — a no-op when another process already committed — and reopens the
+winner). `status` never mutates the session: when the disk holds a newer
+generation it reports the lag and orients the caller to `refresh`.
+
+Locking (chosen design — per-operation, not lifetime): readers hold the shared
+per-database lock only around `reopen`, i.e. the brief two-file commit window
+they must not straddle. Writers hold the exclusive lock for the whole
+`RunAtomic`. Consequences:
+
+- Never two writers: the second fails fast with `index already in progress`.
+- No client blocks a refresh indefinitely: a live MCP session holds **no**
+  lock while idle, so an external writer proceeds on Unix. On Windows the OS
+  still forbids replacing the open SQLite file — the writer then fails with an
+  actionable error (stop the other client or run `refresh` inside it).
+- Fail-safe for old clients: a pre-P1 reader that still holds a lifetime lock
+  makes a writer fail fast with the same actionable error, never corrupt data.
+
+Engine lifetime: one mutex per session serializes queries against
+close/reopen. The state gate and the query run atomically under it, so a query
+can never touch a closed engine (closed → actionable error, never a panic).
+During `updating` the old graph is **not** served — tools answer the update
+state instead of mixing generations. Handshake (`initialize`, `tools/list`)
+and `status` are never gated, so they stay responsive mid-refresh.
+
+Observable states (`status` tool): `ready` (serving generation G),
+`updating` (refresh in flight), `degraded` (serving a graph whose manifest is
+`degraded`, or serving the previous graph after a failed refresh — answers
+carry the failure/resolver context, never silent staleness), `failed` (round
+failed and no queryable graph), `unavailable` (no graph ever committed).
+Generation = the manifest's `graph_content_digest` (short 12 chars); it changes
+iff the logical graph changes, so two cooperating sessions converge if and only
+if they report the same generation. Cursor/continuation binding to generations
+is P2's job; P1 only reports them.
+
+Cancellation: refresh runs under the session context; stdin close cancels it
+before the linearization point, and cleanup/recovery semantics are unchanged
+(failure or cancel after manifest-first install still fails closed to a
+rebuild, never to a certified no-op).
 
 ## MCP server (internal/mcp)
 
 Minimal stdio JSON-RPC 2.0 (newline-delimited — the MCP convention), stdlib only.
 Handles `initialize`, `tools/list`, `tools/call`. Tools: `search`, `callers`,
-`callees`, `neighbors`, `similar`, `dead_code`, `snippet`, `detect_changes`. Swap for
-`github.com/mark3labs/mcp-go` if it grows.
+`callees`, `neighbors`, `similar`, `dead_code`, `snippet`, `detect_changes`,
+plus `refresh` and `status` (P1, wired by the host command).
 
-The `mcp` command (M5) auto-indexes in a background goroutine on startup and gates
-tool calls behind a readiness check (`Server.SetReadiness`) — the handshake answers
-immediately, tools report "indexing" until the graph is built, never a half-written
+The `mcp` command auto-indexes in a background goroutine on startup and gates
+tool calls behind a state check — the handshake answers
+immediately, tools report `updating` until the graph is built, never a half-written
 store. On index failure, `RunAtomic` leaves the previous graph on disk; the server
-attempts to reopen it and becomes ready only if the reopen succeeds, prepending the
-failure status to every tool response (stale-data context); if the reopen itself
-fails, the server reports the error and stays not ready. Do not run `codegraph index`
-on the same repo while MCP is auto-indexing — both contend for the same store file.
-The repo is resolved from `$CLAUDE_PROJECT_DIR` (set by Claude Code) or cwd, so one
+attempts to reopen it and keeps serving it while reporting `degraded`/`failed`
+with the failure context; if the reopen itself
+fails, the server reports the error and serves nothing. A `codegraph index`
+in another process no longer has to wait for a lifetime reader lock — it
+contends only with an in-flight refresh (fail fast) or, on Windows, with an
+open SQLite handle (actionable error). The repo is resolved from `$CLAUDE_PROJECT_DIR` (set by Claude Code) or cwd, so one
 registration serves any repo. `codegraph install` (`internal/install`) registers the
 server into detected agents — Claude Code/Codex via their add-CLI, opencode via a
 config-file merge — and prints a manual snippet for the rest.
@@ -283,7 +363,7 @@ absolute repo path (matches upstream convention).
 ```
 cmd/codegraph/        CLI entrypoint + subcommands (index/stats/mcp/bench/quality/cli)
 internal/graph/       model.go (Node/Edge/labels/edge-types) + store.go (SQLite)
-internal/index/       discover.go, path.go, manifest.go, resolver.go, lock.go (+ platform files), atomic_helpers.go, definitions.go + treesitter.go + complexity.go + routes.go, imports.go, calls.go, ruby_calls.go, similar.go, incremental.go, prepare.go, pipeline.go
+internal/index/       discover.go, path.go, manifest.go, resolver.go, lock.go (+ platform files), atomic_helpers.go, definitions.go + treesitter.go + complexity.go + routes.go, imports.go, calls.go, ruby_calls.go, similar.go, incremental.go, prepare.go, pipeline.go, tsdeps.go
 internal/memory/      auto-tuned indexing RAM budget + Gate() between phases
 internal/scip/        scip-typescript runner + SCIP→CALLS attribution (TS/JS, M2)
 internal/gocalls/     go/packages + VTA call graph → CALLS (Go, M2; cha.go = generics-safe)

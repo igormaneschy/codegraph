@@ -67,8 +67,17 @@ being penalised for stdlib it never indexes.
 2. **Responders** — two agents answer every question under realistic constraint and
    self-report tokens + tool calls:
    - `graph` — may use **only** the codegraph tools (`cli search|callers|callees|snippet`).
+     Since P2 these return one page plus a `# has_more/cursor/generation`
+     trailer: responders must walk every page (`cursor`) for a complete answer —
+     stopping at page one is scored as incomplete, not as a cheaper win.
    - `baseline` — may use **only** `grep` + file reads.
 3. **Judge** — scores the `open` answers 0–1 against the oracle's notes.
+
+Two different oracles, two different jobs: the quality harness oracle above
+grades *answer quality* (F1 + LLM judge) on real repos, while the benchmark's
+`bench.GoCallersOracle` (go/ast, `internal/bench/oracle.go`) pins *recall
+completeness* deterministically on synthetic fixtures — no LLM, no budget, the
+exact caller set. Neither oracle is the graph agreeing with itself.
 
 `codegraph quality score` then computes F1 for structural answers, ingests the
 judge scores for open ones, and emits the comparison table.

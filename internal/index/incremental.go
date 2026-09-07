@@ -211,27 +211,42 @@ func changedScopes(ch Changes, tsconfigDirs []string) map[string]bool {
 	return out
 }
 
-// changedScopesWithTSDependencies conservatively expands any TS/JS source
-// transition to every current TS scope. Package/workspace/path-alias ownership
-// is not fully resolved by the lightweight import pass, so a guessed reverse
-// importer set is not safe for CALLS reuse.
-func changedScopesWithTSDependencies(ctx context.Context, ch Changes, tsconfigDirs []string) (map[string]bool, error) {
+// changedScopesWithTSDependencies expands TS/JS source transitions to the
+// scopes that must re-resolve. Modified-only .ts transitions narrow to owning
+// scopes plus proven dependents (project references, transitively closed, plus
+// observed direct importers) — see tsdeps.go. Anything else (added/deleted
+// files, unresolvable ownership, unverifiable configs) keeps the historical
+// invalidate-all-TS-scopes behavior: a guessed scope set could certify a stale
+// caller in another TS project.
+func changedScopesWithTSDependencies(ctx context.Context, store *graph.Store, project, root string, inputs map[string]InputFingerprint, ch Changes, tsconfigDirs []string) (map[string]bool, error) {
 	out := changedScopes(ch, tsconfigDirs)
-	for _, paths := range [][]string{ch.Changed, ch.Added, ch.Deleted} {
-		for _, rel := range paths {
-			if !isTSSourcePath(rel) {
-				continue
-			}
-			// Package/workspace/path-alias ownership is not fully resolved by the
-			// lightweight import pass. Reusing only a guessed reverse-importer set
-			// could certify a stale caller in another TS project, so every current
-			// TS scope is invalidated for any TS/JS source transition.
-			out[allTSCallScopesMarker] = true
-			for _, dir := range tsconfigDirs {
-				out[dir] = true
-			}
-			return out, nil
+	var modifiedTS []string
+	for _, rel := range ch.Changed {
+		if isTSSourcePath(rel) {
+			modifiedTS = append(modifiedTS, rel)
 		}
+	}
+	if len(modifiedTS) == 0 {
+		return out, nil
+	}
+	expandAll := func() map[string]bool {
+		out[allTSCallScopesMarker] = true
+		for _, dir := range tsconfigDirs {
+			out[dir] = true
+		}
+		return out
+	}
+	if len(ch.Added) > 0 || len(ch.Deleted) > 0 {
+		// Membership or resolvability may have shifted; the manifest gate
+		// widens these too, but the fallback is explicit here.
+		return expandAll(), nil
+	}
+	seeds, ok := selectiveTSInvalidation(ctx, store, project, root, inputs, modifiedTS, tsconfigDirs)
+	if !ok {
+		return expandAll(), nil
+	}
+	for scope := range seeds {
+		out[scope] = true
 	}
 	return out, nil
 }

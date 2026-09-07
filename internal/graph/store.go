@@ -15,8 +15,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
-
-	"github.com/Lordymine/codegraph/internal/securefile"
+	"sync"
 
 	_ "modernc.org/sqlite" // pure-Go SQLite driver (no cgo) — driver name "sqlite"
 )
@@ -28,6 +27,57 @@ type Store struct {
 	db     *sql.DB
 	path   string
 	snapTx *sql.Tx // optional DEFERRED read txn pinning a pre-wipe graph snapshot
+
+	// qnMap caches qualified_name → id for the project of the last edge
+	// insert, so a pipeline phase with a stable node set (defines, imports,
+	// per-scope calls, similar) resolves endpoints without rescanning the
+	// nodes table on every InsertEdges call. It is Store-scoped, never
+	// global, and every node mutation invalidates it explicitly: InsertNodes
+	// (late nodes, e.g. routes), ReplaceProject (ids recycled), Reopen/Close
+	// (new handle, possibly a new generation). All node writes go through
+	// those methods, so the map cannot go stale unobserved.
+	qnMu         sync.Mutex
+	qnMapProject string
+	qnMap        map[string]int64
+}
+
+// qnIDs returns the cached QN→id map for project, rebuilding it on first use
+// or after any node mutation. The returned map is read-only to callers.
+func (s *Store) qnIDs(project string) (map[string]int64, error) {
+	s.qnMu.Lock()
+	defer s.qnMu.Unlock()
+	if s.qnMap != nil && s.qnMapProject == project {
+		return s.qnMap, nil
+	}
+	m := make(map[string]int64)
+	rows, err := s.db.Query(`SELECT qualified_name, id FROM nodes WHERE project=?`, project)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var qn string
+		var id int64
+		if err := rows.Scan(&qn, &id); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		m[qn] = id
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	s.qnMap, s.qnMapProject = m, project
+	return m, nil
+}
+
+// invalidateQNMap drops the cached QN→id map. Called by every method that
+// changes node identity: InsertNodes, ReplaceProject, Reopen, Close.
+func (s *Store) invalidateQNMap() {
+	s.qnMu.Lock()
+	s.qnMap = nil
+	s.qnMapProject = ""
+	s.qnMu.Unlock()
 }
 
 const schema = `
@@ -139,6 +189,7 @@ func (s *Store) Close() error {
 		_ = s.snapTx.Rollback()
 		s.snapTx = nil
 	}
+	s.invalidateQNMap()
 	if s.db == nil {
 		return nil
 	}
@@ -201,6 +252,7 @@ func (s *Store) Reopen(path string) error {
 	if err := s.Close(); err != nil {
 		return err
 	}
+	// Close invalidated the map; the new handle may serve a new generation.
 	db, err := openDatabase(path)
 	if err != nil {
 		return err
@@ -601,6 +653,8 @@ func digestGraphField(h hash.Hash, value string) {
 // ReplaceProject wipes a project's nodes/edges/FTS so a re-index is clean.
 // (Incremental indexing — only changed files — is a later milestone.)
 func (s *Store) ReplaceProject(project string) (retErr error) {
+	// Wiping recycles ids: the cached map must not survive.
+	defer s.invalidateQNMap()
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
@@ -635,6 +689,8 @@ func (s *Store) ReplaceProject(project string) (retErr error) {
 
 // InsertNodes inserts nodes and assigns IDs, keeping the FTS index in sync.
 func (s *Store) InsertNodes(nodes []Node) (retErr error) {
+	// New nodes invalidate the cached QN→id map (late nodes must resolve).
+	defer s.invalidateQNMap()
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
@@ -775,22 +831,8 @@ func (s *Store) InsertEdges(edges []Edge) (inserted, dropped int, err error) {
 	}
 
 	project := edges[0].Project
-	idByQN := make(map[string]int64)
-	rows, err := s.db.Query(`SELECT qualified_name, id FROM nodes WHERE project=?`, project)
+	idByQN, err := s.qnIDs(project)
 	if err != nil {
-		return 0, 0, err
-	}
-	for rows.Next() {
-		var qn string
-		var id int64
-		if err := rows.Scan(&qn, &id); err != nil {
-			rows.Close()
-			return 0, 0, err
-		}
-		idByQN[qn] = id
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
 		return 0, 0, err
 	}
 
@@ -1024,22 +1066,35 @@ func (s *Store) countBy(q, project string) (map[string]int, error) {
 	return out, rows.Err()
 }
 
-// FunctionsWithoutInboundCalls returns Function/Method nodes that no in-graph
-// CALLS edge points at — the raw candidate set for the dead-code hint. It is only
-// the graph half of the answer: the query layer still drops entry points
-// (exported, decorated, main/init, tests) before reporting, because those have no
-// in-graph caller by design, not because they're dead.
-func (s *Store) FunctionsWithoutInboundCalls(project string) ([]Node, error) {
-	// source_id <> n.id ignores self-edges: a function reachable only by its own
-	// recursion is still unreachable from the rest of the repo, so it stays dead.
-	// #nosec G202 -- ftsCols("n.") prefixes the internal nodeCols constant; values stay parameters.
+// DeadCodeCandidates streams Function/Method nodes that no in-graph CALLS
+// edge points at, in (file_path, start_line) order, rows [offset,
+// offset+limit) — the paged, bounded-memory backing for dead-code queries.
+// Memory is proportional to the batch, never to the candidate total: callers
+// loop batches until their filtered page (plus its continuation probe) is
+// full.
+//
+// source_id <> n.id ignores self-edges: a function reachable only by its own
+// recursion is still unreachable from the rest of the repo, so it stays dead.
+// Entry-point filtering (exported, decorated, main/init, tests) stays in the
+// query layer, which owns those semantics; because callers keep pulling
+// batches while their filtered page is short, an entry-point-heavy repo can
+// never starve a page into a false "no more candidates".
+//
+// #nosec G202 -- ftsCols("n.") prefixes the internal nodeCols constant; values stay parameters.
+func (s *Store) DeadCodeCandidates(project string, offset, limit int) ([]Node, error) {
+	if offset < 0 {
+		return nil, fmt.Errorf("invalid offset %d: want a non-negative row offset", offset)
+	}
+	if limit <= 0 {
+		return nil, fmt.Errorf("invalid batch size %d: want a positive batch size", limit)
+	}
 	q := `SELECT ` + ftsCols("n.") + ` FROM nodes n
 		WHERE n.project=? AND n.label IN ('Function','Method')
 		AND NOT EXISTS (
 			SELECT 1 FROM edges e WHERE e.target_id = n.id AND e.source_id <> n.id AND e.type='CALLS'
 		)
-		ORDER BY n.file_path ASC, n.start_line ASC`
-	rows, err := s.db.Query(q, project)
+		ORDER BY n.file_path ASC, n.start_line ASC LIMIT ? OFFSET ?`
+	rows, err := s.db.Query(q, project, limit, offset)
 	if err != nil {
 		return nil, err
 	}
@@ -1051,6 +1106,50 @@ func (s *Store) FunctionsWithoutInboundCalls(project string) ([]Node, error) {
 			return nil, err
 		}
 		out = append(out, n)
+	}
+	return out, rows.Err()
+}
+
+// ImportSourcesOfFiles returns the distinct source file rels having IMPORTS
+// edges into any of targetFiles (all repo-relative, e.g. "pkg/a.ts"). IMPORTS
+// edges are file→file, so this is the observed cross-file coupling used for
+// TS selective invalidation: a scope importing a changed file must
+// re-resolve. Files with unresolvable imports leave no edge; for
+// Modified-only transitions that is sound (resolvability can't change without
+// membership/config transitions, which invalidate broadly via the manifest
+// gate), and Added/Deleted transitions never reach this query selectively.
+func (s *Store) ImportSourcesOfFiles(project string, targetFiles []string) ([]string, error) {
+	if len(targetFiles) == 0 {
+		return nil, nil
+	}
+	// #nosec G202 -- placeholders are generated, one per target; values stay parameters.
+	placeholders := make([]byte, 0, len(targetFiles)*2)
+	args := make([]any, 0, len(targetFiles)+3)
+	args = append(args, project, string(EdgeImports), project)
+	for i, rel := range targetFiles {
+		if i > 0 {
+			placeholders = append(placeholders, ',')
+		}
+		placeholders = append(placeholders, '?')
+		args = append(args, project+":"+rel)
+	}
+	q := `SELECT DISTINCT n.qualified_name FROM edges e
+		JOIN nodes n ON n.id = e.source_id
+		WHERE e.project=? AND e.type=?
+		AND e.target_id IN (SELECT id FROM nodes WHERE project=? AND qualified_name IN (` + string(placeholders) + `))`
+	rows, err := s.db.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	prefix := project + ":"
+	for rows.Next() {
+		var qn string
+		if err := rows.Scan(&qn); err != nil {
+			return nil, err
+		}
+		out = append(out, strings.TrimPrefix(qn, prefix))
 	}
 	return out, rows.Err()
 }
@@ -1184,8 +1283,17 @@ const nodeCols = `id,project,label,name,qualified_name,file_path,start_line,end_
 // Search runs a BM25 FTS query over node names/qualified names. `label` filters
 // by node kind when non-empty.
 func (s *Store) Search(project, query, label string, limit int) ([]SearchHit, error) {
+	return s.SearchPage(project, query, label, limit, 0)
+}
+
+// SearchPage is the paged form of Search: BM25 rank with a node-id tiebreak
+// for a deterministic order, rows [offset, offset+limit).
+func (s *Store) SearchPage(project, query, label string, limit, offset int) ([]SearchHit, error) {
 	if limit <= 0 {
 		limit = 25
+	}
+	if offset < 0 {
+		return nil, fmt.Errorf("invalid offset %d: want a non-negative row offset", offset)
 	}
 	// #nosec G202 -- ftsCols("n.") prefixes the internal nodeCols constant; values stay parameters.
 	q := `SELECT ` + ftsCols("n.") + `, fts.rank
@@ -1196,8 +1304,8 @@ func (s *Store) Search(project, query, label string, limit int) ([]SearchHit, er
 		q += ` AND n.label = ?`
 		args = append(args, label)
 	}
-	q += ` ORDER BY fts.rank LIMIT ?`
-	args = append(args, limit)
+	q += ` ORDER BY fts.rank, n.id LIMIT ? OFFSET ?`
+	args = append(args, limit, offset)
 
 	rows, err := s.db.Query(q, args...)
 	if err != nil {
@@ -1246,13 +1354,30 @@ func ftsQuery(q string) string {
 // Neighbors returns nodes connected to the given qualified name. direction is
 // "out" (callees/dependencies), "in" (callers/dependents) or "both".
 // edgeType filters by relationship when non-empty.
+//
+// Rows come back in stable qualified_name order with LIMIT/OFFSET paging, so a
+// cursor over (generation, offset) replays the full set without duplicates or
+// omissions — the graph is immutable within a generation, so offsets cannot
+// drift. Dedup is preserved: the "both" UNION (not UNION ALL) still collapses
+// bidirectional hits, self-edges and cross-type duplicates into one row.
+//
+// Prefer NeighborsPage: this wrapper returns only the first page, so product
+// surfaces must use the paged form (with its has_more/cursor) instead.
 func (s *Store) Neighbors(project, qualifiedName, direction, edgeType string, limit int) ([]Node, error) {
+	return s.NeighborsPage(project, qualifiedName, direction, edgeType, limit, 0)
+}
+
+// NeighborsPage is the paged form of Neighbors: rows [offset, offset+limit).
+func (s *Store) NeighborsPage(project, qualifiedName, direction, edgeType string, limit, offset int) ([]Node, error) {
 	if limit <= 0 {
 		// callers/callees/neighbors/similar are exhaustive relationship queries, so a
 		// low cap turns a recall ceiling into a wrong answer (gh-cli's iostreams.Test
 		// has 448 callers). 500 covers real hubs while staying bounded against a
 		// pathological "called everywhere" symbol; callers can pass an explicit limit.
 		limit = 500
+	}
+	if offset < 0 {
+		return nil, fmt.Errorf("invalid offset %d: want a non-negative row offset", offset)
 	}
 	// The type filter is embedded per-SELECT so it also applies to the "both"
 	// UNION (one clause in each arm) — that's what lets `similar` ask for just
@@ -1294,8 +1419,8 @@ func (s *Store) Neighbors(project, qualifiedName, direction, edgeType string, li
 			WHERE s.project=? AND s.qualified_name=?` + typeClause
 		args = endpoint(nil)
 	}
-	q += ` LIMIT ?`
-	args = append(args, limit)
+	q += ` ORDER BY n.qualified_name LIMIT ? OFFSET ?`
+	args = append(args, limit, offset)
 
 	rows, err := s.db.Query(q, args...)
 	if err != nil {
@@ -1311,31 +1436,6 @@ func (s *Store) Neighbors(project, qualifiedName, direction, edgeType string, li
 		out = append(out, n)
 	}
 	return out, rows.Err()
-}
-
-// Snippet reads the source lines [start,end] for a node from disk. repoRoot is
-// the repository root; filePath must be repo-relative (as stored on nodes). Paths
-// outside the root — including .. segments and absolute paths — are rejected.
-func Snippet(repoRoot, filePath string, start, end int) (string, error) {
-	abs, err := resolveRepoFile(repoRoot, filePath)
-	if err != nil {
-		return "", err
-	}
-	data, err := securefile.ReadFile(abs)
-	if err != nil {
-		return "", err
-	}
-	lines := strings.Split(string(data), "\n")
-	if start < 1 {
-		start = 1
-	}
-	if end > len(lines) || end == 0 {
-		end = len(lines)
-	}
-	if start > end {
-		return "", fmt.Errorf("bad range %d-%d", start, end)
-	}
-	return strings.Join(lines[start-1:end], "\n"), nil
 }
 
 // resolveRepoFile maps a repo-relative path to an absolute path confined under

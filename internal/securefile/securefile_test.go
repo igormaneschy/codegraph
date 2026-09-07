@@ -115,6 +115,43 @@ func TestWritePrivateReplacesSymlinkWithoutTouchingTarget(t *testing.T) {
 	}
 }
 
+func TestWritePrivateTempMatchesDurableChecks(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		if err := WritePrivateTemp(filepath.Join(t.TempDir(), "stage.txt"), []byte("data")); !errors.Is(err, ErrUnsupported) {
+			t.Fatalf("Windows WritePrivateTemp error=%v, want ErrUnsupported", err)
+		}
+		return
+	}
+	dir := physicalTempDir(t)
+	target := filepath.Join(physicalTempDir(t), "target.txt")
+	destination := filepath.Join(dir, "stage.txt")
+	if err := os.WriteFile(target, []byte("keep target\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, destination); err != nil {
+		t.Skipf("symlink creation unavailable: %v", err)
+	}
+	// Same checks as the durable write (symlink replaced, target untouched,
+	// owner-only mode) — only the crash-durability fsync is skipped.
+	if err := WritePrivateTemp(destination, []byte("staged\n")); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := os.ReadFile(target); err != nil || string(got) != "keep target\n" {
+		t.Fatalf("symlink target changed to %q (err=%v)", got, err)
+	}
+	got, err := os.ReadFile(destination)
+	if err != nil || string(got) != "staged\n" {
+		t.Fatalf("destination content=%q err=%v", got, err)
+	}
+	info, err := os.Lstat(destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 {
+		t.Fatalf("destination mode=%s, want regular 0600", info.Mode())
+	}
+}
+
 func TestMkdirAllPrivateRejectsParentSymlink(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		if err := MkdirAllPrivate(filepath.Join(t.TempDir(), "nested")); !errors.Is(err, ErrUnsupported) {

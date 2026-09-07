@@ -12,8 +12,8 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strings"
 
+	"github.com/Lordymine/codegraph/internal/index"
 	"github.com/Lordymine/codegraph/internal/query"
 )
 
@@ -36,18 +36,74 @@ type rpcError struct {
 	Message string `json:"message"`
 }
 
+// QueryEngine is the query surface the server exposes. *query.Engine satisfies
+// it; hosts may wrap it (e.g. with a lifetime guard) without touching dispatch.
+type QueryEngine interface {
+	SearchPage(q, label string, limit int, cursor string) (query.RefPage, error)
+	CallersPage(qualifiedName string, limit int, cursor string) (query.RefPage, error)
+	CalleesPage(qualifiedName string, limit int, cursor string) (query.RefPage, error)
+	NeighborsPage(qualifiedName string, limit int, cursor string) (query.RefPage, error)
+	SimilarPage(qualifiedName string, limit int, cursor string) (query.RefPage, error)
+	DeadCodePage(limit int, cursor string) (query.RefPage, error)
+	SimilarNotice() string
+	Architecture(topN int) (query.Architecture, error)
+	SnippetPage(filePath string, start, end, limit int, cursor string) (query.SnippetPage, error)
+	DetectChanges() (index.Changes, error)
+}
+
 // Server serves MCP over the given streams using a query engine.
 type Server struct {
-	eng   *query.Engine
+	eng   QueryEngine
 	in    *bufio.Scanner
 	out   *json.Encoder
 	ready func() (bool, string) // nil = always ready; see SetReadiness
+	extra []extraTool
 }
 
-func NewServer(eng *query.Engine, in io.Reader, out io.Writer) *Server {
+// extraTool is a host-registered tool (e.g. refresh/status): schema plus a
+// handler returning the text content. Ungated tools answer even while the
+// readiness gate reports not-ready, so handshake-adjacent operations stay
+// responsive during an update.
+type extraTool struct {
+	name        string
+	description string
+	properties  map[string]any
+	required    []string
+	ungated     bool
+	handler     func(args json.RawMessage) (string, error)
+}
+
+func NewServer(eng QueryEngine, in io.Reader, out io.Writer) *Server {
 	sc := bufio.NewScanner(in)
 	sc.Buffer(make([]byte, 0, 1024*1024), 16*1024*1024)
 	return &Server{eng: eng, in: sc, out: json.NewEncoder(out)}
+}
+
+// RegisterTool adds a host-owned tool (e.g. refresh/status) to tools/list and
+// dispatch. The handler receives the raw arguments object and returns the text
+// content. When ungated is true the tool answers even while the readiness gate
+// reports not-ready — reserved for operations that must stay responsive during
+// an update. Names colliding with built-ins are rejected.
+func (s *Server) RegisterTool(name, description string, properties map[string]any, required []string, ungated bool, handler func(args json.RawMessage) (string, error)) error {
+	if handler == nil {
+		return fmt.Errorf("mcp: tool %q has no handler", name)
+	}
+	switch name {
+	case "search", "callers", "callees", "neighbors", "similar", "dead_code",
+		"get_architecture", "snippet", "detect_changes":
+		return fmt.Errorf("mcp: tool %q is built in", name)
+	}
+	for _, e := range s.extra {
+		if e.name == name {
+			return fmt.Errorf("mcp: tool %q already registered", name)
+		}
+	}
+	if required == nil {
+		required = []string{}
+	}
+	s.extra = append(s.extra, extraTool{name: name, description: description,
+		properties: properties, required: required, ungated: ungated, handler: handler})
+	return nil
 }
 
 // SetReadiness installs a gate consulted before every tool call. While it reports
@@ -92,7 +148,7 @@ func (s *Server) handle(req rpcRequest) {
 	case "notifications/initialized":
 		// no response for notifications
 	case "tools/list":
-		s.reply(req.ID, map[string]any{"tools": toolSpecs()})
+		s.reply(req.ID, map[string]any{"tools": s.toolSpecs()})
 	case "tools/call":
 		s.callTool(req)
 	default:
@@ -108,17 +164,27 @@ type toolCallParams struct {
 }
 
 func (s *Server) callTool(req rpcRequest) {
-	var statusMsg string
+	var p toolCallParams
+	_ = json.Unmarshal(req.Params, &p)
+	if text, err, handled := s.callExtra(p, req); handled {
+		if err != nil {
+			s.fail(req.ID, -32000, err.Error())
+			return
+		}
+		s.reply(req.ID, map[string]any{
+			"content": []map[string]any{{"type": "text", "text": text}},
+		})
+		return
+	}
+	var notice string
 	if s.ready != nil {
 		ok, msg := s.ready()
 		if !ok {
 			s.reply(req.ID, map[string]any{"content": []map[string]any{{"type": "text", "text": msg}}})
 			return
 		}
-		statusMsg = msg
+		notice = msg
 	}
-	var p toolCallParams
-	_ = json.Unmarshal(req.Params, &p)
 	var args struct {
 		Query         string `json:"query"`
 		Label         string `json:"label"`
@@ -127,42 +193,45 @@ func (s *Server) callTool(req rpcRequest) {
 		StartLine     int    `json:"start_line"`
 		EndLine       int    `json:"end_line"`
 		Limit         int    `json:"limit"`
+		Cursor        string `json:"cursor"`
 	}
 	_ = json.Unmarshal(p.Arguments, &args)
 
-	// Ref-returning tools emit the compact wire format (one TSV line per ref:
-	// label<TAB>name<TAB>file:line<TAB>qn); snippet emits raw source. We never
-	// JSON-wrap the result — that wrapper is exactly the token overhead the
-	// compact format exists to avoid.
+	// Ref/snippet tools emit one page plus a `#` trailer line carrying
+	// has_more + cursor + generation, so a truncated answer never looks
+	// exhaustive. Pass the trailer's cursor back as `cursor` for the next
+	// page. We never JSON-wrap the result — that wrapper is exactly the token
+	// overhead the compact format exists to avoid.
 	var (
 		text string
 		err  error
 	)
+	pageText := func(p query.RefPage, err error) (string, error) {
+		if err != nil {
+			return "", err
+		}
+		return p.WireText(), nil
+	}
 	switch p.Name {
 	case "search":
-		var refs []query.Ref
-		refs, err = s.eng.Search(args.Query, args.Label, args.Limit)
-		text = query.CompactRefs(refs)
+		text, err = pageText(s.eng.SearchPage(args.Query, args.Label, args.Limit, args.Cursor))
 	case "callers":
-		var refs []query.Ref
-		refs, err = s.eng.Callers(args.QualifiedName, args.Limit)
-		text = query.CompactRefs(refs)
+		text, err = pageText(s.eng.CallersPage(args.QualifiedName, args.Limit, args.Cursor))
 	case "callees":
-		var refs []query.Ref
-		refs, err = s.eng.Callees(args.QualifiedName, args.Limit)
-		text = query.CompactRefs(refs)
+		text, err = pageText(s.eng.CalleesPage(args.QualifiedName, args.Limit, args.Cursor))
 	case "neighbors":
-		var refs []query.Ref
-		refs, err = s.eng.Neighbors(args.QualifiedName, args.Limit)
-		text = query.CompactRefs(refs)
+		text, err = pageText(s.eng.NeighborsPage(args.QualifiedName, args.Limit, args.Cursor))
 	case "similar":
-		var refs []query.Ref
-		refs, err = s.eng.Similar(args.QualifiedName, args.Limit)
-		text = query.CompactRefs(refs)
+		text, err = pageText(s.eng.SimilarPage(args.QualifiedName, args.Limit, args.Cursor))
+		if err == nil {
+			// Incomplete clone coverage is answer-shaping context: a partial
+			// `similar` page without it reads as "no (more) clones".
+			if notice := s.eng.SimilarNotice(); notice != "" {
+				text = notice + "\n\n" + text
+			}
+		}
 	case "dead_code":
-		var refs []query.Ref
-		refs, err = s.eng.DeadCode(args.Limit)
-		text = query.CompactRefs(refs)
+		text, err = pageText(s.eng.DeadCodePage(args.Limit, args.Cursor))
 	case "get_architecture":
 		var arch query.Architecture
 		arch, err = s.eng.Architecture(args.Limit)
@@ -170,7 +239,11 @@ func (s *Server) callTool(req rpcRequest) {
 			text = query.RenderArchitecture(arch)
 		}
 	case "snippet":
-		text, err = s.eng.Snippet(args.File, args.StartLine, args.EndLine)
+		var pg query.SnippetPage
+		pg, err = s.eng.SnippetPage(args.File, args.StartLine, args.EndLine, args.Limit, args.Cursor)
+		if err == nil {
+			text = pg.WireText()
+		}
 	case "detect_changes":
 		ch, derr := s.eng.DetectChanges()
 		if err = derr; err == nil {
@@ -186,11 +259,11 @@ func (s *Server) callTool(req rpcRequest) {
 		s.fail(req.ID, -32000, err.Error())
 		return
 	}
-	if statusMsg != "" && indexFailureStatus(statusMsg) {
+	if notice != "" {
 		if text != "" {
-			text = statusMsg + "\n\n" + text
+			text = notice + "\n\n" + text
 		} else {
-			text = statusMsg
+			text = notice
 		}
 	}
 	s.reply(req.ID, map[string]any{
@@ -198,13 +271,26 @@ func (s *Server) callTool(req rpcRequest) {
 	})
 }
 
-// indexFailureStatus reports whether the readiness message should be echoed with
-// query results (index failed or was skipped, but the previous graph is queryable).
-func indexFailureStatus(msg string) bool {
-	return strings.Contains(msg, "failed:")
+// callExtra dispatches host-registered tools. Ungated tools bypass the
+// readiness gate; gated ones observe it like built-ins. It returns
+// handled=false for built-in names.
+func (s *Server) callExtra(p toolCallParams, req rpcRequest) (string, error, bool) {
+	for _, e := range s.extra {
+		if e.name != p.Name {
+			continue
+		}
+		if !e.ungated && s.ready != nil {
+			if ok, msg := s.ready(); !ok {
+				return msg, nil, true
+			}
+		}
+		text, err := e.handler(p.Arguments)
+		return text, err, true
+	}
+	return "", nil, false
 }
 
-func toolSpecs() []map[string]any {
+func (s *Server) toolSpecs() []map[string]any {
 	str := map[string]any{"type": "string"}
 	num := map[string]any{"type": "integer"}
 	spec := func(name, desc string, props map[string]any, required ...string) map[string]any {
@@ -216,26 +302,34 @@ func toolSpecs() []map[string]any {
 			"inputSchema": map[string]any{"type": "object", "properties": props, "required": required},
 		}
 	}
-	return []map[string]any{
-		spec("search", "Ranked BM25 symbol search. Returns compact refs, not code — one TSV line per hit: label<TAB>name<TAB>file:line<TAB>qualified_name. Pass a returned qualified_name straight to callers/callees.",
-			map[string]any{"query": str, "label": str, "limit": num}, "query"),
-		spec("callers", "Inbound references to a symbol (who uses it). Returns TSV refs (see search). Accepts a qualified_name with or without the project prefix.",
-			map[string]any{"qualified_name": str, "limit": num}, "qualified_name"),
-		spec("callees", "Outbound references from a symbol (what it uses). Returns TSV refs (see search).",
-			map[string]any{"qualified_name": str, "limit": num}, "qualified_name"),
-		spec("neighbors", "Both inbound and outbound neighbors of a symbol. Returns TSV refs (see search).",
-			map[string]any{"qualified_name": str, "limit": num}, "qualified_name"),
-		spec("similar", "Near-clone symbols of this one (SIMILAR_TO edges from MinHash/LSH). Surfaces copy-paste/duplicated logic to refactor. Returns TSV refs (see search).",
-			map[string]any{"qualified_name": str, "limit": num}, "qualified_name"),
-		spec("dead_code", "CANDIDATES for unused private functions/methods: zero inbound CALLS, excluding entry points (exported, decorated, main/init, tests). NOT a delete list — a caller the resolver missed or an indirect reference (function value, interface, reflection) makes a live function look dead, so confirm each (e.g. grep the name) before acting. Returns TSV refs (see search).",
-			map[string]any{"limit": num}),
+	out := []map[string]any{
+		spec("search", "Ranked BM25 symbol search. Returns one page of compact refs (one TSV line per hit: label<TAB>name<TAB>file:line<TAB>qualified_name) plus a `#` trailer line with has_more/cursor/generation. Pass a returned qualified_name straight to callers/callees. Default page 500 refs / 32 KiB (bytes prevail); pass the trailer cursor back as `cursor` for the next page; cursors bind to the query and graph generation.",
+			map[string]any{"query": str, "label": str, "limit": num, "cursor": str}, "query"),
+		spec("callers", "Inbound references to a symbol (who uses it). One page of TSV refs (see search) plus the `#` has_more/cursor/generation trailer — enumerate every page for a complete answer. Accepts a qualified_name with or without the project prefix.",
+			map[string]any{"qualified_name": str, "limit": num, "cursor": str}, "qualified_name"),
+		spec("callees", "Outbound references from a symbol (what it uses). One page of TSV refs (see search) plus the `#` has_more/cursor/generation trailer.",
+			map[string]any{"qualified_name": str, "limit": num, "cursor": str}, "qualified_name"),
+		spec("neighbors", "Both inbound and outbound neighbors of a symbol. One page of TSV refs (see search) plus the `#` has_more/cursor/generation trailer.",
+			map[string]any{"qualified_name": str, "limit": num, "cursor": str}, "qualified_name"),
+		spec("similar", "Near-clone symbols of this one (SIMILAR_TO edges from MinHash/LSH). Surfaces copy-paste/duplicated logic to refactor. One page of TSV refs (see search) plus the `#` has_more/cursor/generation trailer.",
+			map[string]any{"qualified_name": str, "limit": num, "cursor": str}, "qualified_name"),
+		spec("dead_code", "CANDIDATES for unused private functions/methods: zero inbound CALLS, excluding entry points (exported, decorated, main/init, tests). NOT a delete list — a caller the resolver missed or an indirect reference (function value, interface, reflection) makes a live function look dead, so confirm each (e.g. grep the name) before acting. One page of TSV refs (see search) plus the `#` has_more/cursor/generation trailer.",
+			map[string]any{"limit": num, "cursor": str}),
 		spec("get_architecture", "One-shot repo map from the graph: languages, node/edge counts, top packages by symbol count, and hotspots (most complex functions + most-called hubs). Call this FIRST to orient in an unfamiliar repo instead of grepping. `limit` caps each top-N list (default 10).",
 			map[string]any{"limit": num}),
-		spec("snippet", "Read the source lines for a node. Use only when you must see code.",
-			map[string]any{"file": str, "start_line": num, "end_line": num}, "file"),
+		spec("snippet", "Read one page of source lines for a node (default 200 lines / 32 KiB, bytes prevail) plus a `#` trailer with has_more/cursor/generation and the covered line range. A single oversize line comes back whole, marked long_line=true. Pass the trailer cursor back as `cursor` to continue; the file must not change between pages. Use only when you must see code.",
+			map[string]any{"file": str, "start_line": num, "end_line": num, "limit": num, "cursor": str}, "file"),
 		spec("detect_changes", "List source files changed/added/deleted since the last index (TSV: status<TAB>path, empty = fresh). Check it before trusting the graph for a region; re-index if stale.",
 			map[string]any{}),
 	}
+	for _, e := range s.extra {
+		props := e.properties
+		if props == nil {
+			props = map[string]any{}
+		}
+		out = append(out, spec(e.name, e.description, props, e.required...))
+	}
+	return out
 }
 
 var _ = fmt.Sprintf // reserved for future structured logging

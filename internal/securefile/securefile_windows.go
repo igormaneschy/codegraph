@@ -123,6 +123,12 @@ func WritePrivate(path string, _ []byte) error {
 	return &os.PathError{Op: "write", Path: path, Err: ErrUnsupported}
 }
 
+// WritePrivateTemp fails closed on Windows like WritePrivate: without
+// handle-relative primitives there is no safe staging write to offer.
+func WritePrivateTemp(path string, _ []byte) error {
+	return &os.PathError{Op: "write", Path: path, Err: ErrUnsupported}
+}
+
 func MkdirTempPrivate(parent, _ string) (*PrivateDirectory, error) {
 	return nil, &os.PathError{Op: "mkdir", Path: parent, Err: ErrUnsupported}
 }

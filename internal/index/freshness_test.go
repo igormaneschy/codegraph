@@ -896,7 +896,7 @@ func TestChangedScopesWithTSDependenciesInvalidatesReverseImporters(t *testing.T
 		Changed: []string{"packages/lib/lib.ts"},
 		files:   []SourceFile{{AbsPath: lib, RelPath: "packages/lib/lib.ts", Lang: LangTS}, {AbsPath: app, RelPath: "apps/app/app.ts", Lang: LangTS}},
 	}
-	changed, err := changedScopesWithTSDependencies(context.Background(), ch, []string{"apps/app", "packages/lib"})
+	changed, err := changedScopesWithTSDependencies(context.Background(), nil, "", root, nil, ch, []string{"apps/app", "packages/lib"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -908,7 +908,7 @@ func TestChangedScopesWithTSDependenciesInvalidatesReverseImporters(t *testing.T
 }
 
 func TestChangedScopesWithTSDependencies_InvalidatesAllTSScopeForUncertainOwnership(t *testing.T) {
-	changed, err := changedScopesWithTSDependencies(context.Background(), Changes{
+	changed, err := changedScopesWithTSDependencies(context.Background(), nil, "", t.TempDir(), nil, Changes{
 		Changed: []string{"packages/lib/lib.ts"},
 	}, []string{"apps/web", "packages/lib", "packages/shared"})
 	if err != nil {
@@ -1209,7 +1209,7 @@ func TestRunAtomic_SimilarityReadFailurePreservesExistingGraph(t *testing.T) {
 func TestResolveSimilarFromSpans_RejectsInvalidFunctionSpan(t *testing.T) {
 	root := t.TempDir()
 	writeFreshnessFile(t, root, "symbols.go", "package symbols\n\nfunc one() {}\n")
-	_, err := resolveSimilarFromSpans(context.Background(), "project", root, []graph.FunctionSpan{{
+	_, _, err := resolveSimilarFromSpans(context.Background(), "project", root, []graph.FunctionSpan{{
 		QualifiedName: "project:symbols.go.one",
 		FilePath:      "symbols.go",
 		StartLine:     2,

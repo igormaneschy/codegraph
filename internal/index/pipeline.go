@@ -11,6 +11,7 @@ import (
 	"github.com/Lordymine/codegraph/internal/graph"
 	"github.com/Lordymine/codegraph/internal/memory"
 	"github.com/Lordymine/codegraph/internal/scip"
+	"github.com/Lordymine/codegraph/internal/similar"
 )
 
 // Result summarizes an indexing run.
@@ -23,6 +24,7 @@ type Result struct {
 	Reused        bool // nothing changed since the last index; the pipeline was skipped
 	Status        IndexStatus
 	Resolver      ResolverReport
+	Similar       similar.Coverage // SIMILAR_TO pass coverage (never a CALLS verdict)
 	ScipScopes    int
 	ScipPeakRSS   uint64
 	ScipHeapCapMB int
@@ -46,7 +48,7 @@ var (
 	manifestPostWriteHook       func()
 	manifestPostReplaceHook     func()
 	beforeBuiltIndexReplaceHook func()
-	similarPassOverride         func(context.Context, string, string, []graph.FunctionSpan) ([]graph.Edge, error)
+	similarPassOverride         func(context.Context, string, string, []graph.FunctionSpan) ([]graph.Edge, similar.Coverage, error)
 )
 
 // Keep the platform replacement hook linked for compatibility with platform
@@ -220,6 +222,7 @@ func runAtomicContext(ctx context.Context, dbPath, root string, strictFreshness 
 	resManifest := in.manifest
 	resManifest.Status = res.Status
 	resManifest.Resolver = res.Resolver
+	resManifest.Similar = res.Similar
 	resManifest.GraphContentDigest, err = store.LogicalGraphDigest(in.project)
 	if err != nil {
 		return res, fmt.Errorf("digest built index: %w", err)
@@ -331,7 +334,7 @@ func stableResolverHandoff(ctx context.Context, in pipelineInput) (files []Sourc
 			return nil, nil, "", nil, nil, nil, fmt.Errorf("read pre-reindex source hashes: %w", hashErr)
 		}
 		observedChanges := changesFromRepositoryScan(scan, storedHashes)
-		observedScopes, scopeErr := changedScopesWithTSDependencies(ctx, observedChanges, scan.tsdirs)
+		observedScopes, scopeErr := changedScopesWithTSDependencies(ctx, in.reuseFrom, in.project, in.root, inputsByPath(scan.manifest.Inputs), observedChanges, scan.tsdirs)
 		if scopeErr != nil {
 			return nil, nil, "", nil, nil, nil, scopeErr
 		}
@@ -580,6 +583,7 @@ func runPipelineContext(ctx context.Context, store *graph.Store, in pipelineInpu
 	}
 	memory.Gate()
 
+	similarCoverage := similar.Coverage{Status: similar.StatusOmitted}
 	if !memory.SkipSimilar() || similarPassOverride != nil {
 		if verifyResolverRoot != nil {
 			if verifyErr := verifyResolverRoot(); verifyErr != nil {
@@ -590,7 +594,9 @@ func runPipelineContext(ctx context.Context, store *graph.Store, in pipelineInpu
 		if similarPassOverride != nil {
 			similarPass = similarPassOverride
 		}
-		simEdges, err := similarPass(ctx, in.project, resolverRoot, spans)
+		var simEdges []graph.Edge
+		var err error
+		simEdges, similarCoverage, err = similarPass(ctx, in.project, resolverRoot, spans)
 		if err != nil {
 			return Result{}, err
 		}
@@ -618,10 +624,13 @@ func runPipelineContext(ctx context.Context, store *graph.Store, in pipelineInpu
 	if err := validateResolverStatus(status, resolverReport); err != nil {
 		return Result{}, fmt.Errorf("validate resolver status: %w", err)
 	}
+	// A partial similarity pass never degrades CALLS trust: coverage travels in
+	// its own field (manifest + Result) and surfaces on `similar`/status, so a
+	// budgeted clone pass is not misrepresented as a resolver failure.
 	return Result{
 		Project: in.project, Files: len(files), Nodes: nodeCount,
 		EdgesKept: edgesKept, EdgesDropped: edgesDropped,
-		Status: status, Resolver: resolverReport,
+		Status: status, Resolver: resolverReport, Similar: similarCoverage,
 		ScipScopes: scipRep.ScopesRun, ScipPeakRSS: scipRep.PeakRSS, ScipHeapCapMB: scipRep.HeapCapMB,
 	}, nil
 }

@@ -320,7 +320,7 @@ func mustUserCacheDir(t *testing.T) string {
 	return cache
 }
 
-func TestMCPBackgroundIndex_ReopensAfterTransientWriterContention(t *testing.T) {
+func TestSessionRefresh_ReopensAfterTransientWriterContention(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "x.go"), []byte("package x\nfunc F() {}\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -330,18 +330,14 @@ func TestMCPBackgroundIndex_ReopensAfterTransientWriterContention(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	readerLock, err := index.AcquireReaderLock(dbPath)
-	if err != nil {
-		_ = store.Close()
-		t.Fatal(err)
-	}
 	eng := query.NewEngine(store, index.ProjectName(root), root)
-
 	ctx, cancel := context.WithCancel(context.Background())
 	var stopOnce sync.Once
-	done := make(chan mcpIndexOutcome, 1)
+	t.Cleanup(func() { stopOnce.Do(cancel) })
+	sess := newMCPSession(eng, dbPath, root, index.ProjectName(root), ctx, mcpIndexHooks{}, nil)
+	t.Cleanup(func() { _ = sess.close() })
+
 	writerHeld := make(chan struct{})
-	writerErr := make(chan error, 1)
 	reopenAttempted := make(chan struct{})
 	var reopenOnce sync.Once
 	var writerMu sync.Mutex
@@ -357,29 +353,13 @@ func TestMCPBackgroundIndex_ReopensAfterTransientWriterContention(t *testing.T) 
 		}
 		return lock.Release()
 	}
-	var outcome mcpIndexOutcome
-	var outcomeReady bool
-	t.Cleanup(func() {
-		stopOnce.Do(cancel)
-		_ = releaseWriter()
-		if !outcomeReady {
-			select {
-			case outcome = <-done:
-				outcomeReady = true
-			case <-time.After(5 * time.Second):
-			}
-		}
-		if outcomeReady && outcome.readerLock != nil {
-			_ = outcome.readerLock.Release()
-		}
-		_ = eng.Close()
-	})
+	t.Cleanup(func() { _ = releaseWriter() })
 
-	hooks := mcpIndexHooks{
+	sess.hooks = mcpIndexHooks{
 		beforeRun: func() {
 			lock, lockErr := index.AcquireExclusiveLock(dbPath)
 			if lockErr != nil {
-				writerErr <- lockErr
+				t.Errorf("background test writer lock: %v", lockErr)
 				return
 			}
 			writerMu.Lock()
@@ -391,40 +371,36 @@ func TestMCPBackgroundIndex_ReopensAfterTransientWriterContention(t *testing.T) 
 			reopenOnce.Do(func() { close(reopenAttempted) })
 		},
 	}
-	go func() {
-		done <- runMCPBackgroundIndex(eng, readerLock, dbPath, root, index.ProjectName(root), "building", ctx, hooks)
-	}()
+	go func() { _ = sess.refreshAsync() }()
 
 	select {
 	case <-writerHeld:
-	case lockErr := <-writerErr:
-		t.Fatalf("background test writer lock: %v", lockErr)
-	case <-time.After(5 * time.Second):
-		t.Fatal("background index did not reach the deterministic writer-lock barrier")
+	case <-time.After(10 * time.Second):
+		t.Fatal("refresh round did not reach the deterministic writer-lock barrier")
 	}
+	// The writer holds the exclusive lock while the round's build fails and its
+	// reopen retries: contention is real, not slept into existence.
 	select {
 	case <-reopenAttempted:
-	case <-time.After(5 * time.Second):
-		t.Fatal("background index did not attempt recovery after ErrIndexLocked")
+	case <-time.After(10 * time.Second):
+		t.Fatal("refresh round did not attempt recovery after ErrIndexLocked")
 	}
 	if err := releaseWriter(); err != nil {
 		t.Fatal(err)
 	}
 
-	select {
-	case outcome = <-done:
-		outcomeReady = true
-	case <-time.After(5 * time.Second):
-		t.Fatal("background index did not become ready after writer release")
+	if !sess.waitRound(10 * time.Second) {
+		t.Fatal("refresh round did not become ready after writer release")
 	}
-	if !outcome.ready || outcome.readerLock == nil {
-		t.Fatalf("background index outcome ready=%v readerLock=%v status=%q", outcome.ready, outcome.readerLock != nil, outcome.status)
+	ok, notice := sess.gate()
+	if !ok {
+		t.Fatalf("refresh round gate ok=false after writer release: %q", notice)
 	}
-	if !strings.Contains(outcome.status, "failed: index already in progress") {
-		t.Fatalf("lock contention status was not preserved: %q", outcome.status)
+	if !strings.Contains(notice, "index already in progress") {
+		t.Fatalf("lock contention status was not preserved: %q", notice)
 	}
-	if _, err := eng.Search("x", "", 1); err != nil {
-		t.Fatalf("reopened MCP engine is not queryable: %v", err)
+	if _, err := sess.engine().SearchPage("x", "", 1, ""); err != nil {
+		t.Fatalf("reopened session engine is not queryable: %v", err)
 	}
 }
 

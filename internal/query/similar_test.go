@@ -42,12 +42,12 @@ func TestEngine_Similar_FiltersToSimilarToBothDirections(t *testing.T) {
 	}
 
 	eng := NewEngine(store, project, t.TempDir())
-	refs, err := eng.Similar("a.ts.alpha", 10)
+	page, err := eng.SimilarPage("a.ts.alpha", 10, "")
 	if err != nil {
 		t.Fatalf("Similar: %v", err)
 	}
 	got := map[string]bool{}
-	for _, r := range refs {
+	for _, r := range page.Refs {
 		got[r.Name] = true
 	}
 	if !got["beta"] || !got["gamma"] {

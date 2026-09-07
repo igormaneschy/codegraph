@@ -19,6 +19,7 @@ import (
 	"github.com/Lordymine/codegraph/internal/graph"
 	"github.com/Lordymine/codegraph/internal/scip"
 	"github.com/Lordymine/codegraph/internal/securefile"
+	"github.com/Lordymine/codegraph/internal/similar"
 )
 
 const (
@@ -55,6 +56,18 @@ type Manifest struct {
 	GraphContentDigest   string             `json:"graph_content_digest"`
 	Status               IndexStatus        `json:"status"`
 	Resolver             ResolverReport     `json:"resolver"`
+	// SimilarVersion identifies the similarity algorithm plus the budget that
+	// produced the SIMILAR_TO edges; it participates in the no-op fingerprint
+	// so an algorithm or budget change rebuilds instead of reusing.
+	SimilarVersion string `json:"similar_version"`
+	// Similar records how much of the similarity pass ran (complete/partial/
+	// omitted). It survives no-op reuse and restarts via the manifest, so
+	// queries can report incomplete clone coverage without re-running the pass.
+	Similar similar.Coverage `json:"similar"`
+	// TSInvalidationVersion versions the TypeScript invalidation rule (see
+	// tsdeps.go). It joins the no-op fingerprint: a policy change rebuilds
+	// once instead of certifying reuse under an unversioned lineage.
+	TSInvalidationVersion string `json:"ts_invalidation_version"`
 }
 
 // ManifestPath returns the sidecar path adjacent to dbPath.
@@ -92,7 +105,8 @@ func validateManifest(manifest Manifest) error {
 	}
 	if manifest.SchemaVersion == "" || manifest.AnalysisVersion == "" || manifest.CanonicalRoot == "" ||
 		manifest.DiscoveryRuleVersion == "" || manifest.RubyResolverVersion == "" ||
-		manifest.SCIPResolverVersion == "" || manifest.GoResolverVersion == "" {
+		manifest.SCIPResolverVersion == "" || manifest.GoResolverVersion == "" ||
+		manifest.SimilarVersion == "" || manifest.TSInvalidationVersion == "" {
 		return errors.New("manifest is missing analysis identity")
 	}
 	if manifest.Status != StatusHealthy && manifest.Status != StatusDegraded {
@@ -144,15 +158,17 @@ func hashFile(path string) (string, error) {
 
 func newManifest(root string, inputs []InputFingerprint) Manifest {
 	return Manifest{
-		ManifestVersion:      manifestVersion,
-		SchemaVersion:        graphSchemaVersion,
-		AnalysisVersion:      analysisVersion,
-		CanonicalRoot:        root,
-		DiscoveryRuleVersion: discoveryRuleVersion,
-		RubyResolverVersion:  fmt.Sprintf("ruby-analysis-%d", rubyAnalysisVersion),
-		SCIPResolverVersion:  scip.ResolverVersion(),
-		GoResolverVersion:    gocalls.ResolverVersion(),
-		Inputs:               inputs,
+		ManifestVersion:       manifestVersion,
+		SchemaVersion:         graphSchemaVersion,
+		AnalysisVersion:       analysisVersion,
+		CanonicalRoot:         root,
+		DiscoveryRuleVersion:  discoveryRuleVersion,
+		RubyResolverVersion:   fmt.Sprintf("ruby-analysis-%d", rubyAnalysisVersion),
+		SCIPResolverVersion:   scip.ResolverVersion(),
+		GoResolverVersion:     gocalls.ResolverVersion(),
+		SimilarVersion:        similar.LimitsFromEnv().Version(),
+		TSInvalidationVersion: tsInvalidationPolicy,
+		Inputs:                inputs,
 	}
 }
 
@@ -319,7 +335,13 @@ func copyResolverFile(ctx context.Context, root, snapshot, rel, expectedHash str
 	if err := securefile.MkdirAllPrivate(filepath.Dir(dst)); err != nil {
 		return err
 	}
-	return securefile.WritePrivate(dst, data)
+	// Snapshot staging is temporary: content is hash-verified at staging time
+	// (sources/inputs) or consumed immediately by the resolver from a
+	// descriptor-verified tree, and any failure discards the whole snapshot
+	// for a clean re-stage. Crash durability (fsync) would buy nothing here
+	// and costs ~7ms/file on fsync-slow filesystems — so stage without Sync,
+	// keeping every symlink/permission/identity check WritePrivate performs.
+	return securefile.WritePrivateTemp(dst, data)
 }
 
 func cleanResolverRelativePath(rel string) (string, error) {
@@ -1138,6 +1160,8 @@ func sameManifestFingerprint(stored, current Manifest) bool {
 		stored.RubyResolverVersion == current.RubyResolverVersion &&
 		stored.SCIPResolverVersion == current.SCIPResolverVersion &&
 		stored.GoResolverVersion == current.GoResolverVersion &&
+		stored.SimilarVersion == current.SimilarVersion &&
+		stored.TSInvalidationVersion == current.TSInvalidationVersion &&
 		sameManifestInputs(stored.Inputs, current.Inputs)
 }
 

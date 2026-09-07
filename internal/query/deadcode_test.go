@@ -49,12 +49,12 @@ func TestEngine_DeadCode_FlagsUnusedPrivateOnly(t *testing.T) {
 	}
 
 	eng := NewEngine(store, project, t.TempDir())
-	refs, err := eng.DeadCode(50)
+	page, err := eng.DeadCodePage(50, "")
 	if err != nil {
 		t.Fatalf("DeadCode: %v", err)
 	}
 	got := map[string]bool{}
-	for _, r := range refs {
+	for _, r := range page.Refs {
 		got[r.Name] = true
 	}
 	if !got["helper"] {
@@ -94,17 +94,17 @@ func TestEngine_DeadCode_SelfCallDoesNotKeepAlive(t *testing.T) {
 	}
 
 	eng := NewEngine(store, project, t.TempDir())
-	refs, err := eng.DeadCode(50)
+	page, err := eng.DeadCodePage(50, "")
 	if err != nil {
 		t.Fatalf("DeadCode: %v", err)
 	}
 	found := false
-	for _, r := range refs {
+	for _, r := range page.Refs {
 		if r.Name == "loop" {
 			found = true
 		}
 	}
 	if !found {
-		t.Errorf("a only-self-recursive private function is still dead; expected loop flagged, got %v", refs)
+		t.Errorf("a only-self-recursive private function is still dead; expected loop flagged, got %v", page.Refs)
 	}
 }

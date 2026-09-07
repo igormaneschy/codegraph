@@ -451,6 +451,20 @@ func MkdirAllPrivate(path string) error {
 // entry is checked against the still-open file descriptor immediately before
 // the replacement, and a substitution fails closed.
 func WritePrivate(path string, data []byte) error {
+	return writePrivate(path, data, true)
+}
+
+// WritePrivateTemp stages a private scratch file with the same symlink,
+// permission, and identity checks as WritePrivate, minus the fsync. Use it
+// only for temporary staging/scratch files inside a private directory whose
+// content is verified on read and whose loss to a crash is recovered by
+// re-staging — never for manifests, databases, or any durable artifact, where
+// crash durability is the point of the Sync.
+func WritePrivateTemp(path string, data []byte) error {
+	return writePrivate(path, data, false)
+}
+
+func writePrivate(path string, data []byte, durable bool) error {
 	abs, err := absoluteClean(path)
 	if err != nil {
 		return &os.PathError{Op: "write", Path: path, Err: err}
@@ -495,8 +509,10 @@ func WritePrivate(path string, data []byte) error {
 	if err := tmp.Chmod(privateFileMode); err != nil {
 		return errors.Join(err, tmp.Close())
 	}
-	if err := tmp.Sync(); err != nil {
-		return errors.Join(err, tmp.Close())
+	if durable {
+		if err := tmp.Sync(); err != nil {
+			return errors.Join(err, tmp.Close())
+		}
 	}
 	if err := verifyPrivateTemp(parentFD, tmpName, tmp); err != nil {
 		return errors.Join(err, tmp.Close())

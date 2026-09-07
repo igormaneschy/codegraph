@@ -26,13 +26,15 @@ For each question "**who calls `X`?**" we compare three strategies:
 
 | Strategy | Tokens it spends | Tool calls |
 |---|---|---|
-| **graph** | `callers(X)` → compact refs (one TSV line each, no source) | 1 |
+| **graph** | `callers(X)` → all pages of compact refs (one TSV line each, no source, plus a `#` trailer per page) | 1 per page |
 | **baseline-window** (efficient agent) | `grep X` output + a **±10-line window** around every match | 1 grep + 1 read/file |
 | **baseline-file** (typical agent) | `grep X` output + every **whole matched file** | 1 grep + 1 read/file |
 
-- The graph side meters the **exact compact wire format the tools return** — TSV,
-  `label⇥name⇥file:line⇥qualified_name`, project prefix stripped. No measurement
-  trick: the product emits what the benchmark counts.
+- The graph side meters the **exact paged wire format the tools return** — TSV
+  refs plus the `# has_more/cursor/generation` trailer, **every real page**
+  walked (one metered round-trip per page). No measurement trick: the product
+  emits what the benchmark counts. (Since P2 the old fixed 200-ref cap is gone;
+  see `docs/EFFICIENCY_RESULTS.md`.)
 - **Questions** = the top 15 *call hubs* (symbols with the most inbound `CALLS`
   edges). Deterministic, and the hardest case for grep: a real caller set it has
   to reconstruct by hand.
@@ -113,3 +115,52 @@ from delegating to type checkers (scip-typescript / go callgraph), not embedding
 - **Where grep still wins:** finding an exact string/literal, or anything in code
   the type checker can't resolve (dynamic dispatch, DI string tokens). The graph is
   a complement for *map / who-calls / understand*, not a replacement for search.
+
+## Known biases (read before quoting)
+
+- **Hub selection.** Questions are the top-15 inbound-`CALLS` hubs: popular
+  symbols where pre-resolved callers pay off most. Low-caller questions (1–3
+  callers) are under-represented, and there the per-question overhead (trailer,
+  round-trip) weighs more — the ratio on those is smaller. The median ratio is
+  the robust headline for this reason.
+- **Same question, different semantics.** The grep side matches the hub *name*
+  as a whole word — including comments, string literals, other homonyms, and
+  the definition itself — then opens every matched file to disambiguate by
+  hand. The graph side answers one resolved qualified name and drops all of
+  that by design. The comparison is fair as *cost to reach a complete, precise
+  answer*, not as *cost to emit the same bytes*: the two sides deliberately do
+  different amounts of disambiguation work.
+- **bytes/4.** Absolute token counts are rough (real tokenizers vary by model
+  and language); only the ratio is reported, metered identically on both
+  sides. Multi-page graph answers cost one round-trip per page — charged, not
+  hidden.
+- **Completeness is oracle-checked in tests, not in `bench` output.**
+  `codegraph bench` on a real repo has no independent oracle, so its table
+  reports cost, not recall. Recall is pinned separately:
+  `TestGraphCompletenessAgainstIndependentOracle` indexes a 600-caller Go
+  fixture and requires the exact set a go/ast oracle finds (a different
+  frontend from the graph's own pipeline), and
+  `TestPageSizeNeverManufacturesACheaperAnswer` requires the identical set at
+  page sizes 500/50/7. On a degraded index `bench` prints the status and the
+  resolver failure instead of a clean number.
+- **Prepare vs query.** `bench` prints index wall time separately from query
+  cost; they must not be folded into one ratio. The edit-refresh loop
+  (query → edit → stale → reindex → re-query, plus amortized wall time per
+  query for sessions of 1/10/100 queries) is measured by
+  `bench.MeasureTrajectory` on temp fixtures — e.g. a 600-caller Go hub:
+  index 1.32 s, reindex 1.57 s, query 0.027 s over 2 pages, amortized 2.91 s
+  (k=1) → 0.32 s (k=10) → 0.06 s (k=100). Prepare dominates short sessions;
+  per-query cost dominates long ones.
+
+## Method history (do not compare across rows)
+
+| Method | Wire format | Graph calls |
+|---|---|---|
+| `tsv-uncapped-v0` (pre-P2) | single-shot TSV, silent 500-cut, fixed 200-cap in bench | 1 |
+| `paged-wire-v1` (P2+) | every real page + `#` trailer, 1 call/page | pages walked |
+
+The 16.0×/74.4× ajuda-aqui numbers above are `tsv-uncapped-v0`. They stay
+valid as historical results of that method — but a `paged-wire-v1` run on the
+same repo is a different measurement (trailers charged, all pages walked) and
+the two must not be quoted as a trend. New headline numbers require a fresh
+run, stamped with its method.

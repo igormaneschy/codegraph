@@ -40,11 +40,15 @@ func ResolveSimilar(project, root string, nodes []graph.Node) ([]graph.Edge, err
 }
 
 // resolveSimilarFromSpans runs the SIMILAR_TO pass on spans already loaded for CALLS.
-// Each file is read once; only MinHash signatures are retained.
-func resolveSimilarFromSpans(ctx context.Context, project, root string, spans []graph.FunctionSpan) ([]graph.Edge, error) {
+// Each file is read once; only MinHash signatures are retained. The LSH pass
+// runs under the resource budget (internal/similar): on a clone-bomb corpus it
+// stops early with partial coverage and a deterministic edge prefix instead of
+// growing an unbounded pair set. Cancellation is honored per file and between
+// candidate pairs.
+func resolveSimilarFromSpans(ctx context.Context, project, root string, spans []graph.FunctionSpan) ([]graph.Edge, similar.Coverage, error) {
 	ctx = nonNilContext(ctx)
 	if err := ctx.Err(); err != nil {
-		return nil, err
+		return nil, similar.Coverage{}, err
 	}
 	byFile := map[string][]graph.FunctionSpan{}
 	for _, sp := range spans {
@@ -53,17 +57,17 @@ func resolveSimilarFromSpans(ctx context.Context, project, root string, spans []
 	var sigDocs []similar.SigDoc
 	for file, fns := range byFile {
 		if err := ctx.Err(); err != nil {
-			return nil, err
+			return nil, similar.Coverage{}, err
 		}
 		data, err := similarReadFile(filepath.Join(root, filepath.FromSlash(file)))
 		if err != nil {
-			return nil, fmt.Errorf("read source for similarity %q: %w", file, err)
+			return nil, similar.Coverage{}, fmt.Errorf("read source for similarity %q: %w", file, err)
 		}
 		lines := strings.Split(string(data), "\n")
 		for _, sp := range fns {
 			span, err := linesOf(lines, sp.StartLine, sp.EndLine)
 			if err != nil {
-				return nil, fmt.Errorf("read function span for similarity %q (%s:%d-%d): %w",
+				return nil, similar.Coverage{}, fmt.Errorf("read function span for similarity %q (%s:%d-%d): %w",
 					sp.QualifiedName, file, sp.StartLine, sp.EndLine, err)
 			}
 			toks := similar.Tokenize(span)
@@ -77,9 +81,9 @@ func resolveSimilarFromSpans(ctx context.Context, project, root string, spans []
 		memory.Gate()
 	}
 	if err := ctx.Err(); err != nil {
-		return nil, err
+		return nil, similar.Coverage{}, err
 	}
-	return similar.EdgesFromSignatures(project, sigDocs, similarThreshold), nil
+	return similar.EdgesFromSignaturesContext(ctx, project, sigDocs, similarThreshold, similar.LimitsFromEnv())
 }
 
 func similarEdgesFromFiles(project, root string, byFile map[string][]graph.Node) ([]graph.Edge, error) {

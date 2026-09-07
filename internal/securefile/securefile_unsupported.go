@@ -16,6 +16,10 @@ func WritePrivate(path string, _ []byte) error {
 	return &os.PathError{Op: "write", Path: path, Err: ErrUnsupported}
 }
 
+func WritePrivateTemp(path string, _ []byte) error {
+	return &os.PathError{Op: "write", Path: path, Err: ErrUnsupported}
+}
+
 func MkdirTempPrivate(parent, _ string) (*PrivateDirectory, error) {
 	return nil, &os.PathError{Op: "mkdir", Path: parent, Err: ErrUnsupported}
 }

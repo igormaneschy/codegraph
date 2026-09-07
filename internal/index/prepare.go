@@ -161,6 +161,7 @@ func prepareIndexingContext(ctx context.Context, store *graph.Store, root string
 		return pipelineInput{}, &Result{
 			Project: project, Files: len(files), Nodes: n, EdgesKept: e,
 			Reused: true, Status: storedManifest.Status, Resolver: storedManifest.Resolver,
+			Similar: storedManifest.Similar,
 		}, nil
 	}
 
@@ -168,7 +169,7 @@ func prepareIndexingContext(ctx context.Context, store *graph.Store, root string
 	if graphFreshnessMiss || !haveStoredHashes {
 		changed = allResolverScopesChanged(tsdirs)
 	} else {
-		changed, err = changedScopesWithTSDependencies(ctx, changes, tsdirs)
+		changed, err = changedScopesWithTSDependencies(ctx, store, project, root, inputsByPath(scan.manifest.Inputs), changes, tsdirs)
 		if err != nil {
 			return pipelineInput{}, nil, err
 		}
