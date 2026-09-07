@@ -53,7 +53,10 @@ from a branch; CI must pass before merge.
 
 ## Commit authorship
 
-Commits are authored solely by the repository owner identity configured in this repo.
+New commits in this fork use the owner identity `Igor Maneschy <igor@maneschy.com>`.
+Verify the effective Git identity before committing; do not assume the local
+configuration is correct. Preserve historical commit authorship and the original
+project's credits and license notices.
 **Do not add `Co-Authored-By` trailers** (including AI/assistant trailers) — a
 `commit-msg` hook strips them as a safeguard.
 

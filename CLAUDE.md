@@ -118,9 +118,11 @@ Store: `~/.cache/codegraph/<project>.db`. Original clonado (shallow) em
 - Conventional Commits (`tipo(escopo): desc em inglês`). Verificar `go build` +
   `go vet` + `go test` antes de commitar.
 - **Autoria dos commits (regra rígida):** NUNCA adicionar trailer `Co-Authored-By`
-  (nem de IA/Claude). Todo commit parte exclusivamente do usuário
-  `Rafael Oliveira <rafaelkefren@gmail.com>` (travado no git config local). Um hook
-  `commit-msg` remove o trailer automaticamente como reforço.
+  (nem de IA/Claude). Novos commits deste fork devem usar a identidade
+  `Igor Maneschy <igor@maneschy.com>`. Verificar a identidade efetiva antes de
+  commitar; não presumir que o git config local está correto. Preservar a autoria
+  dos commits anteriores e os créditos e avisos de licença do projeto original.
+  Um hook `commit-msg` remove o trailer automaticamente como reforço.
 - Documentação viva: atualizar `docs/ROADMAP.md` ao fechar milestone e
   `docs/ARCHITECTURE.md` ao mudar design.
 
