@@ -1,11 +1,25 @@
 package graph
 
 import (
+	"bufio"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+type failingSnippetReader struct{ err error }
+
+func (r failingSnippetReader) Read([]byte) (int, error) { return 0, r.err }
+
+func TestReadSnippetLine_PropagatesIOError(t *testing.T) {
+	readErr := errors.New("read failed")
+	_, _, err := readSnippetLine(bufio.NewReader(failingSnippetReader{err: readErr}), "a.go")
+	if !errors.Is(err, readErr) {
+		t.Fatalf("read error=%v, want %v", err, readErr)
+	}
+}
 
 func writePagedRepo(t *testing.T, name, body string) string {
 	t.Helper()
@@ -119,5 +133,23 @@ func TestSnippetPaged_EndBoundCompletion(t *testing.T) {
 	}
 	if c2.Text != "" || c2.HasMore {
 		t.Fatalf("past-EOF start must be an empty final page: %+v", c2)
+	}
+}
+
+func BenchmarkSnippetPaged_FirstPage(b *testing.B) { benchmarkSnippetPaged(b, 1) }
+
+func BenchmarkSnippetPaged_DeepPage(b *testing.B) { benchmarkSnippetPaged(b, 4001) }
+
+func benchmarkSnippetPaged(b *testing.B, fromLine int) {
+	repo := b.TempDir()
+	if err := os.WriteFile(filepath.Join(repo, "large.go"), []byte(strings.Repeat("line content\n", 5000)), 0o600); err != nil {
+		b.Fatal(err)
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, err := SnippetPaged(repo, "large.go", fromLine, 200, 32*1024, 0, -1); err != nil {
+			b.Fatal(err)
+		}
 	}
 }

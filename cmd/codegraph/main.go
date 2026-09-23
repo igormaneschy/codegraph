@@ -798,10 +798,12 @@ func cmdCLI(args []string) (retErr error) {
 	case "neighbors":
 		out, err = refText(eng.NeighborsPage(a.QualifiedName, a.Limit, a.Cursor))
 	case "similar":
-		out, err = refText(eng.SimilarPage(a.QualifiedName, a.Limit, a.Cursor))
+		var page query.RefPage
+		page, err = eng.SimilarPage(a.QualifiedName, a.Limit, a.Cursor)
 		if err == nil {
-			if notice := eng.SimilarNotice(); notice != "" {
-				out = notice + "\n\n" + out
+			out = page.WireText()
+			if page.Notice != "" {
+				out = page.Notice + "\n\n" + out
 			}
 		}
 	case "dead_code":

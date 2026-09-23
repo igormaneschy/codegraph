@@ -85,6 +85,7 @@ func acquireIndexLockMode(dbPath string, mode lockMode) (*Lock, error) {
 }
 
 func acquireIndexLockModeNormalized(dbPath string, mode lockMode) (*Lock, error) {
+	// #nosec G703 -- dbPath is an explicitly selected database path normalized by CanonicalPath; creating its missing parent is the lock API contract.
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0o700); err != nil {
 		return nil, fmt.Errorf("create index lock directory for %q: %w", dbPath, err)
 	}

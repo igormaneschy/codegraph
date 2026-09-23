@@ -56,6 +56,13 @@ func TestSimilarNotice_PartialPropagatesToQueries(t *testing.T) {
 	if !strings.Contains(notice, "partial") || !strings.Contains(notice, "CODEGRAPH_SIMILAR_MAX_PAIRS") {
 		t.Errorf("notice must be actionable, got %q", notice)
 	}
+	page, err := eng.SimilarPage("f00.go.clone0", 5, "")
+	if err != nil {
+		t.Fatalf("similar page: %v", err)
+	}
+	if page.Notice != notice {
+		t.Errorf("similar page notice=%q, want %q", page.Notice, notice)
+	}
 }
 
 // TestSimilarNotice_EmptyWhenComplete pins the quiet path: a complete clone
@@ -72,5 +79,12 @@ func TestSimilarNotice_EmptyWhenComplete(t *testing.T) {
 	}
 	if notice := eng.SimilarNotice(); notice != "" {
 		t.Errorf("complete coverage must be silent, got %q", notice)
+	}
+	page, err := eng.SimilarPage("f00.go.clone0", 5, "")
+	if err != nil {
+		t.Fatalf("similar page: %v", err)
+	}
+	if page.Notice != "" {
+		t.Errorf("complete similar page notice=%q, want empty", page.Notice)
 	}
 }

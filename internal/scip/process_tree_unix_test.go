@@ -31,7 +31,9 @@ func TestScipProcessTreeDescendant(t *testing.T) {
 	if err := os.WriteFile(os.Getenv("CODEGRAPH_SCIP_CHILD_READY"), []byte(strconv.Itoa(os.Getpid())), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	select {}
+	for {
+		time.Sleep(time.Hour)
+	}
 }
 
 func TestRunScipContextTerminatesForkedDescendant(t *testing.T) {
@@ -180,13 +182,14 @@ func waitForUnixPIDFile(path string, timeout time.Duration) (int, error) {
 	for {
 		data, err := os.ReadFile(path)
 		if err == nil {
-			pid, parseErr := strconv.Atoi(strings.TrimSpace(string(data)))
-			if parseErr != nil || pid <= 0 {
-				return 0, fmt.Errorf("invalid PID in %s: %q", path, data)
+			if content := strings.TrimSpace(string(data)); content != "" {
+				pid, parseErr := strconv.Atoi(content)
+				if parseErr != nil || pid <= 0 {
+					return 0, fmt.Errorf("invalid PID in %s: %q", path, data)
+				}
+				return pid, nil
 			}
-			return pid, nil
-		}
-		if !errors.Is(err, os.ErrNotExist) {
+		} else if !errors.Is(err, os.ErrNotExist) {
 			return 0, err
 		}
 		select {
@@ -194,6 +197,25 @@ func waitForUnixPIDFile(path string, timeout time.Duration) (int, error) {
 			return 0, fmt.Errorf("timed out waiting for PID file %s", path)
 		case <-ticker.C:
 		}
+	}
+}
+
+func TestWaitForUnixPIDFile_WaitsForCreatedButEmptyFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "child.ready")
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	writeDone := make(chan error, 1)
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		writeDone <- os.WriteFile(path, []byte("12345\n"), 0o600)
+	}()
+	pid, err := waitForUnixPIDFile(path, time.Second)
+	if writeErr := <-writeDone; writeErr != nil {
+		t.Fatal(writeErr)
+	}
+	if err != nil || pid != 12345 {
+		t.Fatalf("wait for PID: pid=%d, err=%v", pid, err)
 	}
 }
 

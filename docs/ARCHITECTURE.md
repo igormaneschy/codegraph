@@ -50,6 +50,8 @@ replacement), `ValidateIntegrity` (exact SQLite/FTS/properties/endpoint
 validation), `LogicalGraphDigest` (deterministic content digest), and
 `BeginReadSnapshot`/`EndReadSnapshot` (pin a WAL read transaction — used by tests
 to prove a live reader vetoes `RunAtomic`'s replacement while holding the WAL).
+Every SQLite connection enables foreign-key enforcement through the driver's
+per-connection URI pragma, including connections created after `Reopen`.
 Two bounded-memory rules (P5): dead-code candidates stream in batches
 (`DeadCodeCandidates` + query-side filtering — memory ∝ batch, never total),
 and the QN→id map is built once per node-stable phase and invalidated
@@ -265,16 +267,25 @@ line carrying `has_more`, an opaque `cursor`, and the served `generation`
 the client passes the cursor back for the next page. Cursors bind to the exact
 query (tool + normalized target + page size) and generation: a cursor from
 another question or a post-refresh graph is rejected with orientation to
-restart, never mixing snapshots. `has_more` is derived from a limit+1 probe
+restart, never mixing snapshots. The query engine captures generation and
+similarity coverage when it opens or
+reopens the graph, so an external writer cannot relabel pages from an older
+open SQLite handle with a newer on-disk manifest.
+`has_more` is derived from a limit+1 probe
 row (no COUNT); byte budgets (32 KiB text per page) prevail over counts
 (500 refs / 200 snippet lines default, giants clamp before any allocation);
 single oversize refs/lines go whole, never split into invalid references.
 Snippet pages stream incrementally (memory ∝ page, not file) and resume at
-line starts; a file modified between pages fails the next page instead of
-shifting lines silently. Relationship rows come back in stable
+line starts; a file whose size changes between pages fails the next page instead
+of shifting lines silently. Source files are opened through a descriptor-based,
+no-follow path traversal after repository confinement; a symlink swapped into
+the resolved path before open cannot redirect a read outside the repository.
+Relationship rows come back in stable
 `qualified_name` order with LIMIT/OFFSET over the immutable generation, and the
 `both`-direction UNION (not UNION ALL) still dedups bidirectional hits,
 self-edges and cross-type duplicates.
+`dead_code` cursors additionally retain the next raw candidate offset, avoiding
+a full rescan of prior filtered pages; old cursors without that field still work.
 
 ## MCP refresh protocol (P1 — per-operation locks + generation revalidation)
 
@@ -300,9 +311,10 @@ they must not straddle. Writers hold the exclusive lock for the whole
 - Fail-safe for old clients: a pre-P1 reader that still holds a lifetime lock
   makes a writer fail fast with the same actionable error, never corrupt data.
 
-Engine lifetime: one mutex per session serializes queries against
-close/reopen. The state gate and the query run atomically under it, so a query
+Engine lifetime: one mutex per session serializes each complete query against
+close/reopen. Query admission and execution run atomically under it, so a query
 can never touch a closed engine (closed → actionable error, never a panic).
+The `similar` page and its coverage notice are composed within that same query.
 During `updating` the old graph is **not** served — tools answer the update
 state instead of mixing generations. Handshake (`initialize`, `tools/list`)
 and `status` are never gated, so they stay responsive mid-refresh.

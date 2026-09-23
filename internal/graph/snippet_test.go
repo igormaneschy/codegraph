@@ -99,3 +99,30 @@ func TestSnippet_AllowsSymlinkResolvingInsideRoot(t *testing.T) {
 		t.Fatalf("got %q, want %q", got.Text, "one\ntwo")
 	}
 }
+
+func TestSnippet_RejectsPathSwappedAfterResolution(t *testing.T) {
+	repo := t.TempDir()
+	outside := t.TempDir()
+	insidePath := filepath.Join(repo, "real.go")
+	outsidePath := filepath.Join(outside, "secret.go")
+	if err := os.WriteFile(insidePath, []byte("inside\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(outsidePath, []byte("secret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	oldHook := snippetBeforeOpenHook
+	snippetBeforeOpenHook = func() {
+		if err := os.Remove(insidePath); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(outsidePath, insidePath); err != nil {
+			t.Skipf("symlink creation unavailable: %v", err)
+		}
+	}
+	t.Cleanup(func() { snippetBeforeOpenHook = oldHook })
+	chunk, err := SnippetPaged(repo, "real.go", 1, 200, 32*1024, 1, -1)
+	if err == nil || chunk.Text != "" {
+		t.Fatalf("swapped path read outside content: chunk=%+v, err=%v", chunk, err)
+	}
+}
