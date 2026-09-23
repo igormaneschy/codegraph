@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"hash"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -132,7 +133,17 @@ func openDatabase(path string) (*sql.DB, error) {
 	if err := prepareDatabaseFile(path); err != nil {
 		return nil, err
 	}
-	db, err := sql.Open("sqlite", path)
+	uriPath, err := filepath.Abs(path)
+	if err != nil {
+		return nil, fmt.Errorf("resolve database path %q: %w", path, err)
+	}
+	uriPath = filepath.ToSlash(uriPath)
+	if runtime.GOOS == "windows" {
+		uriPath = "/" + uriPath
+	}
+	uri := url.URL{Scheme: "file", Path: uriPath}
+	uri.RawQuery = url.Values{"_pragma": {"foreign_keys(1)"}}.Encode()
+	db, err := sql.Open("sqlite", uri.String())
 	if err != nil {
 		return nil, err
 	}
@@ -140,7 +151,7 @@ func openDatabase(path string) (*sql.DB, error) {
 		_ = db.Close()
 		return nil, err
 	}
-	if _, err := db.Exec(`PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;`); err != nil {
+	if _, err := db.Exec(`PRAGMA journal_mode=WAL;`); err != nil {
 		return closeWithError(err)
 	}
 	if _, err := db.Exec(schema); err != nil {
@@ -719,9 +730,11 @@ func (s *Store) InsertNodes(nodes []Node) (retErr error) {
 	for _, n := range nodes {
 		props := "{}"
 		if len(n.Props) > 0 {
-			if b, err := json.Marshal(n.Props); err == nil {
-				props = string(b)
+			b, marshalErr := json.Marshal(n.Props)
+			if marshalErr != nil {
+				return fmt.Errorf("marshal node properties for %q: %w", n.QualifiedName, marshalErr)
 			}
+			props = string(b)
 		}
 		res, err := insNode.Exec(n.Project, n.Label, n.Name, n.QualifiedName, n.FilePath, n.StartLine, n.EndLine, props)
 		if err != nil {
@@ -863,9 +876,11 @@ func (s *Store) InsertEdges(edges []Edge) (inserted, dropped int, err error) {
 		}
 		props := "{}"
 		if len(e.Props) > 0 {
-			if b, err := json.Marshal(e.Props); err == nil {
-				props = string(b)
+			b, marshalErr := json.Marshal(e.Props)
+			if marshalErr != nil {
+				return 0, 0, fmt.Errorf("marshal edge properties for %q -> %q: %w", e.SourceQN, e.TargetQN, marshalErr)
 			}
+			props = string(b)
 		}
 		res, err := ins.Exec(e.Project, sid, tid, string(e.Type), props)
 		if err != nil {
@@ -1093,7 +1108,7 @@ func (s *Store) DeadCodeCandidates(project string, offset, limit int) ([]Node, e
 		AND NOT EXISTS (
 			SELECT 1 FROM edges e WHERE e.target_id = n.id AND e.source_id <> n.id AND e.type='CALLS'
 		)
-		ORDER BY n.file_path ASC, n.start_line ASC LIMIT ? OFFSET ?`
+		ORDER BY n.file_path ASC, n.start_line ASC, n.qualified_name ASC LIMIT ? OFFSET ?`
 	rows, err := s.db.Query(q, project, limit, offset)
 	if err != nil {
 		return nil, err
@@ -1122,7 +1137,6 @@ func (s *Store) ImportSourcesOfFiles(project string, targetFiles []string) ([]st
 	if len(targetFiles) == 0 {
 		return nil, nil
 	}
-	// #nosec G202 -- placeholders are generated, one per target; values stay parameters.
 	placeholders := make([]byte, 0, len(targetFiles)*2)
 	args := make([]any, 0, len(targetFiles)+3)
 	args = append(args, project, string(EdgeImports), project)
@@ -1133,6 +1147,7 @@ func (s *Store) ImportSourcesOfFiles(project string, targetFiles []string) ([]st
 		placeholders = append(placeholders, '?')
 		args = append(args, project+":"+rel)
 	}
+	// #nosec G202 -- only generated '?' placeholders are concatenated; values stay parameters.
 	q := `SELECT DISTINCT n.qualified_name FROM edges e
 		JOIN nodes n ON n.id = e.source_id
 		WHERE e.project=? AND e.type=?
@@ -1236,7 +1251,9 @@ func (s *Store) ForEachCallEdge(project string, fn func(CallEdge) error) error {
 			return err
 		}
 		if props != "" {
-			_ = json.Unmarshal([]byte(props), &ce.Props)
+			if err := json.Unmarshal([]byte(props), &ce.Props); err != nil {
+				return fmt.Errorf("decode CALLS properties for %q -> %q: %w", ce.SourceQN, ce.TargetQN, err)
+			}
 		}
 		if err := fn(ce); err != nil {
 			return err

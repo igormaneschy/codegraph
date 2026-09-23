@@ -2,10 +2,16 @@ package graph
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
-	"os"
+	"io"
 	"strings"
+
+	"github.com/Lordymine/codegraph/internal/securefile"
 )
+
+// snippetBeforeOpenHook is a test seam for replacing a resolved path before open.
+var snippetBeforeOpenHook func()
 
 // SnippetChunk is one streamed page of a source file. Pages always cover whole
 // lines: a single line longer than maxBytes is emitted whole with LongLine set
@@ -49,7 +55,10 @@ func SnippetPaged(repoRoot, filePath string, fromLine, maxLines, maxBytes, endLi
 	if err != nil {
 		return out, err
 	}
-	f, err := os.Open(abs)
+	if snippetBeforeOpenHook != nil {
+		snippetBeforeOpenHook()
+	}
+	f, err := securefile.OpenRead(abs)
 	if err != nil {
 		return out, err
 	}
@@ -69,13 +78,15 @@ func SnippetPaged(repoRoot, filePath string, fromLine, maxLines, maxBytes, endLi
 	acc := 0
 	out.NextLine = fromLine
 	for {
-		raw, rerr := r.ReadString('\n')
-		if len(raw) == 0 && rerr != nil {
+		raw, atEnd, readErr := readSnippetLine(r, filePath)
+		if readErr != nil {
+			return out, readErr
+		}
+		if len(raw) == 0 && atEnd {
 			break // clean EOF: nothing remains
 		}
 		lineNo++
 		line := strings.TrimSuffix(raw, "\n")
-		atEnd := rerr != nil // last line without trailing newline counts too
 		if lineNo < fromLine {
 			if atEnd {
 				break // skipped past EOF
@@ -123,4 +134,12 @@ func SnippetPaged(repoRoot, filePath string, fromLine, maxLines, maxBytes, endLi
 	// 1-line lookahead) or hit EOF/end (nothing remains), so no probe is
 	// needed: a page boundary exactly at EOF reports HasMore=false.
 	return out, nil
+}
+
+func readSnippetLine(r *bufio.Reader, filePath string) (string, bool, error) {
+	line, err := r.ReadString('\n')
+	if err != nil && !errors.Is(err, io.EOF) {
+		return "", false, fmt.Errorf("read snippet %q: %w", filePath, err)
+	}
+	return line, errors.Is(err, io.EOF), nil
 }

@@ -84,97 +84,80 @@ func newMCPSession(eng *query.Engine, dbPath, root, project string, ctx context.
 // engine returns the guarded query surface for the MCP server: every method
 // holds the session mutex and refuses when the graph is not queryable, so a
 // query can never run against a closed engine.
-func (s *mcpSession) engine() mcp.QueryEngine { return sessionEngine{s} }
+func (s *mcpSession) engine() mcp.QueryEngine { return sessionEngine{s: s} }
 
-type sessionEngine struct{ s *mcpSession }
+type sessionEngine struct {
+	s                *mcpSession
+	beforeSearchPage func() error // test barrier between admission and the query
+}
 
-func (g sessionEngine) use() (*query.Engine, error) {
+func sessionQuery[T any](g sessionEngine, run func(*query.Engine) (T, error)) (T, error) {
 	g.s.mu.Lock()
 	defer g.s.mu.Unlock()
 	if !g.s.serving || g.s.eng == nil {
-		return nil, fmt.Errorf("codegraph: graph is not queryable (state=%s): %s", g.s.state, strings.TrimSpace(g.s.notice))
+		var zero T
+		return zero, fmt.Errorf("codegraph: graph is not queryable (state=%s): %s", g.s.state, strings.TrimSpace(g.s.notice))
 	}
-	return g.s.eng, nil
+	return run(g.s.eng)
 }
 
 func (g sessionEngine) SearchPage(q, label string, limit int, cursor string) (query.RefPage, error) {
-	eng, err := g.use()
-	if err != nil {
-		return query.RefPage{}, err
-	}
-	return eng.SearchPage(q, label, limit, cursor)
+	return sessionQuery(g, func(eng *query.Engine) (query.RefPage, error) {
+		if g.beforeSearchPage != nil {
+			if err := g.beforeSearchPage(); err != nil {
+				return query.RefPage{}, err
+			}
+		}
+		return eng.SearchPage(q, label, limit, cursor)
+	})
 }
 
 func (g sessionEngine) CallersPage(qn string, limit int, cursor string) (query.RefPage, error) {
-	eng, err := g.use()
-	if err != nil {
-		return query.RefPage{}, err
-	}
-	return eng.CallersPage(qn, limit, cursor)
+	return sessionQuery(g, func(eng *query.Engine) (query.RefPage, error) {
+		return eng.CallersPage(qn, limit, cursor)
+	})
 }
 
 func (g sessionEngine) CalleesPage(qn string, limit int, cursor string) (query.RefPage, error) {
-	eng, err := g.use()
-	if err != nil {
-		return query.RefPage{}, err
-	}
-	return eng.CalleesPage(qn, limit, cursor)
+	return sessionQuery(g, func(eng *query.Engine) (query.RefPage, error) {
+		return eng.CalleesPage(qn, limit, cursor)
+	})
 }
 
 func (g sessionEngine) NeighborsPage(qn string, limit int, cursor string) (query.RefPage, error) {
-	eng, err := g.use()
-	if err != nil {
-		return query.RefPage{}, err
-	}
-	return eng.NeighborsPage(qn, limit, cursor)
+	return sessionQuery(g, func(eng *query.Engine) (query.RefPage, error) {
+		return eng.NeighborsPage(qn, limit, cursor)
+	})
 }
 
 func (g sessionEngine) SimilarPage(qn string, limit int, cursor string) (query.RefPage, error) {
-	eng, err := g.use()
-	if err != nil {
-		return query.RefPage{}, err
-	}
-	return eng.SimilarPage(qn, limit, cursor)
+	return sessionQuery(g, func(eng *query.Engine) (query.RefPage, error) {
+		return eng.SimilarPage(qn, limit, cursor)
+	})
 }
 
 func (g sessionEngine) DeadCodePage(limit int, cursor string) (query.RefPage, error) {
-	eng, err := g.use()
-	if err != nil {
-		return query.RefPage{}, err
-	}
-	return eng.DeadCodePage(limit, cursor)
-}
-
-func (g sessionEngine) SimilarNotice() string {
-	eng, err := g.use()
-	if err != nil {
-		return ""
-	}
-	return eng.SimilarNotice()
+	return sessionQuery(g, func(eng *query.Engine) (query.RefPage, error) {
+		return eng.DeadCodePage(limit, cursor)
+	})
 }
 
 func (g sessionEngine) Architecture(topN int) (query.Architecture, error) {
-	eng, err := g.use()
-	if err != nil {
-		return query.Architecture{}, err
-	}
-	return eng.Architecture(topN)
+	return sessionQuery(g, func(eng *query.Engine) (query.Architecture, error) {
+		return eng.Architecture(topN)
+	})
 }
 
 func (g sessionEngine) SnippetPage(file string, start, end, limit int, cursor string) (query.SnippetPage, error) {
-	eng, err := g.use()
-	if err != nil {
-		return query.SnippetPage{}, err
-	}
-	return eng.SnippetPage(file, start, end, limit, cursor)
+	return sessionQuery(g, func(eng *query.Engine) (query.SnippetPage, error) {
+		return eng.SnippetPage(file, start, end, limit, cursor)
+	})
 }
 
 func (g sessionEngine) DetectChanges() (index.Changes, error) {
-	eng, err := g.use()
-	if err != nil {
-		return index.Changes{}, err
-	}
-	return eng.DetectChanges()
+	return sessionQuery(g, func(eng *query.Engine) (index.Changes, error) {
+		return eng.DetectChanges()
+	})
 }
 
 // gate is the MCP readiness function: ready/degraded/failed-with-graph serve

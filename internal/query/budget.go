@@ -69,10 +69,11 @@ func checkSnippetLines(lines int) (int, error) {
 // cannot wander into a different question; off is the row offset, exact
 // because the graph is immutable within a generation.
 type pageCursor struct {
-	V   int    `json:"v"`
-	Gen string `json:"gen"`
-	Fp  string `json:"fp"`
-	Off int    `json:"off"`
+	V      int    `json:"v"`
+	Gen    string `json:"gen"`
+	Fp     string `json:"fp"`
+	Off    int    `json:"off"`
+	RawOff int    `json:"raw_off,omitempty"` // dead_code: next unfiltered candidate, absent in older cursors
 }
 
 // snippetCursor continues a snippet page losslessly: line is the 1-based next
@@ -122,7 +123,7 @@ func decodeRefCursor(token string) (pageCursor, error) {
 	if err := json.Unmarshal(raw, &c); err != nil {
 		return c, fmt.Errorf("malformed cursor: restart the query from its first page")
 	}
-	if c.V != 1 || c.Off < 0 {
+	if c.V != 1 || c.Off < 0 || c.RawOff < 0 {
 		return c, fmt.Errorf("unsupported cursor: restart the query from its first page")
 	}
 	return c, nil

@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/Lordymine/codegraph/internal/graph"
-	"github.com/Lordymine/codegraph/internal/index"
 	"github.com/Lordymine/codegraph/internal/similar"
 )
 
@@ -23,6 +22,7 @@ type RefPage struct {
 	HasMore    bool
 	Cursor     string // "-" when !HasMore
 	Generation string // short manifest digest ("none" when unmanifested)
+	Notice     string // similarity coverage for this page's served generation
 }
 
 // WireText renders the product wire format: compact TSV refs plus the trailer.
@@ -62,14 +62,14 @@ func (p SnippetPage) WireText() string {
 	return b.String()
 }
 
-// generation reports the served graph generation: the manifest content digest
-// (short), or "none" when no manifest is committed. Cursors bind to it.
+// generation reports the manifest captured with this engine's database handle.
+// An external writer may replace the path, but an open handle still serves its
+// previous graph until Reopen; cursors must bind to that served generation.
 func (e *Engine) generation() string {
-	manifest, err := index.ReadManifest(e.store.DBPath())
-	if err != nil {
+	if e.manifestErr != nil {
 		return "none"
 	}
-	return shortDigest(manifest.GraphContentDigest)
+	return shortDigest(e.manifest.GraphContentDigest)
 }
 
 // refFingerprint binds a cursor to its exact question.
@@ -194,18 +194,22 @@ func (e *Engine) NeighborsPage(qualifiedName string, limit int, cursor string) (
 
 // SimilarPage: near-clone symbols, paged.
 func (e *Engine) SimilarPage(qualifiedName string, limit int, cursor string) (RefPage, error) {
-	return e.neighborsPage("similar", qualifiedName, "both", "SIMILAR_TO", limit, cursor)
+	page, err := e.neighborsPage("similar", qualifiedName, "both", "SIMILAR_TO", limit, cursor)
+	if err != nil {
+		return page, err
+	}
+	page.Notice = e.SimilarNotice()
+	return page, nil
 }
 
 // SimilarCoverage reports how much of the SIMILAR_TO pass produced the served
 // graph (complete/partial/omitted), read from the committed manifest — so it
 // survives restarts and no-op reuse without re-running the pass.
 func (e *Engine) SimilarCoverage() (similar.Coverage, error) {
-	manifest, err := index.ReadManifest(e.store.DBPath())
-	if err != nil {
-		return similar.Coverage{}, err
+	if e.manifestErr != nil {
+		return similar.Coverage{}, e.manifestErr
 	}
-	return manifest.Similar, nil
+	return e.manifest.Similar, nil
 }
 
 // SimilarNotice returns the actionable context for `similar` answers when
@@ -248,6 +252,7 @@ func (e *Engine) DeadCodePage(limit int, cursor string) (RefPage, error) {
 	out.Generation = gen
 	fp := refFingerprint("dead_code", "", "", "", pageSize)
 	offset := 0
+	rawStart := 0
 	if cursor != "" {
 		c, err := decodeRefCursor(cursor)
 		if err != nil {
@@ -260,6 +265,7 @@ func (e *Engine) DeadCodePage(limit int, cursor string) (RefPage, error) {
 			return out, fmt.Errorf("cursor belongs to a different query: restart the query from its first page")
 		}
 		offset = c.Off
+		rawStart = c.RawOff
 	}
 	// Stream raw batches, skipping entry points and already-served filtered
 	// items, until the page plus its continuation probe are determined. Each
@@ -267,7 +273,11 @@ func (e *Engine) DeadCodePage(limit int, cursor string) (RefPage, error) {
 	// page of refs is ever live.
 	var rows []Ref
 	skipped := 0
-	rawOffset := 0
+	if rawStart > 0 {
+		skipped = offset
+	}
+	rawOffset := rawStart
+	var rawPositions []int
 	for len(rows) < pageSize+1 {
 		raw, err := e.store.DeadCodeCandidates(e.project, rawOffset, deadCodeRawBatch)
 		if err != nil {
@@ -276,8 +286,9 @@ func (e *Engine) DeadCodePage(limit int, cursor string) (RefPage, error) {
 		if len(raw) == 0 {
 			break
 		}
+		batchStart := rawOffset
 		rawOffset += len(raw)
-		for _, n := range raw {
+		for i, n := range raw {
 			if isEntryPoint(n) {
 				continue
 			}
@@ -286,6 +297,7 @@ func (e *Engine) DeadCodePage(limit int, cursor string) (RefPage, error) {
 				continue
 			}
 			rows = append(rows, refOf(n))
+			rawPositions = append(rawPositions, batchStart+i)
 			if len(rows) == pageSize+1 {
 				break
 			}
@@ -313,7 +325,7 @@ func (e *Engine) DeadCodePage(limit int, cursor string) (RefPage, error) {
 	// means more.
 	out.HasMore = probe || emit < len(rows)
 	if out.HasMore {
-		out.Cursor = encodeCursor(pageCursor{V: 1, Gen: gen, Fp: fp, Off: offset + emit})
+		out.Cursor = encodeCursor(pageCursor{V: 1, Gen: gen, Fp: fp, Off: offset + emit, RawOff: rawPositions[emit-1] + 1})
 	} else {
 		out.Cursor = "-"
 	}

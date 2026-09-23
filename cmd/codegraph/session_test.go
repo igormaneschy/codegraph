@@ -69,21 +69,6 @@ func openP1Session(t *testing.T, root string) (*mcpSession, string) {
 	return sess, dbPath
 }
 
-func waitGate(t *testing.T, sess *mcpSession, wantOK bool, timeout time.Duration) (bool, string) {
-	t.Helper()
-	deadline := time.Now().Add(timeout)
-	for {
-		ok, msg := sess.gate()
-		if ok == wantOK {
-			return ok, msg
-		}
-		if time.Now().After(deadline) {
-			return ok, msg
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-}
-
 func sessionGeneration(t *testing.T, sess *mcpSession) string {
 	t.Helper()
 	sess.mu.Lock()
@@ -186,12 +171,26 @@ func TestSession_TwoSessionsConverge(t *testing.T) {
 	if !strings.Contains(statusB, "lag=") {
 		t.Fatalf("B status does not report the newer disk generation:\n%s", statusB)
 	}
+	oldPage, err := sessB.engine().SearchPage("Before", "", 1, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if oldPage.Generation != shortDigest(gen1) {
+		t.Fatalf("stale session labeled its old graph as generation %q, want %q", oldPage.Generation, shortDigest(gen1))
+	}
 	sessB.refreshAsync()
 	if !sessB.waitRound(30 * time.Second) {
 		t.Fatal("B refresh did not finish")
 	}
 	if got := sessionGeneration(t, sessB); got != gen2 {
 		t.Fatalf("B did not converge without restart: B=%q A=%q", got, gen2)
+	}
+	newPage, err := sessB.engine().SearchPage("After", "", 1, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if newPage.Generation != shortDigest(gen2) {
+		t.Fatalf("reopened session page generation=%q, want %q", newPage.Generation, shortDigest(gen2))
 	}
 }
 
@@ -333,10 +332,70 @@ func TestSession_QueryNeverUsesClosedEngine(t *testing.T) {
 	}
 }
 
+// An admitted query must finish before Close can discard its store. The barrier
+// pauses SearchPage after admission, making the refresh/close interleaving exact.
+func TestSession_CloseWaitsForInFlightQuery(t *testing.T) {
+	root := writeP1Repo(t, map[string]string{"x.go": "package x\nfunc Before() int { return 1 }\n"})
+	sess, _ := openP1Session(t, root)
+	sess.startInitial()
+	if !sess.waitRound(30 * time.Second) {
+		t.Fatal("initial round did not finish")
+	}
+
+	queryEntered := make(chan struct{})
+	releaseQuery := make(chan struct{})
+	closedEarly := make(chan struct{})
+	guard := sessionEngine{s: sess, beforeSearchPage: func() error {
+		close(queryEntered)
+		<-releaseQuery
+		select {
+		case <-closedEarly:
+			return fmt.Errorf("session closed before the admitted query ran")
+		default:
+			return nil
+		}
+	}}
+	queryDone := make(chan error, 1)
+	go func() {
+		_, err := guard.SearchPage("Before", "", 1, "")
+		queryDone <- err
+	}()
+	select {
+	case <-queryEntered:
+	case <-time.After(5 * time.Second):
+		close(releaseQuery)
+		t.Fatal("query did not reach the admission barrier")
+	}
+
+	closeStarted := make(chan struct{})
+	closeDone := make(chan error, 1)
+	go func() {
+		close(closeStarted)
+		closeDone <- sess.close()
+	}()
+	<-closeStarted
+	select {
+	case err := <-closeDone:
+		close(closedEarly)
+		close(releaseQuery)
+		<-queryDone
+		t.Fatalf("Close returned while an admitted query was in flight: %v", err)
+	case <-time.After(250 * time.Millisecond):
+		close(releaseQuery)
+	}
+	if err := <-queryDone; err != nil {
+		t.Fatalf("admitted query failed: %v", err)
+	}
+	if err := <-closeDone; err != nil {
+		t.Fatalf("Close after query: %v", err)
+	}
+}
+
 // runP1ChildProcess spawns the current test binary as a real second process
 // attempting a writer round on dbPath/root.
 func runP1ChildProcess(t *testing.T, dbPath, root string) (string, string, int) {
 	t.Helper()
+	// #nosec G204 G702 -- the child executable is this test binary, never user input.
 	cmd := exec.Command(os.Args[0])
 	cmd.Env = append(os.Environ(),
 		"CODEGRAPH_TEST_CHILD=tryindex",

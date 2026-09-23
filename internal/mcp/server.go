@@ -8,6 +8,7 @@ package mcp
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -45,7 +46,6 @@ type QueryEngine interface {
 	NeighborsPage(qualifiedName string, limit int, cursor string) (query.RefPage, error)
 	SimilarPage(qualifiedName string, limit int, cursor string) (query.RefPage, error)
 	DeadCodePage(limit int, cursor string) (query.RefPage, error)
-	SimilarNotice() string
 	Architecture(topN int) (query.Architecture, error)
 	SnippetPage(filePath string, start, end, limit int, cursor string) (query.SnippetPage, error)
 	DetectChanges() (index.Changes, error)
@@ -165,7 +165,17 @@ type toolCallParams struct {
 
 func (s *Server) callTool(req rpcRequest) {
 	var p toolCallParams
-	_ = json.Unmarshal(req.Params, &p)
+	if !jsonObject(req.Params) || json.Unmarshal(req.Params, &p) != nil || p.Name == "" {
+		s.fail(req.ID, -32602, "tools/call params must be an object with a tool name")
+		return
+	}
+	if len(p.Arguments) == 0 {
+		p.Arguments = json.RawMessage(`{}`)
+	}
+	if !jsonObject(p.Arguments) {
+		s.fail(req.ID, -32602, "tool arguments must be a JSON object")
+		return
+	}
 	if text, err, handled := s.callExtra(p, req); handled {
 		if err != nil {
 			s.fail(req.ID, -32000, err.Error())
@@ -195,7 +205,10 @@ func (s *Server) callTool(req rpcRequest) {
 		Limit         int    `json:"limit"`
 		Cursor        string `json:"cursor"`
 	}
-	_ = json.Unmarshal(p.Arguments, &args)
+	if err := json.Unmarshal(p.Arguments, &args); err != nil {
+		s.fail(req.ID, -32602, "invalid tool arguments: "+err.Error())
+		return
+	}
 
 	// Ref/snippet tools emit one page plus a `#` trailer line carrying
 	// has_more + cursor + generation, so a truncated answer never looks
@@ -222,12 +235,12 @@ func (s *Server) callTool(req rpcRequest) {
 	case "neighbors":
 		text, err = pageText(s.eng.NeighborsPage(args.QualifiedName, args.Limit, args.Cursor))
 	case "similar":
-		text, err = pageText(s.eng.SimilarPage(args.QualifiedName, args.Limit, args.Cursor))
+		var page query.RefPage
+		page, err = s.eng.SimilarPage(args.QualifiedName, args.Limit, args.Cursor)
 		if err == nil {
-			// Incomplete clone coverage is answer-shaping context: a partial
-			// `similar` page without it reads as "no (more) clones".
-			if notice := s.eng.SimilarNotice(); notice != "" {
-				text = notice + "\n\n" + text
+			text = page.WireText()
+			if page.Notice != "" {
+				text = page.Notice + "\n\n" + text
 			}
 		}
 	case "dead_code":
@@ -269,6 +282,11 @@ func (s *Server) callTool(req rpcRequest) {
 	s.reply(req.ID, map[string]any{
 		"content": []map[string]any{{"type": "text", "text": text}},
 	})
+}
+
+func jsonObject(raw json.RawMessage) bool {
+	trimmed := bytes.TrimSpace(raw)
+	return len(trimmed) > 0 && trimmed[0] == '{' && json.Valid(trimmed)
 }
 
 // callExtra dispatches host-registered tools. Ungated tools bypass the

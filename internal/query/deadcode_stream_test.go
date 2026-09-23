@@ -3,6 +3,7 @@ package query
 import (
 	"fmt"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/Lordymine/codegraph/internal/graph"
@@ -136,6 +137,47 @@ func TestDeadCodePage_EntryPointsDontStarve(t *testing.T) {
 	}
 }
 
+func TestDeadCodePage_OldCursorAndTiedPositions(t *testing.T) {
+	store, err := graph.Open(filepath.Join(t.TempDir(), "graph.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	nodes := []graph.Node{}
+	for _, name := range []string{"c", "a", "b"} {
+		nodes = append(nodes, graph.Node{Project: "p", Label: graph.LabelFunction, Name: name,
+			QualifiedName: "p:a.go." + name, FilePath: "a.go", StartLine: 1})
+	}
+	if err := store.InsertNodes(nodes); err != nil {
+		t.Fatal(err)
+	}
+	eng := NewEngine(store, "p", t.TempDir())
+	first, err := eng.DeadCodePage(1, "")
+	if err != nil || len(first.Refs) != 1 || first.Refs[0].Name != "a" {
+		t.Fatalf("first tied-position page=%+v, err=%v", first, err)
+	}
+	newNext, err := eng.DeadCodePage(1, first.Cursor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := decodeRefCursor(first.Cursor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded.RawOff = 0 // pre-optimization cursor had only the filtered offset
+	oldNext, err := eng.DeadCodePage(1, encodeCursor(decoded))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(newNext.Refs, oldNext.Refs) || len(newNext.Refs) != 1 || newNext.Refs[0].Name != "b" {
+		t.Fatalf("new cursor page=%+v, old cursor page=%+v", newNext, oldNext)
+	}
+	last, err := eng.DeadCodePage(1, newNext.Cursor)
+	if err != nil || len(last.Refs) != 1 || last.Refs[0].Name != "c" || last.HasMore {
+		t.Fatalf("last tied-position page=%+v, err=%v", last, err)
+	}
+}
+
 // TestDeadCodePage_BoundedAllocs pins the memory contract: serving one page
 // from thousands of candidates allocates proportionally to the batch, never
 // to the total. Measured ~6k allocs/run against a 20k bound; materializing
@@ -143,7 +185,9 @@ func TestDeadCodePage_EntryPointsDontStarve(t *testing.T) {
 // candidate (linear in the total), which the batch loop never pays.
 func TestDeadCodePage_BoundedAllocs(t *testing.T) {
 	eng := seedDeadStream(t, 4000, 0)
-	eng.DeadCodePage(50, "") // warm caches, stabilize GC
+	if _, err := eng.DeadCodePage(50, ""); err != nil { // warm caches, stabilize GC
+		t.Fatal(err)
+	}
 	allocs := testing.AllocsPerRun(20, func() {
 		if _, err := eng.DeadCodePage(50, ""); err != nil {
 			t.Fatal(err)
@@ -157,6 +201,14 @@ func TestDeadCodePage_BoundedAllocs(t *testing.T) {
 
 // BenchmarkDeadCodePage_FirstPage tracks serve cost over a large candidate set.
 func BenchmarkDeadCodePage_FirstPage(b *testing.B) {
+	benchmarkDeadCodePage(b, false)
+}
+
+func BenchmarkDeadCodePage_DeepPage(b *testing.B) {
+	benchmarkDeadCodePage(b, true)
+}
+
+func benchmarkDeadCodePage(b *testing.B, deep bool) {
 	store, err := graph.Open(filepath.Join(b.TempDir(), "g.db"))
 	if err != nil {
 		b.Fatal(err)
@@ -177,10 +229,20 @@ func BenchmarkDeadCodePage_FirstPage(b *testing.B) {
 	}
 	eng := NewEngine(store, project, b.TempDir())
 	defer eng.Close()
+	cursor := ""
+	if deep {
+		for pageIndex := 0; pageIndex < 60; pageIndex++ {
+			page, err := eng.DeadCodePage(50, cursor)
+			if err != nil || !page.HasMore {
+				b.Fatalf("prepare deep page %d: page=%+v err=%v", pageIndex, page, err)
+			}
+			cursor = page.Cursor
+		}
+	}
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if _, err := eng.DeadCodePage(50, ""); err != nil {
+		if _, err := eng.DeadCodePage(50, cursor); err != nil {
 			b.Fatal(err)
 		}
 	}

@@ -84,12 +84,13 @@ func (s stubEngine) NeighborsPage(qn string, limit int, cursor string) (query.Re
 	return s.page, nil
 }
 func (s stubEngine) SimilarPage(qn string, limit int, cursor string) (query.RefPage, error) {
-	return s.page, nil
+	page := s.page
+	page.Notice = s.notice
+	return page, nil
 }
 func (s stubEngine) DeadCodePage(limit int, cursor string) (query.RefPage, error) {
 	return s.page, nil
 }
-func (s stubEngine) SimilarNotice() string { return s.notice }
 func (s stubEngine) Architecture(topN int) (query.Architecture, error) {
 	return query.Architecture{}, nil
 }
@@ -122,6 +123,36 @@ func driveNamedToolCall(t *testing.T, eng QueryEngine, name, args string) string
 		return ""
 	}
 	return resp.Result.Content[0].Text
+}
+
+func TestServer_RejectsMalformedToolArguments(t *testing.T) {
+	cases := []string{
+		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":[]}`,
+		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"search","arguments":[]}}`,
+		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"search","arguments":{"limit":"many"}}}`,
+		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"extra","arguments":null}}`,
+	}
+	for _, request := range cases {
+		var out bytes.Buffer
+		srv := NewServer(stubEngine{}, strings.NewReader(request+"\n"), &out)
+		called := false
+		if err := srv.RegisterTool("extra", "test", nil, nil, true, func(json.RawMessage) (string, error) {
+			called = true
+			return "unexpected", nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if err := srv.Serve(); err != nil {
+			t.Fatal(err)
+		}
+		var response rpcResponse
+		if err := json.Unmarshal(out.Bytes(), &response); err != nil {
+			t.Fatal(err)
+		}
+		if response.Error == nil || response.Error.Code != -32602 || called {
+			t.Errorf("request %s: error=%+v, extra called=%v", request, response.Error, called)
+		}
+	}
 }
 
 // TestServer_SimilarPrependsCoverageNotice pins P4's query surface: a partial

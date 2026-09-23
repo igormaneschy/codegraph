@@ -1,12 +1,90 @@
 package graph
 
 import (
+	"context"
+	"database/sql"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
 )
+
+func TestStore_ForeignKeysEnabledOnEveryConnection(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "graph #1.db")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	for _, phase := range []string{"open", "reopen"} {
+		if phase == "reopen" {
+			if err := s.Reopen(path); err != nil {
+				t.Fatal(err)
+			}
+		}
+		ctx := context.Background()
+		first, err := s.db.Conn(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		second, err := s.db.Conn(ctx)
+		if err != nil {
+			_ = first.Close()
+			t.Fatal(err)
+		}
+		for i, conn := range []*sql.Conn{first, second} {
+			var enabled int
+			if err := conn.QueryRowContext(ctx, "PRAGMA foreign_keys").Scan(&enabled); err != nil {
+				t.Fatalf("%s connection %d: %v", phase, i+1, err)
+			}
+			if enabled != 1 {
+				t.Errorf("%s connection %d: foreign_keys=%d, want 1", phase, i+1, enabled)
+			}
+			if _, err := conn.ExecContext(ctx, `INSERT INTO edges(project,source_id,target_id,type)
+				VALUES ('p',-1,-2,'CALLS')`); err == nil {
+				t.Errorf("%s connection %d accepted an edge with missing endpoints", phase, i+1)
+			}
+		}
+		if err := second.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if err := first.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestStore_InvalidPropertiesRollBackBatch(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "graph.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	const project = "p"
+	first := Node{Project: project, Label: LabelFunction, Name: "First", QualifiedName: "p:a.go.First"}
+	second := Node{Project: project, Label: LabelFunction, Name: "Second", QualifiedName: "p:a.go.Second"}
+	badNode := second
+	badNode.Props = map[string]any{"unsupported": make(chan int)}
+	if err := s.InsertNodes([]Node{first, badNode}); err == nil || !strings.Contains(err.Error(), badNode.QualifiedName) {
+		t.Fatalf("invalid node properties error = %v, want named serialization error", err)
+	}
+	if nodes, _, err := s.Stats(project); err != nil || nodes != 0 {
+		t.Fatalf("invalid node batch left nodes=%d, err=%v", nodes, err)
+	}
+	if err := s.InsertNodes([]Node{first, second}); err != nil {
+		t.Fatal(err)
+	}
+	goodEdge := Edge{Project: project, SourceQN: first.QualifiedName, TargetQN: second.QualifiedName, Type: EdgeCalls}
+	badEdge := Edge{Project: project, SourceQN: second.QualifiedName, TargetQN: first.QualifiedName, Type: EdgeCalls,
+		Props: map[string]any{"unsupported": make(chan int)}}
+	if _, _, err := s.InsertEdges([]Edge{goodEdge, badEdge}); err == nil || !strings.Contains(err.Error(), badEdge.SourceQN) {
+		t.Fatalf("invalid edge properties error = %v, want named serialization error", err)
+	}
+	if _, edges, err := s.Stats(project); err != nil || edges != 0 {
+		t.Fatalf("invalid edge batch left edges=%d, err=%v", edges, err)
+	}
+}
 
 // TestReplaceProject_AllowsReindex is a regression test for the contentless-FTS5
 // bug: ReplaceProject used `DELETE FROM nodes_fts`, which SQLite rejects on a
@@ -77,6 +155,33 @@ func TestForEachCallEdge_Streams(t *testing.T) {
 	}
 	if n != 1 {
 		t.Fatalf("got %d edges, want 1", n)
+	}
+}
+
+func TestForEachCallEdge_RejectsCorruptProperties(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "graph.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if err := s.InsertNodes([]Node{
+		{Project: "p", Label: LabelFunction, Name: "A", QualifiedName: "p:a.go.A"},
+		{Project: "p", Label: LabelFunction, Name: "B", QualifiedName: "p:a.go.B"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.InsertEdges([]Edge{{Project: "p", SourceQN: "p:a.go.A", TargetQN: "p:a.go.B", Type: EdgeCalls}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`UPDATE edges SET properties='{'`); err != nil {
+		t.Fatal(err)
+	}
+	called := false
+	if err := s.ForEachCallEdge("p", func(CallEdge) error {
+		called = true
+		return nil
+	}); err == nil || !strings.Contains(err.Error(), "p:a.go.A") || called {
+		t.Fatalf("corrupt CALLS properties: err=%v, callback called=%v", err, called)
 	}
 }
 

@@ -66,13 +66,21 @@ func StripProjectPrefix(qn string) string {
 
 // Engine wraps a store + repo root for a single project.
 type Engine struct {
-	store    *graph.Store
-	project  string
-	repoRoot string
+	store       *graph.Store
+	project     string
+	repoRoot    string
+	manifest    index.Manifest
+	manifestErr error
 }
 
 func NewEngine(store *graph.Store, project, repoRoot string) *Engine {
-	return &Engine{store: store, project: project, repoRoot: repoRoot}
+	e := &Engine{store: store, project: project, repoRoot: repoRoot}
+	e.loadManifest()
+	return e
+}
+
+func (e *Engine) loadManifest() {
+	e.manifest, e.manifestErr = index.ReadManifest(e.store.DBPath())
 }
 
 // Close releases the underlying store. Safe to call multiple times.
@@ -94,9 +102,14 @@ func (e *Engine) Reopen(dbPath string) error {
 			return err
 		}
 		e.store = st
+		e.loadManifest()
 		return nil
 	}
-	return e.store.Reopen(dbPath)
+	if err := e.store.Reopen(dbPath); err != nil {
+		return err
+	}
+	e.loadManifest()
+	return nil
 }
 
 // TopByInboundCalls returns call-graph hubs for benchmarking and quality tooling.

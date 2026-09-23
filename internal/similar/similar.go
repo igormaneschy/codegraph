@@ -205,19 +205,6 @@ func EdgesFromSignaturesContext(ctx context.Context, project string, docs []SigD
 	return edges, cov, nil
 }
 
-func edgesFromSigs(project string, qns []string, sigs [][]uint64, threshold float64) []graph.Edge {
-	edges, _, _ := EdgesFromSignaturesContext(context.Background(), project, zipSigDocs(qns, sigs), threshold, DefaultLimits())
-	return edges
-}
-
-func zipSigDocs(qns []string, sigs [][]uint64) []SigDoc {
-	docs := make([]SigDoc, len(qns))
-	for i := range qns {
-		docs[i] = SigDoc{QN: qns[i], Sig: sigs[i]}
-	}
-	return docs
-}
-
 func edgesFromSigsBudgeted(ctx context.Context, project string, qns []string, sigs [][]uint64, threshold float64, lim Limits, cov *Coverage) ([]graph.Edge, error) {
 	// LSH: bucket doc indices by (band, band-hash); a shared bucket is a candidate pair.
 	type bucket struct{ band, key uint64 }

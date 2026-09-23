@@ -1,6 +1,7 @@
 package similar
 
 import (
+	"strconv"
 	"testing"
 )
 
@@ -16,7 +17,7 @@ func TestThresholdSensitivity(t *testing.T) {
 	constsDiffer := func(k int) []string {
 		body := "func clone(v int) int {\n"
 		for i := 0; i < 4; i++ {
-			body += "  v += " + string(rune('0'+k+i)) + "\n"
+			body += "  v += " + strconv.Itoa(k+i) + "\n"
 		}
 		return Tokenize(body + "  return v\n}\n")
 	}
