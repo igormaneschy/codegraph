@@ -971,3 +971,77 @@ porque a ordem é por `fts.rank` (tupla (rank,id) é frágil) — documentado co
 aberto. `dead_code` já usava cursor de candidato bruto. P5 e a observabilidade do
 P7 continuam abertos. Benchmarks sintéticos, sem claim de ganho universal.
 Windows/Linux nativos e o CI remoto Linux/Go 1.26 não foram verificados.
+
+## Contrato e evidência — lote 7, root por execução e observabilidade (P5/P7)
+
+Contrato definido antes do código em `docs/VALIDATION_P5_P7.md`.
+
+- [x] P5 (root/imports): `repositoryRoot` transporta o spelling físico validado
+  pela preparação, reobservações, expansão de configs e handoff. Leitura de
+  configs e applicability deixam de recanonicalizar esse mesmo root. Raízes
+  públicas/standalone ainda são validadas; o root privado do resolver permanece
+  ancorado nos descriptors retidos, nunca recanonicalizado por path.
+- [x] IMPORTS mantém todos os arquivos no lookup de targets, mas abre apenas
+  fontes TS/JS/Ruby, não Go (sem modelo de IMPORTS suportado). A regressão de
+  leitura insegura foi mantida para TS; definições Go continuam verificadas.
+- [x] Nenhuma reobservação, leitura no-follow, hash de snapshot, verificação de
+  links, validação exata ou política conservadora de invalidação foi removida.
+- [x] P7: `Result.Metrics` registra duração monotônica por fase (sequencial,
+  sem dupla contagem, nomes repetidos agregados), bytes/arquivos escritos no
+  staging, decisão/reasons de rebuild/no-op e escopos reusados. Saída em CLI
+  index/bench e MCP status; não entra no manifest/fingerprint/digest.
+- [x] Métricas sobrevivem a erros/cancelamento e são separadas da identidade
+  servida no MCP. Contagem de invocações e amostras de RSS do SCIP sobrevivem
+  ao cancelamento; `ScipScopes` mantém a semântica anterior de escopos com
+  sucesso. RSS é da árvore do resolver, não peak do indexador Go.
+- [x] Report de escopos quoted e limitado a 20 linhas / 240 bytes por nome,
+  com omissão/truncamento explícitos; não publica valores brutos de ambiente.
+
+### Medições
+
+macOS/arm64, Apple M1, Go local 1.27; duas repetições de 10 iterações, sem as
+suítes concorrendo. Baseline: sources do commit `993bc04` via overlay, mesmos
+benchmarks. Logs: `/tmp/cg-lot7/bench-{before,after}-isolated.log`.
+
+| Fixture | Antes | Depois |
+| --- | --- | --- |
+| Scan, 40 jsconfigs referenciando base compartilhada | 622 ms / 139 MB / 1,15 M allocs | 26,5 ms / 3,58 MB / 30.689 allocs |
+| RunAtomic no-op estrito, mesma config graph + fonte Go sem módulo | 1,36 s / 302 MB / 2,50 M allocs | 71 ms / 10,6 MB / 89.994 allocs |
+| IMPORTS, 200 fontes Go | 14,9 ms / 250 KB / 3.203 allocs | 3,7 µs / 6,6 KB / 3 allocs |
+
+O no-op estrito mantém digest e validador exato: o ganho não vem de relaxar sua
+certificação. Microbenchmarks sintéticos; custo de spelling depende também do
+número de entries dos ancestors desta máquina. Sem claim de ganho universal nem
+medição nova de peak RSS do processo Go.
+
+### Regressões e gates
+
+`repository_root_test.go`: alias mantém identidade e root substituído por symlink
+externo continua falhando com ErrUnsafePath, mesmo com o valor já validado.
+`performance_test.go`: imports Go não lê path ausente; benchmarks scan/imports/no-op.
+`metrics_test.go`: no-op, alteração com reuso Ruby, metadados Go contados no no-op,
+staging exato TS/dependencies, falha de refresh preservando digest, cancelamento,
+raiz inválida, retenção de RSS/invocações canceladas, sum de fases sem overlap,
+escopos limitados/escaped, ambiente secreto ausente da saída.
+`cmd/codegraph/metrics_test.go`: saída real de index/no-op, renderer de bench e
+status MCP após cancelamento. Suítes existentes de freshness/integridade,
+graph-digest, inputs, segurança e cancelamento continuam passando.
+
+Gates locais: gofmt, mod verify/tidy-diff, build, vet, full tests, full race,
+SCIP real com race e lint (0 issues). Logs em `/tmp/cg-lot7/*-final.log`.
+Self-review de código/testes: PASS após corrigir argumento booleano ambíguo,
+limitar o report e reter métricas em cancelamento. CI Linux remoto é gate de merge
+verificado nos checks do PR; não é afirmado por estes resultados locais.
+
+### Limites deliberados
+
+P5 foi avançado no root/imports; **reuso de bytes/staging mais profundo permanece
+aberto**. Plano observado continua sendo a única fonte de inputs do snapshot;
+sem cache global, snapshot cross-run, bypass de hashes ou novo rebuild forçado.
+Staged bytes são payloads de escritas bem-sucedidas, incluindo os views privados
+de Go env (dois no no-op, três na construção estável antes do snapshot), não
+ocupação de disco nem bytes SQLite/SCIP. Diretórios/links/escritas falhadas não
+contam. Gates dentro de batches/resolvers fazem parte dessas fases; gates entre
+fases têm timing agregado separado. `manifest-untrusted` agrupa causas de trust
+miss (não finge provar uma edição de config); reasons de inputs não certificados
+continuam explícitos. P2 de search e os gaps R01/R04/R05/R13 continuam abertos.
