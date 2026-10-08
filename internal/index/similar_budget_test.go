@@ -103,7 +103,7 @@ func TestSimilarBudget_ChangeInvalidatesNoOp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if manifest.SimilarVersion != "minhash-lsh-v1+pairs=60+edges=50000" {
+	if manifest.SimilarVersion != "minhash-lsh-v1+pairs=60+edges=50000+skip=false" {
 		t.Errorf("manifest version = %q, want the new budget recorded", manifest.SimilarVersion)
 	}
 }

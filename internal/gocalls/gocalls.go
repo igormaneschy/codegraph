@@ -13,9 +13,11 @@ import (
 	"fmt"
 	"go/types"
 	"log"
+	"os"
 	"path/filepath"
 	"strings"
 
+	"golang.org/x/mod/modfile"
 	"golang.org/x/tools/go/callgraph/vta"
 	"golang.org/x/tools/go/packages"
 	"golang.org/x/tools/go/ssa"
@@ -27,7 +29,7 @@ import (
 // resolverVersion is part of the graph freshness identity. It covers the
 // in-process Go resolver and its VTA admission rules, not only x/tools' module
 // version.
-const resolverVersion = "go-vta-resolver-v2"
+const resolverVersion = "go-vta-resolver-v5"
 
 // ResolverVersion returns the version recorded in an index manifest.
 func ResolverVersion() string { return resolverVersion }
@@ -43,7 +45,13 @@ func CallEdges(project, root string, known func(qn string) bool) (edges []graph.
 // CallEdgesContext passes cancellation to go/packages and checks it around the
 // SSA/VTA phases, which do not expose a context-aware API. A canceled context
 // is returned instead of being downgraded to the resolver's best-effort path.
-func CallEdgesContext(ctx context.Context, project, root string, known func(qn string) bool) (edges []graph.Edge, err error) {
+func CallEdgesContext(ctx context.Context, project, root string, known func(qn string) bool) ([]graph.Edge, error) {
+	return CallEdgesWithEnvironmentContext(ctx, project, root, known, nil)
+}
+
+// CallEdgesWithEnvironmentContext uses the observed build environment instead
+// of re-reading mutable process defaults after the snapshot handoff.
+func CallEdgesWithEnvironmentContext(ctx context.Context, project, root string, known func(qn string) bool, environment []string) (edges []graph.Edge, err error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -64,8 +72,10 @@ func CallEdgesContext(ctx context.Context, project, root string, known func(qn s
 
 	// Tests:true loads *_test.go too, so test functions contribute caller/callee
 	// edges (the dominant recall source for "who calls X" on library code).
-	cfg := &packages.Config{Context: ctx, Mode: packages.LoadAllSyntax, Tests: true, Dir: root}
-	pkgs, loadErr := packages.Load(cfg, "./...")
+	// Syntax/type loading alone may suppress missing embed-file diagnostics.
+	// Ask the Go driver to resolve assets before certifying a healthy program.
+	cfg := &packages.Config{Context: ctx, Mode: packages.LoadAllSyntax | packages.NeedEmbedFiles, Tests: true, Dir: root, Env: environment}
+	pkgs, loadErr := packages.Load(cfg, loadPatterns(root)...)
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -132,6 +142,53 @@ func CallEdgesContext(ctx context.Context, project, root string, known func(qn s
 	return edges, nil
 }
 
+// loadPatterns returns the go/packages patterns for root. A go.work workspace is
+// loaded module-by-module: `./...` at the workspace root fails when the workspace
+// has no root module ("directory prefix . does not contain modules listed in
+// go.work") and silently omits the other modules when it does. Each `use`
+// directory contributes its own `./<dir>/...` pattern, so all workspace modules
+// load in one consistent type environment. `use` entries outside the repository
+// snapshot are skipped; with no usable workspace file this is the plain `./...`.
+func loadPatterns(root string) []string {
+	workPath := filepath.Join(root, "go.work")
+	data, err := os.ReadFile(workPath)
+	if err != nil {
+		return []string{"./..."}
+	}
+	work, err := modfile.ParseWork(workPath, data, nil)
+	if err != nil {
+		return []string{"./..."}
+	}
+	patterns := make([]string, 0, len(work.Use))
+	seen := map[string]bool{}
+	for _, use := range work.Use {
+		if filepath.IsAbs(use.Path) {
+			continue
+		}
+		dir := filepath.ToSlash(filepath.Clean(use.Path))
+		if dir == "." {
+			dir = ""
+		}
+		if strings.HasPrefix(dir, "../") {
+			continue
+		}
+		pattern := "./" + dir
+		if dir != "" {
+			pattern += "/"
+		}
+		pattern += "..."
+		if seen[pattern] {
+			continue
+		}
+		seen[pattern] = true
+		patterns = append(patterns, pattern)
+	}
+	if len(patterns) == 0 {
+		return []string{"./..."}
+	}
+	return patterns
+}
+
 // packageLoadErrors catches diagnostics attached to individual packages. A
 // nil packages.Load error does not guarantee a complete type environment; if
 // any package failed, VTA over the remaining packages would be a silently
@@ -172,8 +229,21 @@ func enclosingNamed(fn *ssa.Function) *ssa.Function {
 // "<project>:<relpath>.<name>" for functions. Returns false for synthetic
 // functions and anything outside the repo (stdlib/deps). Callers pass the result
 // of enclosingNamed, so closures arrive already mapped to their named parent.
+// Generic instantiations and wrappers are synthetic but map to their declared
+// origin, so a call through Box[int].Value is credited to the Box.Value node;
+// a synthetic function with no declared origin is still dropped.
 func funcToQN(fn *ssa.Function, project, root string) (string, bool) {
-	if fn == nil || fn.Pkg == nil || fn.Synthetic != "" {
+	if fn == nil {
+		return "", false
+	}
+	if fn.Synthetic != "" {
+		origin := fn.Origin()
+		if origin == nil || origin == fn || origin.Synthetic != "" {
+			return "", false
+		}
+		fn = origin
+	}
+	if fn.Pkg == nil {
 		return "", false
 	}
 	pos := fn.Prog.Fset.Position(fn.Pos())

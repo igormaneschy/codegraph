@@ -169,7 +169,7 @@ func prepareIndexingContext(ctx context.Context, store *graph.Store, root string
 	if graphFreshnessMiss || !haveStoredHashes {
 		changed = allResolverScopesChanged(tsdirs)
 	} else {
-		changed, err = changedScopesWithTSDependencies(ctx, store, project, root, inputsByPath(scan.manifest.Inputs), changes, tsdirs)
+		changed, err = changedResolverScopes(ctx, changes, tsdirs)
 		if err != nil {
 			return pipelineInput{}, nil, err
 		}
