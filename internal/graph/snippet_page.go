@@ -89,11 +89,24 @@ func SnippetPaged(repoRoot, filePath string, fromLine, maxLines, maxBytes, endLi
 
 	hasher := sha256.New()
 	r := bufio.NewReaderSize(io.TeeReader(f, hasher), 64*1024)
-	lineNo := 0
+	// Fast-forward to the resume line without materializing the skipped lines: a
+	// deep page used to allocate one string per skipped line just to count them
+	// (P2). The bytes still pass through the hasher, so the whole-file digest is
+	// unchanged. io.EOF means the file has fewer lines than fromLine-1.
+	lineNo := fromLine - 1
 	var lines []string
 	acc := 0
 	out.NextLine = fromLine
-	for {
+	skippedPastEOF := false
+	if fromLine > 1 {
+		if err := skipSnippetLines(r, fromLine-1, filePath); err != nil {
+			if !errors.Is(err, io.EOF) {
+				return out, err
+			}
+			skippedPastEOF = true
+		}
+	}
+	for !skippedPastEOF {
 		raw, atEnd, readErr := readSnippetLine(r, filePath)
 		if readErr != nil {
 			return out, readErr
@@ -103,12 +116,6 @@ func SnippetPaged(repoRoot, filePath string, fromLine, maxLines, maxBytes, endLi
 		}
 		lineNo++
 		line := strings.TrimSuffix(raw, "\n")
-		if lineNo < fromLine {
-			if atEnd {
-				break // skipped past EOF
-			}
-			continue
-		}
 		if endLine > 0 && lineNo > endLine {
 			break // bound reached: no continuation within this query
 		}
@@ -165,6 +172,35 @@ func shortHash(digest string) string {
 		return digest[:12]
 	}
 	return digest
+}
+
+// skipSnippetLines consumes n complete lines from r without building a string per
+// line, so a deep page does not allocate for lines it only skips. It enforces the
+// same absolute line ceiling as readSnippetLine (a skipped line must not be an
+// unbounded read either) and returns io.EOF when the file ends first.
+func skipSnippetLines(r *bufio.Reader, n int, filePath string) error {
+	for i := 0; i < n; i++ {
+		lineLen := 0
+		for {
+			frag, err := r.ReadSlice('\n')
+			lineLen += len(frag)
+			if lineLen > MaxSnippetLineBytes {
+				return fmt.Errorf("line in %q exceeds the %d-byte snippet line limit: request a narrower line range or read the file directly", filePath, MaxSnippetLineBytes)
+			}
+			switch {
+			case err == nil:
+				// Complete line consumed.
+			case errors.Is(err, bufio.ErrBufferFull):
+				continue // line continues past the reader buffer
+			case errors.Is(err, io.EOF):
+				return io.EOF // consumed the final partial line, fewer than n lines
+			default:
+				return fmt.Errorf("read snippet %q: %w", filePath, err)
+			}
+			break
+		}
+	}
+	return nil
 }
 
 func readSnippetLine(r *bufio.Reader, filePath string) (string, bool, error) {

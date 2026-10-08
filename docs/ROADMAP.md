@@ -82,11 +82,23 @@ See [the review](CODE_REVIEW_2026-10-07.md) for findings and validation contract
   - [x] P7 (limits) — effective memory is the leaf cgroup limit when smaller than
     host RAM, an operator `GOMEMLIMIT` is no longer overwritten, SCIP stdout/stderr
     is a bounded tail buffer, and peak RSS sums the child process tree.
-  - [ ] Open — P2 (keyset pagination / snippet byte offsets), P3 (compact
-    projection without property decode), P5 (canonicalization/staging reuse), and
-    the remaining P7 observability (per-phase duration, staging bytes, invalidation
-    reason, reused scopes). Each needs its own benchmark and correctness contract;
-    no claim is made for them here.
+  - [x] P3 — compact queries (search/callers/callees/neighbors/similar) select
+    only the ref columns instead of every node column, so the properties JSON is
+    never read or decoded. 500-caller hub: 1.77 ms → 0.79 ms (−55%), 657 KB →
+    204 KB (−69%); search 200 hits: 1.44 ms → 1.03 ms (−28%), 277 KB → 90 KB.
+    Output, ordering and paging are byte-identical (equivalence test).
+  - [x] P2 (neighbors + snippet) — neighbor pages continue by keyset on the last
+    served qualified name (V=2 cursor) instead of an OFFSET: 5000-caller hub,
+    page 500 at offset 4500: 4.39 ms → 2.06 ms (−53%), now equal to the first
+    page; `EXPLAIN QUERY PLAN` shows the existing `idx_edges_target_type` is
+    already used, so no composite index was added. Snippet pages fast-forward to
+    the resume line in chunks without materializing skipped lines: deep page
+    301 µs → 202 µs (−33%), 221 KB → 93 KB, allocs 8506 → 506 (−94%).
+  - [ ] Open — P2 for **search** (rank-ordered, keyset needs an (rank, id) tuple;
+    left on the offset cursor), P5 (canonicalization/staging reuse), and the
+    remaining P7 observability (per-phase duration, staging bytes, invalidation
+    reason, reused scopes). Each needs its own benchmark and correctness
+    contract; no claim is made for them here.
 
 Delivery 1 retains first-wins node identity; modeling every repeated declaration
 is separate work. Windows runtime support (R01) remains unimplemented and

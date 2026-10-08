@@ -1342,15 +1342,8 @@ func (s *Store) SearchPage(project, query, label string, limit, offset int) ([]S
 	if offset < 0 {
 		return nil, fmt.Errorf("invalid offset %d: want a non-negative row offset", offset)
 	}
-	// #nosec G202 -- ftsCols("n.") prefixes the internal nodeCols constant; values stay parameters.
-	q := `SELECT ` + ftsCols("n.") + `, fts.rank
-		FROM nodes_fts fts JOIN nodes n ON n.id = fts.rowid
-		WHERE nodes_fts MATCH ? AND n.project = ?`
-	args := []any{ftsQuery(query), project}
-	if label != "" {
-		q += ` AND n.label = ?`
-		args = append(args, label)
-	}
+	// #nosec G202 -- searchSelect builds the FTS join from the internal nodeCols constant; values stay parameters.
+	q, args := searchSelect(ftsCols("n.")+", fts.rank", project, query, label)
 	q += ` ORDER BY fts.rank, n.id LIMIT ? OFFSET ?`
 	args = append(args, limit, offset)
 
@@ -1426,45 +1419,9 @@ func (s *Store) NeighborsPage(project, qualifiedName, direction, edgeType string
 	if offset < 0 {
 		return nil, fmt.Errorf("invalid offset %d: want a non-negative row offset", offset)
 	}
-	// The type filter is embedded per-SELECT so it also applies to the "both"
-	// UNION (one clause in each arm) — that's what lets `similar` ask for just
-	// SIMILAR_TO neighbors in both directions. edgeType="" leaves it off entirely,
-	// so plain `neighbors` still returns every edge kind.
-	typeClause := ""
-	if edgeType != "" {
-		typeClause = ` AND e.type=?`
-	}
-	endpoint := func(args []any) []any {
-		args = append(args, project, qualifiedName)
-		if edgeType != "" {
-			args = append(args, edgeType)
-		}
-		return args
-	}
-	var q string
-	var args []any
-	switch direction {
-	case "in":
-		q = `SELECT ` + ftsCols("n.") + ` FROM edges e
-			JOIN nodes n ON n.id = e.source_id
-			JOIN nodes t ON t.id = e.target_id
-			WHERE t.project=? AND t.qualified_name=?` + typeClause
-		args = endpoint(nil)
-	case "both":
-		q = `SELECT ` + ftsCols("n.") + ` FROM edges e
-			JOIN nodes n ON n.id = e.target_id JOIN nodes src ON src.id = e.source_id
-			WHERE src.project=? AND src.qualified_name=?` + typeClause + `
-			UNION
-			SELECT ` + ftsCols("n.") + ` FROM edges e
-			JOIN nodes n ON n.id = e.source_id JOIN nodes tgt ON tgt.id = e.target_id
-			WHERE tgt.project=? AND tgt.qualified_name=?` + typeClause
-		args = endpoint(endpoint(nil))
-	default: // "out"
-		q = `SELECT ` + ftsCols("n.") + ` FROM edges e
-			JOIN nodes n ON n.id = e.target_id
-			JOIN nodes s ON s.id = e.source_id
-			WHERE s.project=? AND s.qualified_name=?` + typeClause
-		args = endpoint(nil)
+	q, args, err := neighborSelect(ftsCols("n."), project, qualifiedName, direction, edgeType, "")
+	if err != nil {
+		return nil, err
 	}
 	q += ` ORDER BY n.qualified_name LIMIT ? OFFSET ?`
 	args = append(args, limit, offset)
