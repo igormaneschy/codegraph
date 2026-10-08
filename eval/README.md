@@ -1,7 +1,8 @@
 # eval — multi-repo quality evaluation (for the paper)
 
-The single-repo quality run (ajuda-aqui, `docs/QUALITY.md`) showed graph ≈ baseline
-quality at ~8× lower cost. One private repo is not a paper. This folder is the
+The historical `name-v1` single-repo run (ajuda-aqui, `docs/QUALITY.md`) showed
+graph ≈ baseline quality at ~8× lower cost. Those permissive-name figures are not
+strict-QN results and must not be compared directly to new `qualified-name-v1` runs. One private repo is not a paper. This folder is the
 harness for scaling that to **N public repos** so the number is reproducible.
 
 ## How many repos
@@ -47,13 +48,46 @@ codegraph quality score eval/runs/<id>     # -> eval/runs/<id>/report.md
 `eval/checkouts/` and `eval/runs/` are gitignored (clones + per-repo artifacts).
 `repos.json` and this protocol are versioned.
 
-Graph-mode answers (`eval/graph-answers.js`) walk every ref page to
-`has_more=false` and charge the real call/byte cost, so a hub cut by the 32 KiB
-budget is not under-reported. Point it at the built binary with
-`CODEGRAPH_EXE=/path/to/codegraph node eval/graph-answers.js <repo> <outdir>`.
-Scoring normalizes symbols to bare names (`internal/quality/score.go`), which
-folds same-named symbols in different files together; a strict qualified-name
-scorer for homonyms is still open (see `docs/QUALITY.md`).
+## Strict, complete evaluation (R13)
+
+`quality score` defaults to **`qualified-name-v1`**, exact case-sensitive QNs for
+call sets and full relative path:exact declaration line for definitions. It
+requires one truth per question and one answer per question×declared mode;
+default modes are graph+baseline. Empty/null/duplicate/partial runs are errors,
+not scores. Verified empty call `items: []` is valid, missing/null items are not.
+Open questions require independent rubric notes, answer text and finite judge
+scores in `[0,1]`. See `docs/QUALITY.md` and `docs/VALIDATION_R13.md`.
+
+The workflow oracle/baseline derive QNs from source. Graph responders take TSV
+**column 4** (not the bare-name column 2), preserve file/owner homonyms, and keep
+the same query/page limit through every continuation. Failed agents/judges or
+incomplete pipeline results fail rather than fabricate []/zero scores. The CLI
+checks the actual written artifacts; neither schemas nor write acknowledgements
+certify oracle accuracy, source freshness or self-reported cost.
+
+`graph-answers.js` is a deterministic **explicit call-only, graph-only** producer:
+prepare a nonempty callers/callees-only `questions.json` and matching independent
+`truth.json` in a separate run directory. It rejects non-call questions rather
+than silently filtering the requested experiment. It walks to a valid terminal
+trailer, retaining exact identities and counting every invocation and UTF-8 byte;
+malformed/missing trailers, cursor cycles, generation changes or exhausted page
+caps are errors and leave any prior answers untouched. Publication is a private
+atomic replacement, including a preexisting destination symlink.
+
+```bash
+CODEGRAPH_EXE=/path/to/codegraph node eval/graph-answers.js <repo> <call-run-dir>
+# Optional positional executable takes precedence over CODEGRAPH_EXE.
+codegraph quality score <call-run-dir> --modes graph
+node --test eval/*.test.js
+```
+
+`CODEGRAPH_EVAL_PAGE_LIMIT` defaults to 500 (valid 1..2000),
+`CODEGRAPH_EVAL_MAX_PAGES` to 1000 (positive safe integer). A cap is a failure
+bound, not permission to score a truncated answer. Legacy production requires
+explicit `CODEGRAPH_EVAL_SCORER=name-v1` (or workflow `args.scorer`), and legacy
+scoring requires `--scorer name-v1`. Never infer the method or available modes
+from incomplete contents. Reports always identify the method and mode matrix.
+Node producer tests run in the pinned-Node CI job; default Go tests need no Node.
 
 ## TODO before the paper run
 

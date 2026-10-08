@@ -65,8 +65,15 @@ See [the review](CODE_REVIEW_2026-10-07.md) for findings and validation contract
   - [x] R19 — JSON-RPC parse errors are answered (-32700, null id), notifications
     get no reply, required tool fields are validated (-32602), write failures end
     the loop, and `initialize` negotiates the protocol version.
-  - Open: a strict qualified-name scorer for homonyms (the eval scorer stays
-    name-based by design); only the tools/stdio MCP surface is exercised.
+  - [x] R13 follow-up — default `qualified-name-v1` preserves exact file/owner/case
+    identities; explicit `name-v1` retains historical approximations. Whole-run
+    admission requires truth and the declared question×mode matrix, finite judges
+    and nonnegative checked costs. Producers preserve QNs and reject incomplete
+    walks/failed agents. A real Go/CLI/Node synthetic fixture retained 720 methods
+    named `Run` across 2 pages and scored 100% against source-generated truth.
+    This is contract evidence, not a new real-repository quality result; historical
+    numbers remain labelled legacy. See VALIDATION_R13.md. Only the tools/stdio
+    MCP surface remains exercised.
 - [~] Delivery 5 — P1–P7: measured performance improvements after correctness.
   - [x] P1 — removed the redundant `runtime.GC` from `memory.Gate`
     (`debug.FreeOSMemory` already forces one) and gated the similarity signature

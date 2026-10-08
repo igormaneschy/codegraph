@@ -8,7 +8,10 @@ agent.
 ```bash
 codegraph quality gen   <repo> [outdir] [lang]   # build the question set
 #   ... run the ultracode workflow to fill truth.json + answers.json ...
-codegraph quality score <outdir>                 # grade -> report.md
+codegraph quality score <outdir>               # strict, graph+baseline -> report.md
+codegraph quality score <outdir> --modes graph # explicit complete graph-only run
+# historical name artifacts only (never inferred from their contents):
+codegraph quality score <outdir> --scorer name-v1 [--modes graph]
 ```
 
 ## Why a separate harness (and why it's hard to do honestly)
@@ -28,17 +31,63 @@ against, and a model to produce the agent's answer. Two honesty traps:
 
 | type | question | scoring |
 |---|---|---|
-| `callers` | who calls X | **F1** over caller names vs oracle |
-| `callees` | what X calls (intra-repo) | **F1** over intra-repo callee names vs oracle |
-| `definition` | where is X defined | **file:line** match (basename + ±3 lines) |
+| `callers` | who calls X | **set F1** over exact caller QNs vs independent oracle |
+| `callees` | what X calls (intra-repo) | **set F1** over exact intra-repo callee QNs vs independent oracle |
+| `definition` | where is X defined | **full relative path:exact declaration line**, one answer |
 | `open` | explain X's responsibility | **LLM judge**, 0–100% |
 
 Candidates are picked from the graph (call hubs, sampled definitions) — choosing
 *what* to ask is not circular; only the *answers* must be independent.
 
-`normName` folds a reference to its last identifier (`Service.getActiveCode`,
-`x.getActiveCode()`, `getActiveCode` all compare equal). Same-named methods in
-different classes therefore collapse together — an accepted approximation.
+## Versioned identity and complete-run admission
+
+The default **`qualified-name-v1`** compares exact, case-sensitive,
+project-stripped repository identities: `src/a.go.Service.Run` is not
+`src/b.go.Service.Run` or `src/a.go.Other.Run`. Ruby instance/singleton identities
+(`lib/a.rb.Owner#run` versus `lib/a.rb.Owner.run`) and `::` namespaces stay
+separate. No name fallback, path shortening, case folding, annotation removal or
+project-prefix guessing is performed. QNs must have a canonical relative source
+path; the scorer never consults the graph to verify the oracle's declarations.
+Definition truth has exactly one full canonical relative path and positive line;
+strict answers match it exactly. Empty/multiple guesses score zero.
+
+**`name-v1` requires explicit opt-in.** It retains historical `normName` behavior
+(`Service.getActiveCode`, `x.getActiveCode()`, `getActiveCode` compare equal),
+location-annotation stripping, and basename/±3-line definition matching, including
+file-only answers. Its collisions are a limitation, not strict identity. All
+historical results below were measured with this legacy method; they have **not**
+been rerun or silently converted and are not comparable to strict figures.
+
+Both methods require a nonempty question set with unique IDs and known types,
+exactly one truth per question, and exactly one answer per **question × expected
+mode**. Default modes are `graph,baseline`; `--modes graph` explicitly declares a
+complete graph-only experiment. Missing/duplicate/unknown truths, answers or
+modes fail **before aggregation/report replacement**; no denominator is inferred
+from a partial answer file. Other mode names may be explicitly selected.
+
+Call truth/answer `items` must be explicit arrays: `[]` means verified known
+empty; absent/null is unfilled, never evidence of perfect empty-set agreement.
+Open truth needs independent nonempty rubric `notes`; every open answer needs
+nonempty `text` (explicit abstention is allowed) and finite `judge` in `[0,1]`.
+Costs must be nonnegative integers, with checked aggregation. Reports label the
+actual method/modes. Generated scaffolds intentionally fail admission until
+filled. `meta.json` records generation defaults, but never silently selects the
+scorer for `quality score`.
+
+Minimal complete graph-only call experiment:
+
+```json
+// questions.json
+[{"id":"callers-01","type":"callers","qn":"src/a.go.Target"}]
+// truth.json (independently derived from source)
+[{"id":"callers-01","items":["src/b.go.Caller"]}]
+// answers.json
+[{"id":"callers-01","mode":"graph","items":["src/b.go.Caller"],"tokens":20,"calls":1}]
+```
+
+The CLI validates artifact structure and identity, **not oracle/model correctness,
+source freshness, or self-reported costs**. A successful workflow write reply is
+not proof of persisted content; score the actual files and retain their provenance.
 
 ## Intra-repo ground truth (callers/callees)
 
@@ -67,6 +116,7 @@ being penalised for stdlib it never indexes.
 2. **Responders** — two agents answer every question under realistic constraint and
    self-report tokens + tool calls:
    - `graph` — may use **only** the codegraph tools (`cli search|callers|callees|snippet`).
+     Strict call answers use the **4th TSV column**, never the bare name in column 2.
      Since P2 these return one page plus a `# has_more/cursor/generation`
      trailer: responders must walk every page (`cursor`) for a complete answer —
      stopping at page one is scored as incomplete, not as a cheaper win.
@@ -82,7 +132,7 @@ exact caller set. Neither oracle is the graph agreeing with itself.
 `codegraph quality score` then computes F1 for structural answers, ingests the
 judge scores for open ones, and emits the comparison table.
 
-## Results — ajuda-aqui (14 questions, run via the ultracode workflow)
+## Historical `name-v1` results — ajuda-aqui (14 questions)
 
 47 agents: an independent oracle per question, a graph-only and a grep-only
 responder per question, and a judge for the open ones.
@@ -112,7 +162,7 @@ graph = 1 call, the grep agent opened 20+ files). Two genuine quality difference
   not intent — explaining *what a symbol is for* is where reading the code wins.
   This is the upstream's "graph trades quality for tokens", reproduced.
 
-## Results — Go (cobra, gh-cli), and the closure-attribution fix
+## Historical `name-v1` results — Go (cobra, gh-cli), closure attribution
 
 Measured intra-repo, graph mode, against the independent oracle truth:
 
@@ -147,12 +197,12 @@ The same fix surfaced a real dead function via the `dead_code` query:
 be removed in a version 2" — the lone result after closure recall removed the
 false-positive noise.
 
-**On the 50-result cap.** The `callers`/`callees` default limit is 50. On a hub like
+**Historical 50-result cap.** At the time of these runs the `callers`/`callees` default limit was 50. On a hub like
 gh-cli's `iostreams.Test` (448 real callers) that crushes the *answer's* recall
 regardless of resolver quality — a CLI default, not a graph limit. The numbers above
 are measured uncapped (limit 1000) so the score reflects the graph, not the cap; the
 controlled before/after for the closure fix (85→93) holds the cap fixed on both sides.
-Raising the default is a tracked product change.
+Current queries default to 500 refs with byte-budget cuts: complete evaluations walk every cursor through `has_more=false`, rather than relying on a larger first-page limit.
 
 ## Ruby semantic resolver spike (2026-07-21)
 
@@ -226,7 +276,7 @@ constants, variables, `self`, `send`, and duplicate singleton declarations produ
 no edge. This is a precision floor, not a Ruby answer-quality score: the independent
 plain-Ruby and Rails callers/callees oracle remains required before broader R5 work.
 
-## A scorer bug we caught (and why the split harness matters)
+## A historical `name-v1` scorer bug (why the split harness matters)
 
 The first scoring run reported baseline callers at **32%** — four questions at 0%.
 That was a *scorer* artifact, not a baseline failure: responders append the location
