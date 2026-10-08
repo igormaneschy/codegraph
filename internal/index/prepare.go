@@ -9,11 +9,11 @@ import (
 
 // pipelineInput carries incremental state shared by Run and RunAtomic.
 type pipelineInput struct {
-	project string
-	root    string
-	changed map[string]bool
-	files   []SourceFile
-	tsdirs  []string
+	project    string
+	repository repositoryRoot
+	changed    map[string]bool
+	files      []SourceFile
+	tsdirs     []string
 	// repositoryScanned means files, source identity, tsdirs, and manifest were
 	// captured by the same validated observation. The pipeline must use this
 	// handoff rather than rediscovering the repository after freshness checks.
@@ -37,20 +37,23 @@ var repositoryObservationHook func()
 // prepareIndexing detects changes and builds pipelineInput. When the repo is
 // unchanged and already indexed, reused is non-nil and input is nil.
 func prepareIndexing(store *graph.Store, root string) (input pipelineInput, reused *Result, err error) {
-	root, err = ValidateRepositoryRoot(root)
+	repository, err := validateRoot(root)
 	if err != nil {
 		return pipelineInput{}, nil, err
 	}
-	return prepareIndexingContext(context.Background(), store, root, true)
+	return prepareIndexingAtRoot(context.Background(), store, repository, true)
 }
 
-func prepareIndexingContext(ctx context.Context, store *graph.Store, root string, strictFreshness bool) (input pipelineInput, reused *Result, err error) {
+func prepareIndexingAtRoot(ctx context.Context, store *graph.Store, repository repositoryRoot, strictFreshness bool) (input pipelineInput, reused *Result, err error) {
 	ctx = nonNilContext(ctx)
+	clock := newPhaseClock(ctx, "observation")
+	defer clock.stop()
 	if err := ctx.Err(); err != nil {
 		return pipelineInput{}, nil, err
 	}
-	project := ProjectName(root)
-	scan, err := scanRepositoryContext(ctx, root)
+	root := repository.path
+	project := projectNameAtRoot(root)
+	scan, err := scanRepositoryAtRoot(ctx, repository)
 	if err != nil {
 		return pipelineInput{}, nil, err
 	}
@@ -63,13 +66,14 @@ func prepareIndexingContext(ctx context.Context, store *graph.Store, root string
 		return pipelineInput{}, nil, err
 	}
 	if store == nil {
-		scan, err = validateRepositoryObservation(ctx, root, scan)
+		scan, err = validateRepositoryObservation(ctx, repository, scan)
 		if err != nil {
 			return pipelineInput{}, nil, err
 		}
 		scan.sourceObservations = nil
+		recordIndexDecision(ctx, freshnessDecision{graphUnreadable: true, rubyCurrent: true, uncertified: scan.manifest.ResolverInputs.NoReuseReasons})
 		return pipelineInput{
-			project: project, root: root, changed: allResolverScopesChanged(scan.tsdirs),
+			project: project, repository: repository, changed: allResolverScopesChanged(scan.tsdirs),
 			files: scan.files, tsdirs: scan.tsdirs,
 			repositoryScanned: true, manifest: scan.manifest, graphFreshnessMiss: true,
 		}, nil, nil
@@ -127,18 +131,19 @@ func prepareIndexingContext(ctx context.Context, store *graph.Store, root string
 	// times when the repository changes while it is being observed. Its return is
 	// the freshness linearization point; later filesystem mutations are observed
 	// by the next run rather than being claimed impossible to race.
-	scan, err = validateRepositoryObservation(ctx, root, scan)
+	scan, err = validateRepositoryObservation(ctx, repository, scan)
 	if err != nil {
 		return pipelineInput{}, nil, err
 	}
 	files, tsdirs, currentManifest := scan.files, scan.tsdirs, scan.manifest
-	expectedScopes := expectedResolverScopeKeys(root, files, tsdirs)
+	expectedScopes := expectedResolverScopesAtRoot(repository, files, tsdirs)
 
 	var changes Changes
 	if haveStoredHashes {
 		changes = changesFromRepositoryScan(scan, storedHashes)
 	}
 	scan.sourceObservations = nil
+	clock.next("freshness")
 	var storedManifest Manifest
 	var manifestFresh bool
 	if !graphFreshnessMiss {
@@ -157,7 +162,13 @@ func prepareIndexingContext(ctx context.Context, store *graph.Store, root string
 			manifestFresh = false
 		}
 	}
-	if !graphFreshnessMiss && !changes.Any() && rubyAnalysisCurrent && manifestFresh {
+	fresh := !graphFreshnessMiss && !changes.Any() && rubyAnalysisCurrent && manifestFresh
+	recordIndexDecision(ctx, freshnessDecision{
+		unchanged: fresh, existingGraph: existingGraph, graphUnreadable: graphFreshnessMiss,
+		manifestTrusted: manifestFresh, rubyCurrent: rubyAnalysisCurrent,
+		changes: changes, uncertified: currentManifest.ResolverInputs.NoReuseReasons,
+	})
+	if fresh {
 		return pipelineInput{}, &Result{
 			Project: project, Files: len(files), Nodes: n, EdgesKept: e,
 			Reused: true, Status: storedManifest.Status, Resolver: storedManifest.Resolver,
@@ -194,7 +205,7 @@ func prepareIndexingContext(ctx context.Context, store *graph.Store, root string
 		changed["ruby"] = true
 	}
 	return pipelineInput{
-		project: project, root: root, changed: changed, files: files,
+		project: project, repository: repository, changed: changed, files: files,
 		tsdirs:            tsdirs,
 		repositoryScanned: true,
 		manifest:          currentManifest, existingGraph: existingGraph,
@@ -202,7 +213,7 @@ func prepareIndexingContext(ctx context.Context, store *graph.Store, root string
 	}, nil, nil
 }
 
-func validateRepositoryObservation(ctx context.Context, root string, initial repositoryScan) (repositoryScan, error) {
+func validateRepositoryObservation(ctx context.Context, repository repositoryRoot, initial repositoryScan) (repositoryScan, error) {
 	previous := initial
 	for attempt := 0; attempt < repositoryObservationRetries; attempt++ {
 		if err := ctx.Err(); err != nil {
@@ -211,7 +222,7 @@ func validateRepositoryObservation(ctx context.Context, root string, initial rep
 		if repositoryObservationHook != nil {
 			repositoryObservationHook()
 		}
-		current, err := scanRepositoryContext(ctx, root)
+		current, err := scanRepositoryAtRoot(ctx, repository)
 		if err != nil {
 			return repositoryScan{}, err
 		}

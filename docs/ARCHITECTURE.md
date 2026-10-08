@@ -89,7 +89,7 @@ One atomic core (`runAtomicContext`) backs both entry points:
   manifest+integrity gate.
 
 ```
-prepareIndexingContext(store, root, strict)
+prepareIndexingAtRoot(store, repositoryRoot, strict)
   scanRepositoryContext         one candidate-aware walk feeding discovery, resolver
                                 scopes, and manifest inputs from a single observation;
                                 soft-ignored dirs stay traversable so a config below
@@ -134,6 +134,47 @@ post-build (strict path only)
                                 replace = the cancellation linearization point)
   cleanup (defer)               remove .building/.manifest.building; release lock
 ```
+
+### Per-run roots and work diagnostics (P5/P7)
+
+`repositoryRoot` carries the validated physical root spelling through atomic
+preparation, validating reobservations, config-reference expansion and resolver
+handoff. It is an identity value, **not a filesystem authorization cache**:
+reads still open no-follow descriptors; hashes, dependency-link checks, bounded
+reobservation and exact integrity certification remain mandatory. Public/standalone
+entry points still validate roots. The private resolver root uses its retained
+descriptors instead of being canonicalized again. IMPORTS retains all files in
+its target lookup, but reads only supported TS/JS/Ruby sources, not Go sources
+whose imports have no file-level model.
+
+`Result.Metrics` records per-run monotonic elapsed time and sequential phase
+work (repeated phase names aggregate in first-observed order), successful staging
+payload writes/bytes, decision (`noop`/`rebuild`/`undecided`), outcome
+(`success`/`failed`/`cancelled`), rebuild reasons and reused resolver scopes.
+`manifest-untrusted` intentionally groups fingerprint/manifest/identity/integrity
+misses instead of pretending every trust miss means a config edit. Explicit
+uncertified-input reason codes remain visible. On a no-op, all applicable resolver
+scopes are counted as reused; the persisted report itself is not rewritten.
+
+These diagnostics include failures and cancellation, and never participate in a
+manifest, graph digest or analysis version. CLI `index`/`bench` and MCP `status`
+render them along with SCIP invocation count and sampled **SCIP process-tree**
+peak RSS (not indexer peak RSS). The sample/count survive a cancelled invocation;
+`scip_scopes` retains its existing successful-scope meaning, not attempted runs.
+Status keeps the last attempted round separate from served generation,
+including when cancellation/reopen failure prevents publication. Scope detail is
+quoted and capped at 20 lines / 240 bytes each, with explicit omission/truncation.
+
+Staging counters include the private Go environment views created during each
+observation: a Go no-op can copy metadata even though it never enters resolver
+staging. They exclude directory/symlink entries and failed writes, and are not disk
+occupancy; SQLite `.building` bytes and SCIP output artifacts are not counted.
+Top-level inter-phase memory gates have their own aggregate timing;
+batch gates and gates internal to resolvers remain included in those phase times.
+The collector is local to the sequential run; workers never mutate it. There is
+no global path/content cache and no cross-run snapshot reuse. Transport still
+consumes the observed input plan and verifies copied hashes; removing those checks
+would need a separate identity proof, not a performance shortcut.
 
 ### Freshness & integrity (sidecar manifest)
 

@@ -62,6 +62,7 @@ func runSCIPInvocation(ctx context.Context, dir string, environment *scip.Execut
 	}
 	outPath := filepath.Join(tempDir, "index.scip")
 	idx, st, err = scipRunAndRead(ctx, dir, outPath, environment)
+	recordSCIPRun(ctx, st)
 	if verifyErr := private.Verify(); verifyErr != nil {
 		if err != nil {
 			err = errors.Join(err, fmt.Errorf("verify private SCIP output directory after resolver: %w", verifyErr))
@@ -227,7 +228,7 @@ func resolveGoCallsAtRoot(ctx context.Context, project, root string, verify func
 			return nil, scopeStatus, fmt.Errorf("verify resolver snapshot before Go applicability: %w", err)
 		}
 	}
-	if !hasGo(files) || !hasGoResolverConfig(root) {
+	if !hasGo(files) || !hasGoResolverConfigAtRoot(root) {
 		return nil, ResolverScopeStatus{}, nil
 	}
 	if changed != nil && !changed["go"] {
@@ -274,7 +275,12 @@ func hasGoResolverConfig(root string) bool {
 	if err != nil {
 		return false
 	}
-	root = canonicalRoot
+	return hasGoResolverConfigAtRoot(canonicalRoot)
+}
+
+// A snapshot's root spelling is anchored by its retained descriptors; resolving
+// it again would lose that boundary. The config read itself remains no-follow.
+func hasGoResolverConfigAtRoot(root string) bool {
 	for _, name := range []string{"go.mod", "go.work"} {
 		f, err := securefile.OpenRead(filepath.Join(root, name))
 		if err == nil {

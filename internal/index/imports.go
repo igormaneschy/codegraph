@@ -33,6 +33,9 @@ type fileSrc struct {
 func ResolveImports(project string, files []SourceFile) []graph.Edge {
 	srcs := make([]fileSrc, 0, len(files))
 	for _, f := range files {
+		if !supportsImports(f.Lang) {
+			continue
+		}
 		data, err := securefile.ReadFile(f.AbsPath)
 		if err != nil {
 			continue
@@ -67,6 +70,9 @@ func collectImportsStreamingContext(ctx context.Context, project string, files [
 	for _, f := range files {
 		if err := ctx.Err(); err != nil {
 			return edges, err
+		}
+		if !supportsImports(f.Lang) {
+			continue
 		}
 		data, err := securefile.ReadFile(f.AbsPath)
 		if err != nil {
@@ -111,6 +117,12 @@ func resolveImports(project string, files []fileSrc) []graph.Edge {
 		edges = append(edges, importEdgesForSource(project, f, exists, rubyLoadPaths)...)
 	}
 	return edges
+}
+
+// Unsupported languages have no IMPORTS model; opening their source adds work
+// without evidence. Definitions and other source consumers still validate them.
+func supportsImports(lang Lang) bool {
+	return lang == LangTS || lang == LangTSX || lang == LangJS || lang == LangRuby
 }
 
 func importEdgesForSource(project string, f fileSrc, exists map[string]bool, rubyLoadPaths []string) []graph.Edge {

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/Lordymine/codegraph/internal/graph"
 	"github.com/Lordymine/codegraph/internal/memory"
@@ -28,6 +29,7 @@ type Result struct {
 	ScipScopes    int
 	ScipPeakRSS   uint64
 	ScipHeapCapMB int
+	Metrics       RunMetrics
 }
 
 // BuildingSuffix is the suffix RunAtomic uses for in-progress index files.
@@ -106,10 +108,19 @@ func RunAtomicContext(ctx context.Context, dbPath, root string) (res Result, err
 
 func runAtomicContext(ctx context.Context, dbPath, root string, strictFreshness bool) (res Result, err error) {
 	ctx = nonNilContext(ctx)
+	started := time.Now()
+	metrics := &RunMetrics{Decision: "undecided"}
+	ctx = context.WithValue(ctx, runMetricsKey{}, metrics)
+	clock := newPhaseClock(ctx, "admission")
+	defer func() {
+		clock.stop()
+		finishRunMetrics(metrics, res, err, started)
+		res.Metrics = *metrics
+	}()
 	if err = ctx.Err(); err != nil {
 		return Result{}, err
 	}
-	root, err = ValidateRepositoryRoot(root)
+	repository, err := validateRoot(root)
 	if err != nil {
 		return Result{}, err
 	}
@@ -134,6 +145,7 @@ func runAtomicContext(ctx context.Context, dbPath, root string, strictFreshness 
 	manifestBuilding := manifestBuildingPath(dbPath)
 	var main, store *graph.Store
 	defer func() {
+		clock.next("cleanup")
 		if store != nil {
 			_ = store.Close()
 		}
@@ -175,7 +187,8 @@ func runAtomicContext(ctx context.Context, dbPath, root string, strictFreshness 
 		// the independent .building graph is created.
 		main = nil
 	}
-	in, reused, err := prepareIndexingContext(ctx, main, root, strictFreshness)
+	clock.stop()
+	in, reused, err := prepareIndexingAtRoot(ctx, main, repository, strictFreshness)
 	if err != nil {
 		return Result{}, err
 	}
@@ -184,6 +197,7 @@ func runAtomicContext(ctx context.Context, dbPath, root string, strictFreshness 
 		in.graphFreshnessMiss = true
 	}
 	if reused != nil {
+		clock.next("close-unchanged")
 		if err := main.Close(); err != nil {
 			main = nil
 			return Result{}, fmt.Errorf("close unchanged index: %w", err)
@@ -202,14 +216,17 @@ func runAtomicContext(ctx context.Context, dbPath, root string, strictFreshness 
 	if err = ctx.Err(); err != nil {
 		return Result{}, err
 	}
+	clock.next("build-open")
 	store, err = graph.Open(building)
 	if err != nil {
 		return Result{}, err
 	}
+	clock.stop()
 	res, err = runPipelineContext(ctx, store, in)
 	if err != nil {
 		return res, err
 	}
+	clock.next("validation")
 	if strictFreshness {
 		// RunAtomic's replacement gate keeps the exact SQLite/FTS/endpoint
 		// validation. Run's benchmark/test path deliberately skips this heavy
@@ -230,6 +247,7 @@ func runAtomicContext(ctx context.Context, dbPath, root string, strictFreshness 
 	if err = ctx.Err(); err != nil {
 		return res, err
 	}
+	clock.next("publication")
 	if err := store.Checkpoint(); err != nil {
 		return res, fmt.Errorf("checkpoint built index: %w", err)
 	}
@@ -319,14 +337,16 @@ type resolverHandoff struct {
 // updates source invalidation, and stages only the observed private snapshot.
 func stableResolverHandoff(ctx context.Context, in pipelineInput) (resolverHandoff, error) {
 	ctx = nonNilContext(ctx)
+	clock := newPhaseClock(ctx, "handoff-observation")
+	defer clock.stop()
 	if err := ctx.Err(); err != nil {
 		return resolverHandoff{}, err
 	}
 	changed := cloneChangedScopes(in.changed)
 	if !resolverHandoffRequired(in) {
-		return resolverHandoff{files: in.files, tsdirs: in.tsdirs, root: in.root, changed: changed}, nil
+		return resolverHandoff{files: in.files, tsdirs: in.tsdirs, root: in.repository.path, changed: changed}, nil
 	}
-	scan, err := scanRepositoryContext(ctx, in.root)
+	scan, err := scanRepositoryAtRoot(ctx, in.repository)
 	if err != nil {
 		return resolverHandoff{}, fmt.Errorf("resolver handoff scan: %w", err)
 	}
@@ -339,12 +359,13 @@ func stableResolverHandoff(ctx context.Context, in pipelineInput) (resolverHando
 	if err := mergeObservedChangedScopes(ctx, in, scan, changed); err != nil {
 		return resolverHandoff{}, err
 	}
+	clock.next("staging")
 	root, verify, cleanup, err := resolverSnapshotForScan(ctx, scan)
 	if err != nil {
 		return resolverHandoff{}, fmt.Errorf("stage resolver handoff: %w", err)
 	}
 	return resolverHandoff{files: sourceFilesAtResolverRoot(root, scan.files), tsdirs: scan.tsdirs, root: root,
-		verify: verify, cleanup: cleanup, changed: changed, goEnvironment: goEnvironmentForRoot(scan.goEnvironment, in.root, root), tsEnvironment: scan.tsEnvironment}, nil
+		verify: verify, cleanup: cleanup, changed: changed, goEnvironment: goEnvironmentForRoot(scan.goEnvironment, in.repository.path, root), tsEnvironment: scan.tsEnvironment}, nil
 }
 
 func mergeObservedChangedScopes(ctx context.Context, in pipelineInput, scan repositoryScan, changed map[string]bool) error {
@@ -371,7 +392,7 @@ func resolverHandoffRequired(in pipelineInput) bool {
 	if len(in.tsdirs) > 0 {
 		return true
 	}
-	return hasGo(in.files) && hasGoResolverConfig(in.root)
+	return hasGo(in.files) && hasGoResolverConfigAtRoot(in.repository.path)
 }
 
 func cloneChangedScopes(changed map[string]bool) map[string]bool {
@@ -421,6 +442,8 @@ func commitBuiltIndex(ctx context.Context, building, dbPath string) error {
 
 func runPipelineContext(ctx context.Context, store *graph.Store, in pipelineInput) (result Result, err error) {
 	ctx = nonNilContext(ctx)
+	clock := newPhaseClock(ctx, "preflight")
+	defer clock.stop()
 	if err := ctx.Err(); err != nil {
 		return Result{}, err
 	}
@@ -441,6 +464,7 @@ func runPipelineContext(ctx context.Context, store *graph.Store, in pipelineInpu
 	if !in.repositoryScanned {
 		return Result{}, errors.New("pipeline requires a validated repository observation")
 	}
+	clock.stop()
 	handoff, err := stableResolverHandoff(ctx, in)
 	if err != nil {
 		return Result{}, err
@@ -449,6 +473,7 @@ func runPipelineContext(ctx context.Context, store *graph.Store, in pipelineInpu
 	verifyResolverRoot, resolverCleanup, changed := handoff.verify, handoff.cleanup, handoff.changed
 	if resolverCleanup != nil {
 		defer func() {
+			clock.next("snapshot-cleanup")
 			if cleanupErr := resolverCleanup(); cleanupErr != nil {
 				err = errors.Join(err, fmt.Errorf("cleanup resolver snapshot: %w", cleanupErr))
 			}
@@ -463,6 +488,7 @@ func runPipelineContext(ctx context.Context, store *graph.Store, in pipelineInpu
 		return Result{}, err
 	}
 
+	clock.next("definitions")
 	if err := store.ReplaceProject(in.project); err != nil {
 		return Result{}, err
 	}
@@ -485,7 +511,9 @@ func runPipelineContext(ctx context.Context, store *graph.Store, in pipelineInpu
 		return Result{}, err
 	}
 	edgesKept, edgesDropped := k, d
+	clock.next("memory-release")
 	memory.Gate()
+	clock.next("imports")
 
 	importEdges, err := collectImportsStreamingContext(ctx, in.project, files)
 	if err != nil {
@@ -503,8 +531,10 @@ func runPipelineContext(ctx context.Context, store *graph.Store, in pipelineInpu
 	}
 	edgesKept += k
 	edgesDropped += d
+	clock.next("memory-release")
 	memory.Gate()
 
+	clock.next("symbols")
 	spans, err := store.FunctionSpans(in.project)
 	if err != nil {
 		return Result{}, err
@@ -513,8 +543,9 @@ func runPipelineContext(ctx context.Context, store *graph.Store, in pipelineInpu
 		return Result{}, err
 	}
 	enc := scip.BuildEnclosingFromSpans(spans)
-	expectedScopes := expectedResolverScopeKeys(in.root, files, tsdirs)
+	expectedScopes := expectedResolverScopesAtRoot(in.repository, files, tsdirs)
 
+	clock.next("ts-calls")
 	scipRep, err := resolveTSCallsWithDirs(ctx, store, in.project, resolverRoot, verifyResolverRoot, tsdirs, enc, changed, handoff.tsEnvironment)
 	if err != nil {
 		return Result{}, fmt.Errorf("ts calls: %w", err)
@@ -523,7 +554,9 @@ func runPipelineContext(ctx context.Context, store *graph.Store, in pipelineInpu
 	resolverEdgesKept := scipRep.EdgesKept
 	edgesKept += scipRep.EdgesKept
 	edgesDropped += scipRep.EdgesDropped
+	clock.next("memory-release")
 	memory.Gate()
+	clock.next("go-calls")
 
 	goEdges, goScope, err := resolveGoCallsAtRoot(ctx, in.project, resolverRoot, verifyResolverRoot, files, enc, changed, handoff.goEnvironment)
 	if err != nil {
@@ -542,8 +575,10 @@ func runPipelineContext(ctx context.Context, store *graph.Store, in pipelineInpu
 	edgesKept += k
 	edgesDropped += d
 	resolverEdgesKept += k
+	clock.next("memory-release")
 	memory.Gate()
 
+	clock.next("ruby-calls")
 	// A Ruby scope is either re-resolved here or streamed unchanged below; changed
 	// scope gating makes the two paths mutually exclusive.
 	rubyEdges, rubyScope, err := resolveRubyCalls(ctx, store, in.project, files, enc, changed)
@@ -563,7 +598,9 @@ func runPipelineContext(ctx context.Context, store *graph.Store, in pipelineInpu
 	edgesKept += k
 	edgesDropped += d
 	resolverEdgesKept += k
+	clock.next("memory-release")
 	memory.Gate()
+	clock.next("resolver-report")
 
 	if err := resolverReport.ValidateExpected(expectedScopes); err != nil {
 		return Result{}, fmt.Errorf("validate resolver report: %w", err)
@@ -587,6 +624,7 @@ func runPipelineContext(ctx context.Context, store *graph.Store, in pipelineInpu
 		edgesKept -= resolverEdgesKept
 	}
 
+	clock.next("call-reuse")
 	if in.reuseFrom != nil {
 		k, d, err = insertReusedCallEdgesContext(ctx, store, in.reuseFrom, in.project, changed, tsdirs)
 		if err != nil {
@@ -598,8 +636,10 @@ func runPipelineContext(ctx context.Context, store *graph.Store, in pipelineInpu
 			return Result{}, err
 		}
 	}
+	clock.next("memory-release")
 	memory.Gate()
 
+	clock.next("similarity")
 	similarCoverage := similar.Coverage{Status: similar.StatusOmitted}
 	if !memory.SkipSimilar() || similarPassOverride != nil {
 		if verifyResolverRoot != nil {
@@ -632,7 +672,9 @@ func runPipelineContext(ctx context.Context, store *graph.Store, in pipelineInpu
 		edgesKept += k
 		edgesDropped += d
 	}
+	clock.next("memory-release")
 	memory.Gate()
+	clock.next("result")
 
 	status := StatusHealthy
 	if resolverReport.HasFailures() {
@@ -729,6 +771,10 @@ func ProjectName(root string) string {
 	} else if absolute, err := filepath.Abs(root); err == nil {
 		root = absolute
 	}
+	return projectNameAtRoot(root)
+}
+
+func projectNameAtRoot(root string) string {
 	slug := filepath.ToSlash(root)
 	repl := func(r rune) rune {
 		switch r {

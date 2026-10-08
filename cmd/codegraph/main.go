@@ -279,6 +279,11 @@ func cmdIndex(root string) error {
 		return err
 	}
 	res, err := index.RunAtomic(sp, root)
+	defer func() {
+		if summary := res.MetricsSummary(); summary != "" {
+			fmt.Println(summary)
+		}
+	}()
 	debug.FreeOSMemory()
 	if err != nil {
 		return err
@@ -549,6 +554,9 @@ func printBench(res index.Result, elapsed time.Duration, heapBytes uint64, outs 
 		res.Files, res.Nodes, res.EdgesKept, res.EdgesDropped, elapsed.Round(time.Millisecond),
 		float64(res.Files)/elapsed.Seconds(), heapBytes/(1024*1024))
 
+	if summary := res.MetricsSummary(); summary != "" {
+		fmt.Printf("```text\n%s\n```\n\n", summary)
+	}
 	fmt.Printf("## Token efficiency — \"who calls X\" over %d call hubs\n\n", s.N)
 	fmt.Printf("| symbol | callers | grep files | graph tok | win tok (×) | file tok (×) |\n")
 	fmt.Printf("|---|--:|--:|--:|--:|--:|\n")

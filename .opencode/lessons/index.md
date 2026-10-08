@@ -64,3 +64,7 @@
 ## Change review-perf-p2-p3 (2026-10-08)
 - [pattern] [keyset-continuation](learned/keyset-continuation.md)
 - [pattern] [project-only-what-you-return](learned/project-only-what-you-return.md)
+
+## Change review-perf-p5-p7 (2026-10-08)
+- [pattern] [root-identity-not-authorization](learned/root-identity-not-authorization.md)
+- [context] [noop-work-and-failed-round-metrics](learned/noop-work-and-failed-round-metrics.md)

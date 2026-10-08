@@ -94,11 +94,23 @@ See [the review](CODE_REVIEW_2026-10-07.md) for findings and validation contract
     already used, so no composite index was added. Snippet pages fast-forward to
     the resume line in chunks without materializing skipped lines: deep page
     301 µs → 202 µs (−33%), 221 KB → 93 KB, allocs 8506 → 506 (−94%).
+  - [x] P5 (root/imports) — a per-run `repositoryRoot` carries validated physical
+    spelling through scans, config references, applicability and handoff, without
+    bypassing no-follow reads or reobservation. IMPORTS no longer opens Go sources
+    (no supported import model). Config-heavy scan, 40 configs: 622 ms → 26.5 ms,
+    139 MB → 3.6 MB allocated; strict atomic no-op: 1.36 s → 71 ms (302 MB →
+    10.6 MB allocated); Go IMPORTS, 200 files: 14.9 ms → 3.7 µs.
+    Synthetic measurements on macOS/M1; ancestor-directory size affects these
+    numbers. Hash/link verification and observed-plan staging remain unchanged.
+  - [x] P7 (observability) — `Result.Metrics` exposes sequential phase timings,
+    successful staging writes/bytes (including Go environment views), rebuild
+    reason codes and reused scopes, including no-op/failure/cancellation. CLI
+    index/bench and MCP status report these plus sampled SCIP process-tree RSS;
+    no timings or raw settings are persisted in the manifest/fingerprint.
   - [ ] Open — P2 for **search** (rank-ordered, keyset needs an (rank, id) tuple;
-    left on the offset cursor), P5 (canonicalization/staging reuse), and the
-    remaining P7 observability (per-phase duration, staging bytes, invalidation
-    reason, reused scopes). Each needs its own benchmark and correctness
-    contract; no claim is made for them here.
+    left on the offset cursor) and deeper P5 staging/content reuse. No cross-run
+    snapshot cache or skipped integrity/hash checks are claimed. Reusing input
+    bytes/observations needs demonstrated identity and its own benchmark contract.
 
 Delivery 1 retains first-wins node identity; modeling every repeated declaration
 is separate work. Windows runtime support (R01) remains unimplemented and

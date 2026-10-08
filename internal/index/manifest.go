@@ -311,7 +311,7 @@ func resolverNeedsSnapshot(root string, files []SourceFile, tsdirs []string) boo
 	// the repository. Local parser/import/fingerprint consumers use securefile's
 	// descriptor-stable reads directly; keeping the no-resolver path streaming is
 	// important for the bounded-memory large-corpus pipeline.
-	return len(tsdirs) > 0 || (hasGo(files) && hasGoResolverConfig(root))
+	return len(tsdirs) > 0 || (hasGo(files) && hasGoResolverConfigAtRoot(root))
 }
 
 func copyResolverFile(ctx context.Context, root, snapshot, rel, expectedHash string) error {
@@ -340,7 +340,11 @@ func copyResolverFile(ctx context.Context, root, snapshot, rel, expectedHash str
 	// for a clean re-stage. Crash durability (fsync) would buy nothing here
 	// and costs ~7ms/file on fsync-slow filesystems — so stage without Sync,
 	// keeping every symlink/permission/identity check WritePrivate performs.
-	return securefile.WritePrivateTemp(dst, data)
+	if err := securefile.WritePrivateTemp(dst, data); err != nil {
+		return err
+	}
+	recordStagedWrite(ctx, len(data))
+	return nil
 }
 
 func cleanResolverRelativePath(rel string) (string, error) {
@@ -408,11 +412,19 @@ func scanRepositoryContext(ctx context.Context, root string) (repositoryScan, er
 	if err := ctx.Err(); err != nil {
 		return repositoryScan{}, err
 	}
-	canonicalRoot, err := ValidateRepositoryRoot(root)
+	repository, err := validateRoot(root)
 	if err != nil {
 		return repositoryScan{}, err
 	}
-	root = canonicalRoot
+	return scanRepositoryAtRoot(ctx, repository)
+}
+
+func scanRepositoryAtRoot(ctx context.Context, repository repositoryRoot) (repositoryScan, error) {
+	ctx = nonNilContext(ctx)
+	if err := ctx.Err(); err != nil {
+		return repositoryScan{}, err
+	}
+	root := repository.path
 	ignore, err := loadIgnore(root)
 	if err != nil {
 		return repositoryScan{}, err
@@ -530,7 +542,7 @@ func scanRepositoryContext(ctx context.Context, root string) (repositoryScan, er
 		return sourceObservations[i].path < sourceObservations[j].path
 	})
 	sourceDigest := sourceObservationDigest(sourceObservations)
-	if err := addReferencedTSConfigInputs(ctx, root, inputsByPath); err != nil {
+	if err := addReferencedTSConfigInputs(ctx, repository, inputsByPath); err != nil {
 		return repositoryScan{}, err
 	}
 	inputs := make([]InputFingerprint, 0, len(inputsByPath))
@@ -543,7 +555,7 @@ func scanRepositoryContext(ctx context.Context, root string) (repositoryScan, er
 	if !resolverNeedsSnapshot(root, files, tsconfigDirs) {
 		return scan, nil
 	}
-	goConfigured := hasGo(files) && hasGoResolverConfig(root)
+	goConfigured := hasGo(files) && hasGoResolverConfigAtRoot(root)
 	if !goConfigured {
 		auxiliaryPaths = nil
 	} else {
@@ -639,8 +651,9 @@ func isManifestInput(rel string) bool {
 // Explicit references are never ignored: a missing, unreadable, or malformed
 // referenced config is a freshness error, so an old graph cannot be certified
 // as current under an incomplete resolver environment.
-func addReferencedTSConfigInputs(ctx context.Context, root string, inputs map[string]InputFingerprint) error {
+func addReferencedTSConfigInputs(ctx context.Context, repository repositoryRoot, inputs map[string]InputFingerprint) error {
 	ctx = nonNilContext(ctx)
+	root := repository.path
 	var roots []string
 	for rel := range inputs {
 		base := strings.ToLower(filepath.Base(rel))
@@ -665,7 +678,7 @@ func addReferencedTSConfigInputs(ctx context.Context, root string, inputs map[st
 		visiting[rel] = true
 		defer delete(visiting, rel)
 
-		data, err := readTSConfigInput(root, rel, inputs)
+		data, err := readTSConfigInputAtRoot(repository, rel, inputs)
 		if err != nil {
 			return err
 		}
@@ -711,12 +724,18 @@ type tsConfigReferences struct {
 // manifest input set. Referenced configs may live below node_modules or another
 // ignored directory; explicit resolver inputs still get fingerprinted.
 func readTSConfigInput(root, rel string, inputs map[string]InputFingerprint) ([]byte, error) {
-	canonicalRoot, err := ValidateRepositoryRoot(root)
+	repository, err := validateRoot(root)
 	if err != nil {
 		return nil, fmt.Errorf("resolve repository root for referenced TypeScript config %q: %w", rel, err)
 	}
-	root = canonicalRoot
-	path := filepath.Join(root, filepath.FromSlash(rel))
+	return readTSConfigInputAtRoot(repository, rel, inputs)
+}
+
+func readTSConfigInputAtRoot(repository repositoryRoot, rel string, inputs map[string]InputFingerprint) ([]byte, error) {
+	if err := validatePlannedPath(rel); err != nil {
+		return nil, err
+	}
+	path := filepath.Join(repository.path, filepath.FromSlash(rel))
 	data, err := securefile.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read referenced TypeScript config %q: %w", rel, err)
@@ -1077,7 +1096,7 @@ func freshManifestFor(store *graph.Store, project string, current Manifest) (Man
 		return Manifest{}, false
 	}
 	// Keep the exact validator as the last operation before no-op certification.
-	// This avoids a second validation in prepareIndexingContext and ensures a
+	// This avoids a second validation in prepareIndexingAtRoot and ensures a
 	// mutation observed between the digest phase and this final gate cannot be
 	// silently certified as fresh.
 	if freshManifestBeforeIntegrityHook != nil {
