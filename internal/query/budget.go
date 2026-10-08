@@ -71,14 +71,16 @@ func checkSnippetLines(lines int) (int, error) {
 // served graph generation (a cursor from another generation is rejected with
 // orientation to restart — never mixed snapshots); fp binds it to the exact
 // query (tool + normalized target + direction + type + page size), so a cursor
-// cannot wander into a different question; off is the row offset, exact
-// because the graph is immutable within a generation.
+// cannot wander into a different question. V=1 cursors are offset-based (search,
+// dead_code) and carry off; V=2 cursors are keyset-based (neighbor pages) and
+// carry after, the last served qualified_name.
 type pageCursor struct {
 	V      int    `json:"v"`
 	Gen    string `json:"gen"`
 	Fp     string `json:"fp"`
 	Off    int    `json:"off"`
 	RawOff int    `json:"raw_off,omitempty"` // dead_code: next unfiltered candidate, absent in older cursors
+	After  string `json:"after,omitempty"`   // neighbor keyset: last served qualified_name
 }
 
 // snippetCursor continues a snippet page losslessly: line is the 1-based next
@@ -128,7 +130,10 @@ func decodeRefCursor(token string) (pageCursor, error) {
 	if err := json.Unmarshal(raw, &c); err != nil {
 		return c, fmt.Errorf("malformed cursor: restart the query from its first page")
 	}
-	if c.V != 1 || c.Off < 0 || c.RawOff < 0 {
+	if c.V != 1 && c.V != 2 {
+		return c, fmt.Errorf("unsupported cursor: restart the query from its first page")
+	}
+	if c.Off < 0 || c.RawOff < 0 {
 		return c, fmt.Errorf("unsupported cursor: restart the query from its first page")
 	}
 	return c, nil

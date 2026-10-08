@@ -104,6 +104,9 @@ func (e *Engine) fetchRefPage(tool, qn, dir, edgeType, rawQuery, label string, l
 		if c.Fp != fp {
 			return out, fmt.Errorf("cursor belongs to a different query: restart the query from its first page")
 		}
+		if c.V != 1 {
+			return out, fmt.Errorf("cursor is not an offset cursor: restart the query from its first page")
+		}
 		offset = c.Off
 	}
 	rows, err := fetch(pageSize+1, offset)
@@ -114,22 +117,73 @@ func (e *Engine) fetchRefPage(tool, qn, dir, edgeType, rawQuery, label string, l
 	if probe {
 		rows = rows[:pageSize]
 	}
-	emit := 0
-	acc := 0
+	out.Refs, out.HasMore = refBudget(rows, probe)
+	if out.HasMore {
+		out.Cursor = encodeCursor(pageCursor{V: 1, Gen: gen, Fp: fp, Off: offset + len(out.Refs)})
+	} else {
+		out.Cursor = "-"
+	}
+	return out, nil
+}
+
+// refBudget trims rows to the page byte budget: at least one ref is always kept
+// (an oversize single ref goes whole so a qualified_name is never cut into an
+// invalid reference). hasMore is the probe row or a byte-budget cut.
+func refBudget(rows []Ref, probe bool) (kept []Ref, hasMore bool) {
+	emit, acc := 0, 0
 	for i, r := range rows {
-		line := compactRefLine(r)
-		add := len(line) + 1 // the joined newline
+		add := len(compactRefLine(r)) + 1 // the joined newline
 		if acc+add > MaxPageBytes && i > 0 {
 			break // budget cut: row i starts the next page
 		}
 		acc += add
 		emit = i + 1
 	}
-	out.Refs = rows[:emit]
-	more := probe || emit < len(rows)
-	out.HasMore = more
-	if more {
-		out.Cursor = encodeCursor(pageCursor{V: 1, Gen: gen, Fp: fp, Off: offset + emit})
+	return rows[:emit], probe || emit < len(rows)
+}
+
+// keysetRefPage assembles a neighbor page by continuing strictly after the last
+// served qualified_name instead of skipping an OFFSET, so a deep page costs the
+// same as the first (P2). Cursors are V=2 (keyset); a V=1 offset cursor for a
+// neighbor tool is rejected with orientation to restart, because its position no
+// longer names a row.
+func (e *Engine) keysetRefPage(tool, qn, dir, edgeType string, limit int, cursor string, fetch func(limit int, after string) ([]Ref, error)) (RefPage, error) {
+	var out RefPage
+	pageSize, err := checkRefLimit(limit)
+	if err != nil {
+		return out, err
+	}
+	gen := e.generation()
+	out.Generation = gen
+	fp := refFingerprint(tool, qn, dir, edgeType, pageSize)
+	after := ""
+	if cursor != "" {
+		c, err := decodeRefCursor(cursor)
+		if err != nil {
+			return out, err
+		}
+		if c.Gen != gen {
+			return out, fmt.Errorf("cursor is from generation %s but the served graph is %s: restart the query from its first page", shortDigest(c.Gen), shortDigest(gen))
+		}
+		if c.Fp != fp {
+			return out, fmt.Errorf("cursor belongs to a different query: restart the query from its first page")
+		}
+		if c.V != 2 {
+			return out, fmt.Errorf("cursor predates keyset paging: restart the query from its first page")
+		}
+		after = c.After
+	}
+	rows, err := fetch(pageSize+1, after)
+	if err != nil {
+		return out, err
+	}
+	probe := len(rows) == pageSize+1
+	if probe {
+		rows = rows[:pageSize]
+	}
+	out.Refs, out.HasMore = refBudget(rows, probe)
+	if out.HasMore {
+		out.Cursor = encodeCursor(pageCursor{V: 2, Gen: gen, Fp: fp, After: out.Refs[len(out.Refs)-1].QualifiedName})
 	} else {
 		out.Cursor = "-"
 	}
@@ -145,30 +199,32 @@ func compactRefLine(r Ref) string {
 func (e *Engine) SearchPage(q, label string, limit int, cursor string) (RefPage, error) {
 	return e.fetchRefPage("search", q, "", "", q, label, limit, cursor,
 		func(lim, off int) ([]Ref, error) {
-			hits, err := e.store.SearchPage(e.project, q, label, lim, off)
+			refs, err := e.store.SearchRefs(e.project, q, label, lim, off)
 			if err != nil {
 				return nil, err
 			}
-			refs := make([]Ref, 0, len(hits))
-			for _, h := range hits {
-				refs = append(refs, refOf(h.Node))
+			out := make([]Ref, 0, len(refs))
+			for _, r := range refs {
+				out = append(out, refOfRef(r))
 			}
-			return refs, nil
+			return out, nil
 		})
 }
 
 // neighborsPage runs one CALLS/IMPORTS/SIMILAR_TO page over the normalized qn.
+// The page is keyset-ordered by the neighbor's qualified_name, so deep pages do
+// not pay an OFFSET rescan.
 func (e *Engine) neighborsPage(tool, qn, dir, edgeType string, limit int, cursor string) (RefPage, error) {
 	nqn := e.normalizeQN(qn)
-	return e.fetchRefPage(tool, nqn, dir, edgeType, "", "", limit, cursor,
-		func(lim, off int) ([]Ref, error) {
-			ns, err := e.store.NeighborsPage(e.project, nqn, dir, edgeType, lim, off)
+	return e.keysetRefPage(tool, nqn, dir, edgeType, limit, cursor,
+		func(lim int, after string) ([]Ref, error) {
+			ns, err := e.store.NeighborRefsAfter(e.project, nqn, dir, edgeType, after, lim)
 			if err != nil {
 				return nil, err
 			}
 			refs := make([]Ref, 0, len(ns))
 			for _, n := range ns {
-				refs = append(refs, refOf(n))
+				refs = append(refs, refOfRef(n))
 			}
 			return refs, nil
 		})

@@ -32,6 +32,15 @@ func refOf(n graph.Node) Ref {
 	}
 }
 
+// refOfRef builds a Ref from the compact projection, which carries exactly the
+// fields a Ref needs (P3).
+func refOfRef(n graph.RefNode) Ref {
+	return Ref{
+		Name: n.Name, QualifiedName: n.QualifiedName, Label: string(n.Label),
+		File: n.FilePath, StartLine: n.StartLine, EndLine: n.EndLine,
+	}
+}
+
 // CompactRefs renders refs as the token-efficient wire format: one tab-separated
 // line per ref — `label<TAB>name<TAB>file:line<TAB>qn`. No repeated JSON keys, and
 // the project prefix is stripped from the qualified name (the engine re-adds it on

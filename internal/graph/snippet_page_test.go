@@ -215,7 +215,8 @@ func TestSnippetPaged_RejectsOversizeLine(t *testing.T) {
 		start int
 	}{
 		{"served", "ok\n" + huge + "\n", 1},
-		{"skipped", "ok\n" + huge + "\nafter\n", 2},
+		{"lookahead", "ok\n" + huge + "\nafter\n", 2},
+		{"skipped-before-range", "ok\n" + huge + "\nafter\n", 3},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			repo := writePagedRepo(t, "a.go", tc.body)
