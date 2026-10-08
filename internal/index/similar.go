@@ -3,12 +3,12 @@ package index
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/Lordymine/codegraph/internal/graph"
 	"github.com/Lordymine/codegraph/internal/memory"
+	"github.com/Lordymine/codegraph/internal/securefile"
 	"github.com/Lordymine/codegraph/internal/similar"
 )
 
@@ -20,9 +20,9 @@ import (
 const similarThreshold = 0.7
 
 // similarReadFile is a narrow test seam for the source-read boundary. Production
-// always uses os.ReadFile; failures are returned to the atomic pipeline instead of
-// silently dropping similarity evidence.
-var similarReadFile = os.ReadFile
+// always uses descriptor-based, no-follow reads, just like the definitions pass;
+// failures reach the atomic pipeline instead of silently dropping evidence.
+var similarReadFile = securefile.ReadFile
 
 // ResolveSimilar emits SIMILAR_TO edges between near-clone functions/methods. It reads
 // each file once, tokenizes every function body, and runs the MinHash + LSH pass
@@ -38,6 +38,11 @@ func ResolveSimilar(project, root string, nodes []graph.Node) ([]graph.Edge, err
 	}
 	return similarEdgesFromFiles(project, root, byFile)
 }
+
+// similarGateFiles is how many files the similarity signature pass processes
+// between heap gates. Small enough to bound the retained-signature peak on a
+// large corpus, large enough not to pay a GC per file (P1).
+const similarGateFiles = 64
 
 // resolveSimilarFromSpans runs the SIMILAR_TO pass on spans already loaded for CALLS.
 // Each file is read once; only MinHash signatures are retained. The LSH pass
@@ -55,6 +60,7 @@ func resolveSimilarFromSpans(ctx context.Context, project, root string, spans []
 		byFile[sp.FilePath] = append(byFile[sp.FilePath], sp)
 	}
 	var sigDocs []similar.SigDoc
+	filesScanned := 0
 	for file, fns := range byFile {
 		if err := ctx.Err(); err != nil {
 			return nil, similar.Coverage{}, err
@@ -78,7 +84,13 @@ func resolveSimilarFromSpans(ctx context.Context, project, root string, spans []
 				})
 			}
 		}
-		memory.Gate()
+		// Gate per batch, not per file: a GC between every file dominates the pass
+		// on many-small-file repos while retaining almost nothing (P1). The batch
+		// still bounds the signature accumulation peak between phases.
+		filesScanned++
+		if filesScanned%similarGateFiles == 0 {
+			memory.Gate()
+		}
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, similar.Coverage{}, err

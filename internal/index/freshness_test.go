@@ -35,7 +35,7 @@ func TestRunAtomic_MissingInvalidOrMismatchedManifestForcesRebuild(t *testing.T)
 	dbPath := filepath.Join(t.TempDir(), "graph.db")
 	oldRunner := scipRunAndRead
 	t.Cleanup(func() { scipRunAndRead = oldRunner })
-	scipRunAndRead = func(context.Context, string, string) (*scippb.Index, scip.RunStats, error) {
+	scipRunAndRead = func(context.Context, string, string, *scip.ExecutionEnvironment) (*scippb.Index, scip.RunStats, error) {
 		return &scippb.Index{}, scip.RunStats{}, nil
 	}
 	if _, err := RunAtomic(dbPath, root); err != nil {
@@ -139,7 +139,7 @@ func TestManifest_FingerprintsRelevantConfigAndLockInputs(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "graph.db")
 	oldRunner := scipRunAndRead
 	t.Cleanup(func() { scipRunAndRead = oldRunner })
-	scipRunAndRead = func(context.Context, string, string) (*scippb.Index, scip.RunStats, error) {
+	scipRunAndRead = func(context.Context, string, string, *scip.ExecutionEnvironment) (*scippb.Index, scip.RunStats, error) {
 		return &scippb.Index{}, scip.RunStats{}, nil
 	}
 	if _, err := RunAtomic(dbPath, root); err != nil {
@@ -578,7 +578,7 @@ func TestManifest_FingerprintsReferencedTSConfigsAndRejectsBrokenReferences(t *t
 	dbPath := filepath.Join(t.TempDir(), "graph.db")
 	oldRunner := scipRunAndRead
 	t.Cleanup(func() { scipRunAndRead = oldRunner })
-	scipRunAndRead = func(context.Context, string, string) (*scippb.Index, scip.RunStats, error) {
+	scipRunAndRead = func(context.Context, string, string, *scip.ExecutionEnvironment) (*scippb.Index, scip.RunStats, error) {
 		return &scippb.Index{}, scip.RunStats{}, nil
 	}
 	if _, err := RunAtomic(dbPath, root); err != nil {
@@ -675,7 +675,7 @@ func TestManifest_WorkspaceMetadataChangeDoesNotReuseStaleTSCalls(t *testing.T) 
 	dbPath := filepath.Join(t.TempDir(), "graph.db")
 	oldRunner := scipRunAndRead
 	t.Cleanup(func() { scipRunAndRead = oldRunner })
-	scipRunAndRead = func(context.Context, string, string) (*scippb.Index, scip.RunStats, error) {
+	scipRunAndRead = func(context.Context, string, string, *scip.ExecutionEnvironment) (*scippb.Index, scip.RunStats, error) {
 		return &scippb.Index{}, scip.RunStats{}, nil
 	}
 	if _, err := RunAtomic(dbPath, root); err != nil {
@@ -722,14 +722,14 @@ func TestManifest_WorkspaceMetadataChangeDoesNotReuseStaleTSCalls(t *testing.T) 
 	}
 }
 
-func TestManifest_RejectsHealthyFailedResolverAndNoOpPreservesDegradedStatus(t *testing.T) {
+func TestManifest_RejectsHealthyFailedResolverAndRetriesDegradedStatus(t *testing.T) {
 	root := t.TempDir()
 	writeFreshnessFile(t, root, "go.mod", "module example.test/manifest-status\ngo 1.26\n")
 	writeFreshnessFile(t, root, "main.go", "package main\n\nfunc main() {}\n")
 	dbPath := filepath.Join(t.TempDir(), "graph.db")
 	oldResolver := goCallEdges
 	t.Cleanup(func() { goCallEdges = oldResolver })
-	goCallEdges = func(context.Context, string, string, func(string) bool) ([]graph.Edge, error) {
+	goCallEdges = func(context.Context, string, string, func(string) bool, []string) ([]graph.Edge, error) {
 		return nil, errors.New("Go resolver unavailable")
 	}
 	res, err := RunAtomic(dbPath, root)
@@ -746,12 +746,13 @@ func TestManifest_RejectsHealthyFailedResolverAndNoOpPreservesDegradedStatus(t *
 	if stored.Status != StatusDegraded || !stored.Resolver.HasFailures() {
 		t.Fatalf("stored degraded manifest=%+v", stored)
 	}
-	noOp, err := RunAtomic(dbPath, root)
-	if err != nil {
-		t.Fatalf("degraded no-op: %v", err)
+	_, err = RunAtomic(dbPath, root)
+	var failure *ResolverFailure
+	if !errors.As(err, &failure) {
+		t.Fatalf("degraded refresh must retry and report its failure: %v", err)
 	}
-	if !noOp.Reused || noOp.Status != StatusDegraded || !noOp.Resolver.HasFailures() {
-		t.Fatalf("degraded no-op result=%+v", noOp)
+	if digestOf(t, dbPath, res.Project) != stored.GraphContentDigest {
+		t.Fatal("failed degraded retry changed the committed graph")
 	}
 
 	stored.Status = StatusHealthy
@@ -834,7 +835,7 @@ func TestTSConfigScopes_KeepRootFilesAlongsideChildConfigs(t *testing.T) {
 	oldRunner := scipRunAndRead
 	t.Cleanup(func() { scipRunAndRead = oldRunner })
 	var called []string
-	scipRunAndRead = func(_ context.Context, dir, _ string) (*scippb.Index, scip.RunStats, error) {
+	scipRunAndRead = func(_ context.Context, dir, _ string, _ *scip.ExecutionEnvironment) (*scippb.Index, scip.RunStats, error) {
 		called = append(called, dir)
 		return nil, scip.RunStats{}, errors.New("resolver unavailable")
 	}
@@ -896,7 +897,7 @@ func TestChangedScopesWithTSDependenciesInvalidatesReverseImporters(t *testing.T
 		Changed: []string{"packages/lib/lib.ts"},
 		files:   []SourceFile{{AbsPath: lib, RelPath: "packages/lib/lib.ts", Lang: LangTS}, {AbsPath: app, RelPath: "apps/app/app.ts", Lang: LangTS}},
 	}
-	changed, err := changedScopesWithTSDependencies(context.Background(), nil, "", root, nil, ch, []string{"apps/app", "packages/lib"})
+	changed, err := changedResolverScopes(context.Background(), ch, []string{"apps/app", "packages/lib"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -908,7 +909,7 @@ func TestChangedScopesWithTSDependenciesInvalidatesReverseImporters(t *testing.T
 }
 
 func TestChangedScopesWithTSDependencies_InvalidatesAllTSScopeForUncertainOwnership(t *testing.T) {
-	changed, err := changedScopesWithTSDependencies(context.Background(), nil, "", t.TempDir(), nil, Changes{
+	changed, err := changedResolverScopes(context.Background(), Changes{
 		Changed: []string{"packages/lib/lib.ts"},
 	}, []string{"apps/web", "packages/lib", "packages/shared"})
 	if err != nil {
@@ -932,7 +933,7 @@ func TestRunAtomic_ConfigScopeRemovalDoesNotReuseOldCallEdges(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "graph.db")
 	oldRunner := scipRunAndRead
 	t.Cleanup(func() { scipRunAndRead = oldRunner })
-	scipRunAndRead = func(context.Context, string, string) (*scippb.Index, scip.RunStats, error) {
+	scipRunAndRead = func(context.Context, string, string, *scip.ExecutionEnvironment) (*scippb.Index, scip.RunStats, error) {
 		return &scippb.Index{}, scip.RunStats{}, nil
 	}
 	if _, err := RunAtomic(dbPath, root); err != nil {
@@ -989,7 +990,7 @@ func TestRunAtomic_ResolverFailurePreservesExistingGraphAndReportsStale(t *testi
 	writeFreshnessFile(t, root, "main.go", "package main\n\nfunc newSymbol() {}\n")
 	oldResolver := goCallEdges
 	t.Cleanup(func() { goCallEdges = oldResolver })
-	goCallEdges = func(context.Context, string, string, func(string) bool) ([]graph.Edge, error) {
+	goCallEdges = func(context.Context, string, string, func(string) bool, []string) ([]graph.Edge, error) {
 		return nil, errors.New("go resolver unavailable")
 	}
 	res, err := RunAtomic(dbPath, root)
@@ -1029,14 +1030,14 @@ func TestRunAtomic_TSResolverFailurePreservesExistingGraph(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "graph.db")
 	oldRunner := scipRunAndRead
 	t.Cleanup(func() { scipRunAndRead = oldRunner })
-	scipRunAndRead = func(context.Context, string, string) (*scippb.Index, scip.RunStats, error) {
+	scipRunAndRead = func(context.Context, string, string, *scip.ExecutionEnvironment) (*scippb.Index, scip.RunStats, error) {
 		return &scippb.Index{}, scip.RunStats{}, nil
 	}
 	if _, err := RunAtomic(dbPath, root); err != nil {
 		t.Fatalf("initial TS index: %v", err)
 	}
 	writeFreshnessFile(t, root, "a.ts", "export function newSymbol() {}\n")
-	scipRunAndRead = func(context.Context, string, string) (*scippb.Index, scip.RunStats, error) {
+	scipRunAndRead = func(context.Context, string, string, *scip.ExecutionEnvironment) (*scippb.Index, scip.RunStats, error) {
 		return nil, scip.RunStats{}, errors.New("scip resolver unavailable")
 	}
 	res, err := RunAtomic(dbPath, root)
@@ -1073,7 +1074,7 @@ func TestRunAtomic_FirstResolverFailureCommitsExplicitStructuralDegradedGraph(t 
 	dbPath := filepath.Join(t.TempDir(), "graph.db")
 	oldResolver := goCallEdges
 	t.Cleanup(func() { goCallEdges = oldResolver })
-	goCallEdges = func(context.Context, string, string, func(string) bool) ([]graph.Edge, error) {
+	goCallEdges = func(context.Context, string, string, func(string) bool, []string) ([]graph.Edge, error) {
 		return nil, errors.New("go resolver unavailable")
 	}
 	res, err := RunAtomic(dbPath, root)
@@ -1242,7 +1243,7 @@ func TestResolveTSCalls_UsesIsolatedCleanedArtifactsConcurrently(t *testing.T) {
 	t.Cleanup(func() { scipRunAndRead = oldRunner })
 	var mu sync.Mutex
 	var outputs []string
-	scipRunAndRead = func(_ context.Context, _ string, out string) (*scippb.Index, scip.RunStats, error) {
+	scipRunAndRead = func(_ context.Context, _ string, out string, _ *scip.ExecutionEnvironment) (*scippb.Index, scip.RunStats, error) {
 		if err := os.WriteFile(out, nil, 0o600); err != nil {
 			return nil, scip.RunStats{}, err
 		}
@@ -1315,7 +1316,7 @@ func TestRunAtomic_RubyAnalysisFreshnessMissDoesNotReuseOldCallEdges(t *testing.
 
 	oldResolver := goCallEdges
 	t.Cleanup(func() { goCallEdges = oldResolver })
-	goCallEdges = func(context.Context, string, string, func(string) bool) ([]graph.Edge, error) {
+	goCallEdges = func(context.Context, string, string, func(string) bool, []string) ([]graph.Edge, error) {
 		return nil, nil
 	}
 	if _, err := RunAtomic(dbPath, root); err != nil {
@@ -1691,7 +1692,7 @@ func TestRunAtomic_HealthyManifestMissingExpectedTSResolverForcesRebuild(t *test
 	dbPath := filepath.Join(t.TempDir(), "graph.db")
 	oldRunner := scipRunAndRead
 	t.Cleanup(func() { scipRunAndRead = oldRunner })
-	scipRunAndRead = func(context.Context, string, string) (*scippb.Index, scip.RunStats, error) {
+	scipRunAndRead = func(context.Context, string, string, *scip.ExecutionEnvironment) (*scippb.Index, scip.RunStats, error) {
 		return &scippb.Index{}, scip.RunStats{}, nil
 	}
 	if _, err := RunAtomic(dbPath, root); err != nil {

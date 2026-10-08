@@ -68,6 +68,34 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  typescript-integration:
+    name: TypeScript resolver oracles
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CGO_ENABLED: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6.0.0
+        with:
+          node-version: "26.0.0"
+          package-manager-cache: false
+
+      # Match the package pinned by internal/scip/run.go; unit tests need no Node.
+      - name: install pinned SCIP TypeScript
+        run: npx --yes @sourcegraph/scip-typescript@0.4.0 --version
+
+      - name: incremental versus rebuild (real resolver, race detector)
+        run: go test -race -tags integration ./internal/index -run '^TestTSInvalidation_RealResolver' -count=1 -timeout 10m
+
   lint:
     name: golangci-lint
     runs-on: ubuntu-latest

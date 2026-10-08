@@ -265,6 +265,7 @@ type mcpIndexHooks struct {
 	beforeRun        func()
 	beforeRunContext func(context.Context) error
 	reopenAttempt    func()
+	afterReopen      func()
 }
 
 func cmdIndex(root string) error {

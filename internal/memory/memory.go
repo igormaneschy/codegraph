@@ -53,8 +53,19 @@ func ApplyTuning() {
 		if limit > uint64(math.MaxInt64) {
 			limit = uint64(math.MaxInt64)
 		}
-		debug.SetMemoryLimit(int64(limit))
+		// An explicit GOMEMLIMIT is an operator decision the runtime already honored
+		// at startup; auto-tuning must not overwrite it (P7).
+		if !operatorPinnedMemoryLimit() {
+			debug.SetMemoryLimit(int64(limit))
+		}
 	}
+}
+
+// operatorPinnedMemoryLimit reports whether the operator set GOMEMLIMIT (anything
+// other than empty or "off").
+func operatorPinnedMemoryLimit() bool {
+	v := strings.TrimSpace(os.Getenv("GOMEMLIMIT"))
+	return v != "" && !strings.EqualFold(v, "off")
 }
 
 // NodeHeapMB returns the --max-old-space-size passed to scip-typescript (MB).
@@ -87,8 +98,9 @@ func ActiveProfile() Profile {
 // Gate encourages the runtime to return freed pages to the OS between heavy pipeline
 // phases. Indexing spikes (VTA, SCIP) allocate large arenas; without an explicit
 // gate the Go heap stays at the peak for the rest of the process life.
+// debug.FreeOSMemory already forces a GC before releasing pages, so an explicit
+// runtime.GC here would only double the stop-the-world pause (P1).
 func Gate() {
-	runtime.GC()
 	debug.FreeOSMemory()
 }
 

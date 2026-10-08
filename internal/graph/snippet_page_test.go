@@ -36,10 +36,10 @@ func TestSnippetPaged_LosslessAcrossPages(t *testing.T) {
 	body := "one\ntwo\nthree\nfour\nfive\n"
 	repo := writePagedRepo(t, "a.go", body)
 	var sb strings.Builder
-	next, size := 1, int64(-1)
+	next, digest := 1, ""
 	pages := 0
 	for {
-		c, err := SnippetPaged(repo, "a.go", next, 2, 6, 0, size)
+		c, err := SnippetPaged(repo, "a.go", next, 2, 6, 0, digest)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -48,7 +48,7 @@ func TestSnippetPaged_LosslessAcrossPages(t *testing.T) {
 			sb.WriteByte('\n')
 		}
 		sb.WriteString(c.Text)
-		size = c.FileSize
+		digest = c.FileDigest
 		if !c.HasMore {
 			break
 		}
@@ -68,7 +68,7 @@ func TestSnippetPaged_LosslessAcrossPages(t *testing.T) {
 func TestSnippetPaged_LongLineEmittedWhole(t *testing.T) {
 	long := strings.Repeat("é", 500) // multibyte: runes must never split either
 	repo := writePagedRepo(t, "a.go", "short\n"+long+"\nafter\n")
-	c, err := SnippetPaged(repo, "a.go", 1, 200, 32, 0, -1)
+	c, err := SnippetPaged(repo, "a.go", 1, 200, 32, 0, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +76,7 @@ func TestSnippetPaged_LongLineEmittedWhole(t *testing.T) {
 	if c.Text != "short" || c.HasMore != true || c.NextLine != 2 {
 		t.Fatalf("first page = %+v, want line 1 with continuation", c)
 	}
-	c2, err := SnippetPaged(repo, "a.go", c.NextLine, 200, 32, 0, c.FileSize)
+	c2, err := SnippetPaged(repo, "a.go", c.NextLine, 200, 32, 0, c.FileDigest)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +86,7 @@ func TestSnippetPaged_LongLineEmittedWhole(t *testing.T) {
 	if c2.NextLine != 3 {
 		t.Fatalf("page after a long line must resume at line 3, got %d", c2.NextLine)
 	}
-	c3, err := SnippetPaged(repo, "a.go", c2.NextLine, 200, 32, 0, c2.FileSize)
+	c3, err := SnippetPaged(repo, "a.go", c2.NextLine, 200, 32, 0, c2.FileDigest)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +99,7 @@ func TestSnippetPaged_LongLineEmittedWhole(t *testing.T) {
 // file modified between pages errors instead of silently shifting lines.
 func TestSnippetPaged_DetectsChangeBetweenPages(t *testing.T) {
 	repo := writePagedRepo(t, "a.go", "one\ntwo\nthree\n")
-	c, err := SnippetPaged(repo, "a.go", 1, 1, 32*1024, 0, -1)
+	c, err := SnippetPaged(repo, "a.go", 1, 1, 32*1024, 0, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +109,7 @@ func TestSnippetPaged_DetectsChangeBetweenPages(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(repo, "a.go"), []byte("one\nTWO\nEXTRA\ntwo\nthree\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := SnippetPaged(repo, "a.go", c.NextLine, 1, 32*1024, 0, c.FileSize); err == nil ||
+	if _, err := SnippetPaged(repo, "a.go", c.NextLine, 1, 32*1024, 0, c.FileDigest); err == nil ||
 		!strings.Contains(err.Error(), "changed between pages") {
 		t.Fatalf("modified file must fail the next page, err=%v", err)
 	}
@@ -120,14 +120,14 @@ func TestSnippetPaged_DetectsChangeBetweenPages(t *testing.T) {
 // EOF start returns an empty final page rather than an error.
 func TestSnippetPaged_EndBoundCompletion(t *testing.T) {
 	repo := writePagedRepo(t, "a.go", "one\ntwo\nthree\n")
-	c, err := SnippetPaged(repo, "a.go", 1, 2, 32*1024, 2, -1)
+	c, err := SnippetPaged(repo, "a.go", 1, 2, 32*1024, 2, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if c.Text != "one\ntwo" || c.HasMore {
 		t.Fatalf("page ending at the bound must complete: %+v", c)
 	}
-	c2, err := SnippetPaged(repo, "a.go", 99, 10, 32*1024, 0, -1)
+	c2, err := SnippetPaged(repo, "a.go", 99, 10, 32*1024, 0, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,8 +148,81 @@ func benchmarkSnippetPaged(b *testing.B, fromLine int) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if _, err := SnippetPaged(repo, "large.go", fromLine, 200, 32*1024, 0, -1); err != nil {
+		if _, err := SnippetPaged(repo, "large.go", fromLine, 200, 32*1024, 0, ""); err != nil {
 			b.Fatal(err)
 		}
+	}
+}
+
+// TestSnippetPaged_DetectsSameSizeEdit pins the content contract behind R10: a
+// same-size substitution or a line-break shift before the resume line must fail
+// continuation. Size is not proof of content.
+func TestSnippetPaged_DetectsSameSizeEdit(t *testing.T) {
+	const original = "one\ntwo\nthree\n"
+	for _, tc := range []struct{ name, replaced string }{
+		{"same-size substitution", "one\nTWO\nthree\n"},
+		{"line-break shift", "one\ntw\nothree\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := writePagedRepo(t, "a.go", original)
+			c, err := SnippetPaged(repo, "a.go", 1, 1, 32*1024, 0, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(tc.replaced) != len(original) {
+				t.Fatalf("fixture must keep the byte length: %d vs %d", len(tc.replaced), len(original))
+			}
+			if err := os.WriteFile(filepath.Join(repo, "a.go"), []byte(tc.replaced), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := SnippetPaged(repo, "a.go", c.NextLine, 1, 32*1024, 0, c.FileDigest); err == nil ||
+				!strings.Contains(err.Error(), "changed between pages") {
+				t.Fatalf("same-size edit must fail continuation, err=%v", err)
+			}
+		})
+	}
+}
+
+// TestSnippetPaged_DetectsRenameReplacement pins that replacing the path (new
+// inode, same size, different bytes) is detected too.
+func TestSnippetPaged_DetectsRenameReplacement(t *testing.T) {
+	repo := writePagedRepo(t, "a.go", "one\ntwo\nthree\n")
+	c, err := SnippetPaged(repo, "a.go", 1, 1, 32*1024, 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	replacement := filepath.Join(repo, ".replacement")
+	if err := os.WriteFile(replacement, []byte("one\nTWO\nthree\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(replacement, filepath.Join(repo, "a.go")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := SnippetPaged(repo, "a.go", c.NextLine, 1, 32*1024, 0, c.FileDigest); err == nil ||
+		!strings.Contains(err.Error(), "changed between pages") {
+		t.Fatalf("renamed replacement must fail continuation, err=%v", err)
+	}
+}
+
+// TestSnippetPaged_RejectsOversizeLine pins the absolute line ceiling (R16): a
+// line beyond MaxSnippetLineBytes is an actionable error, never an unbounded
+// allocation — including when the line is only skipped or held as lookahead.
+func TestSnippetPaged_RejectsOversizeLine(t *testing.T) {
+	huge := strings.Repeat("a", MaxSnippetLineBytes+1)
+	for _, tc := range []struct {
+		name  string
+		body  string
+		start int
+	}{
+		{"served", "ok\n" + huge + "\n", 1},
+		{"skipped", "ok\n" + huge + "\nafter\n", 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := writePagedRepo(t, "a.go", tc.body)
+			_, err := SnippetPaged(repo, "a.go", tc.start, 1, 32*1024, 0, "")
+			if err == nil || !strings.Contains(err.Error(), "snippet line limit") {
+				t.Fatalf("oversize line error=%v, want the line-limit guidance", err)
+			}
+		})
 	}
 }

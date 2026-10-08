@@ -128,7 +128,9 @@ OpenCode after registration.
 
 - **Claude Code** and **Codex** — via their own CLI (`claude mcp add --scope user` /
   `codex mcp add`), so it works in **every** repo you open.
-- **opencode** — merged into your `opencode.jsonc`/`.json` (existing config preserved).
+- **opencode** — merged into your `opencode.jsonc`/`.json`: JSONC comments and
+  trailing commas are accepted, existing keys and MCP servers are preserved, and
+  the file is replaced atomically (an interrupted install cannot truncate it).
 - **Any other MCP agent** — the command prints the stdio server line to add by hand.
 
 No per-repo step: the server auto-indexes whatever repo the agent opens (reading
@@ -164,6 +166,11 @@ go build -o codegraph ./cmd/codegraph          # needs cgo (tree-sitter)
 Store lives in `~/.cache/codegraph/<project>.db`.
 
 ## Building and installing
+
+Supported and released: Linux and macOS (amd64/arm64). Windows builds compile but
+are **not an operational target** yet — private cache/snapshot/manifest writes fail
+closed, so no Windows release asset is published (R01 in
+[`docs/CODE_REVIEW_2026-10-07.md`](docs/CODE_REVIEW_2026-10-07.md)).
 
 `make install` is the safe build + local install flow. It builds the binary
 exactly like `make build`, then installs it to `$(PREFIX)/bin/codegraph`

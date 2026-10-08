@@ -109,7 +109,7 @@ func walkTSDefs(root *tree_sitter.Node, src []byte, add addFn) {
 		if n.Kind() == "export_statement" {
 			exported = true
 			if d := n.ChildByFieldName("decorator"); d != nil {
-				classDecorators = append(classDecorators, decor{decoratorName(d, src), decoratorArg(d, src)})
+				classDecorators = append(classDecorators, decor{decoratorName(d, src), decoratorPath(d, src)})
 			}
 			if inner := n.ChildByFieldName("declaration"); inner != nil {
 				decl = inner
@@ -187,7 +187,7 @@ func walkTSVariableDecls(decl *tree_sitter.Node, src []byte, exported bool, add 
 // name so methods of different classes don't collide. Method decorators are
 // sibling nodes that PRECEDE the method in the body, so we accumulate pending
 // decorators and attach them to the next method (NestJS @Get/@Post, etc).
-func walkTSClassMethods(class *tree_sitter.Node, className string, isController bool, base string, src []byte, add addFn) {
+func walkTSClassMethods(class *tree_sitter.Node, className string, isController bool, base routeArg, src []byte, add addFn) {
 	body := class.ChildByFieldName("body")
 	if body == nil {
 		return
@@ -197,7 +197,7 @@ func walkTSClassMethods(class *tree_sitter.Node, className string, isController 
 		m := body.NamedChild(j)
 		switch m.Kind() {
 		case "decorator":
-			pending = append(pending, decor{decoratorName(m, src), decoratorArg(m, src)})
+			pending = append(pending, decor{decoratorName(m, src), decoratorPath(m, src)})
 		case "method_definition", "abstract_method_signature":
 			if name := m.ChildByFieldName("name"); name != nil {
 				mn := name.Utf8Text(src)
@@ -234,6 +234,13 @@ func goReceiver(method *tree_sitter.Node, src []byte) string {
 		}
 		if t.Kind() == "pointer_type" { // unwrap *T
 			t = t.NamedChild(0)
+		}
+		// Unwrap a generic receiver `Box[T]` to its base name `Box`: the SSA
+		// receiver type is the nominal Box, so the node QN must match it.
+		if t != nil && t.Kind() == "generic_type" {
+			if base := t.ChildByFieldName("type"); base != nil {
+				t = base
+			}
 		}
 		if t != nil {
 			return t.Utf8Text(src)

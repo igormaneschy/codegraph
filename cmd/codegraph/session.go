@@ -14,6 +14,7 @@ import (
 	"github.com/Lordymine/codegraph/internal/index"
 	"github.com/Lordymine/codegraph/internal/mcp"
 	"github.com/Lordymine/codegraph/internal/query"
+	"github.com/Lordymine/codegraph/internal/similar"
 )
 
 // P1 refresh protocol: per-operation locks + generation revalidation.
@@ -39,11 +40,14 @@ type mcpSession struct {
 	eng *query.Engine
 	mu  sync.Mutex
 
-	state      mcpSessionState
-	notice     string // served with answers (stale context) or as the rejection reason
-	generation string // short manifest digest served; "" = none yet
-	serving    bool   // engine currently queryable
-	everServed bool   // a graph was served at least once (drives unavailable vs failed)
+	state        mcpSessionState
+	notice       string // served with answers (stale context) or as the rejection reason
+	generation   string // manifest digest served; "" = none yet
+	similar      similar.Coverage
+	servedStatus index.IndexStatus
+	manifestErr  error
+	serving      bool // engine currently queryable
+	everServed   bool // a graph was served at least once (drives unavailable vs failed)
 
 	inFlight bool
 	done     chan struct{}
@@ -219,11 +223,12 @@ func (s *mcpSession) statusText() string {
 		detail = "serving generation " + shortDigest(s.generation)
 	}
 	fmt.Fprintf(&b, "detail=%s\n", detail)
-	// Similarity coverage rides the committed manifest, so it is visible here
-	// without re-running the pass — including after restarts and no-op reuse.
+	// Similarity coverage rides the served manifest snapshot, so it is visible
+	// here without re-running the pass — and, crucially, without reading a disk
+	// manifest that another writer may have already replaced (R11).
 	similarLine := "similar=not recorded"
-	if manifest, merr := index.ReadManifest(s.dbPath); merr == nil {
-		cov := manifest.Similar
+	if s.generation != "" {
+		cov := s.similar
 		similarLine = "similar=" + cov.Summary() +
 			" docs=" + strconv.Itoa(cov.Docs) +
 			" pairs=" + strconv.Itoa(cov.PairsExamined) +
@@ -320,6 +325,7 @@ func (s *mcpSession) reopenShared(ctx context.Context) error {
 			rerr := s.eng.Reopen(s.dbPath)
 			if rerr == nil {
 				s.serving = true
+				s.captureServedManifestLocked()
 			}
 			s.mu.Unlock()
 			releaseErr := rl.Release()
@@ -367,6 +373,23 @@ func (s *mcpSession) finishLocked() {
 		close(s.done)
 		s.done = nil
 	}
+}
+
+// captureServedManifestLocked records the identity of the graph the engine just
+// loaded. Reopen reads the manifest under the shared lock that pins the commit,
+// so this snapshot — not a later disk read — is what status, coverage, and the
+// degraded check must report. Caller holds s.mu.
+func (s *mcpSession) captureServedManifestLocked() {
+	manifest, err := s.eng.Manifest()
+	s.manifestErr = err
+	if err != nil {
+		s.generation = ""
+		s.servedStatus = index.StatusDegraded
+		return
+	}
+	s.generation = manifest.GraphContentDigest
+	s.similar = manifest.Similar
+	s.servedStatus = manifest.Status
 }
 
 // round runs one index round: probe, close, build, reopen, publish. It always
@@ -462,6 +485,9 @@ func (s *mcpSession) round() {
 		}
 		return
 	}
+	if s.hooks.afterReopen != nil {
+		s.hooks.afterReopen()
+	}
 	s.publish(res)
 }
 
@@ -479,22 +505,22 @@ func (s *mcpSession) fail(notice string) {
 	s.finishLocked()
 }
 
-// publish adopts a successful round: the generation comes from the committed
-// manifest, so two sessions converge iff they report the same generation.
+// publish adopts a successful round. The served generation and manifest identity
+// were captured with the engine in reopenShared, so status and pages report the
+// same graph even if another writer committed a newer generation between reopen
+// and this call; the divergence surfaces as `lag` in status, not as a mismatch.
 func (s *mcpSession) publish(res index.Result) {
-	manifest, merr := index.ReadManifest(s.dbPath)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.lastResult = res
 	s.hasResult = true
 	s.everServed = s.everServed || s.serving
-	if merr != nil {
+	if s.manifestErr != nil {
 		s.state = mcpStateFailed
-		s.notice = "codegraph: indexed but manifest unreadable: " + merr.Error()
+		s.notice = "codegraph: indexed but manifest unreadable: " + s.manifestErr.Error()
 		s.finishLocked()
 		return
 	}
-	s.generation = manifest.GraphContentDigest
 	if res.ScipScopes > 0 {
 		msg := fmt.Sprintf("codegraph: scip-typescript %d scope(s), node heap cap %d MB",
 			res.ScipScopes, res.ScipHeapCapMB)
@@ -503,7 +529,7 @@ func (s *mcpSession) publish(res index.Result) {
 		}
 		fmt.Fprintln(os.Stderr, msg)
 	}
-	if res.Status == index.StatusDegraded || manifest.Status == index.StatusDegraded {
+	if res.Status == index.StatusDegraded || s.servedStatus == index.StatusDegraded {
 		s.state = mcpStateDegraded
 		s.notice = "codegraph: indexing degraded; resolver failed: " + res.Resolver.Summary()
 	} else {

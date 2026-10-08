@@ -233,7 +233,7 @@ func edgesFromSigsBudgeted(ctx context.Context, project string, qns []string, si
 
 	type pair struct{ i, j int }
 	seen := map[pair]struct{}{}
-	var edges []graph.Edge
+	keep := &topEdges{cap: lim.MaxEdges}
 	examined := 0
 	capped := false
 outer:
@@ -267,7 +267,7 @@ outer:
 				if src > dst {
 					src, dst = dst, src
 				}
-				edges = append(edges, graph.Edge{
+				keep.add(graph.Edge{
 					Project: project, SourceQN: src, TargetQN: dst,
 					Type:  graph.EdgeSimilarTo,
 					Props: map[string]any{"similarity": round2(score)},
@@ -277,21 +277,12 @@ outer:
 	}
 	cov.PairsExamined = examined
 	cov.PairsCapped = capped
+	cov.EdgesCapped = keep.overflow
 
-	// LSH bucket iteration used to be map-random; the sorted processing above
-	// is already deterministic, and this final sort keeps the emitted edge
-	// order a stable (source, target) prefix for truncation.
-	sort.Slice(edges, func(a, b int) bool {
-		if edges[a].SourceQN != edges[b].SourceQN {
-			return edges[a].SourceQN < edges[b].SourceQN
-		}
-		return edges[a].TargetQN < edges[b].TargetQN
-	})
-	if len(edges) > lim.MaxEdges {
-		edges = edges[:lim.MaxEdges]
-		cov.EdgesCapped = true
-	}
-	return edges, nil
+	// The retained set is the same deterministic (source, target) prefix the old
+	// collect-everything-then-sort-then-truncate produced, with memory bounded to
+	// MaxEdges instead of MaxPairs (P4).
+	return keep.sorted(), nil
 }
 
 // bandHash folds a band's rows into one key (FNV-1a over their bytes).

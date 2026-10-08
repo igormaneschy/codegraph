@@ -1,7 +1,6 @@
 package scip
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -24,7 +23,7 @@ const scipTypescriptVersion = "0.4.0"
 // resolverVersion is part of the graph freshness identity. Bump it when the
 // SCIP bridge changes output semantics even if the external package version is
 // unchanged.
-const resolverVersion = "scip-typescript-bridge-v1@" + scipTypescriptVersion
+const resolverVersion = "scip-typescript-bridge-v2@" + scipTypescriptVersion
 
 // ResolverVersion returns the version recorded in an index manifest.
 func ResolverVersion() string { return resolverVersion }
@@ -69,11 +68,17 @@ func RunAndRead(dir, outPath string) (*scippb.Index, RunStats, error) {
 // receives the context so shutdown can terminate an in-flight SCIP invocation
 // before the caller closes its graph engine.
 func RunAndReadContext(ctx context.Context, dir, outPath string) (*scippb.Index, RunStats, error) {
+	return RunAndReadWithEnvironmentContext(ctx, dir, outPath, nil)
+}
+
+// RunAndReadWithEnvironmentContext uses the invocation's captured settings and
+// executable identities rather than mutable process defaults.
+func RunAndReadWithEnvironmentContext(ctx context.Context, dir, outPath string, environment *ExecutionEnvironment) (*scippb.Index, RunStats, error) {
 	ctx = nonNilContext(ctx)
 	if err := requireFreshSCIPOutput(outPath); err != nil {
 		return nil, RunStats{}, err
 	}
-	st, err := runScipContext(ctx, dir, outPath)
+	st, err := runScipContext(ctx, dir, outPath, environment)
 	if err != nil {
 		return nil, st, err
 	}
@@ -120,13 +125,22 @@ func validateSCIPOutput(path string) error {
 	return nil
 }
 
-func runScipContext(ctx context.Context, dir, outPath string) (st RunStats, retErr error) {
+func runScipContext(ctx context.Context, dir, outPath string, environment *ExecutionEnvironment) (st RunStats, retErr error) {
 	ctx = nonNilContext(ctx)
 	st = RunStats{NodeHeapMB: memory.NodeHeapMB()}
-	name, args := npx("@sourcegraph/scip-typescript@"+scipTypescriptVersion, "index", "--output", outPath)
+	packageArguments := []string{"@sourcegraph/scip-typescript@" + scipTypescriptVersion, "index", "--output", outPath}
+	name, args := npx(packageArguments...)
+	variables := os.Environ()
+	if environment != nil {
+		if err := environment.Verify(ctx); err != nil {
+			return st, err
+		}
+		name, args = environment.command(packageArguments)
+		variables = environment.Variables
+	}
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir
-	cmd.Env = nodeEnv(st.NodeHeapMB)
+	cmd.Env = nodeEnvFor(variables, st.NodeHeapMB)
 	tree, err := newProcessTree(cmd)
 	if err != nil {
 		return st, fmt.Errorf("prepare scip-typescript process tree: %w", err)
@@ -147,9 +161,9 @@ func runScipContext(ctx context.Context, dir, outPath string) (st RunStats, retE
 		}
 	}()
 
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &out
+	out := newTailBuffer(scipOutputTailBytes)
+	cmd.Stdout = out
+	cmd.Stderr = out
 
 	t0 := time.Now()
 	if err := tree.start(ctx); err != nil {
@@ -174,8 +188,41 @@ func runScipContext(ctx context.Context, dir, outPath string) (st RunStats, retE
 		}
 		return st, fmt.Errorf("scip-typescript in %s: %w: %s", dir, waitErr, tail(out.Bytes(), 500))
 	}
+	if environment != nil {
+		if err := environment.Verify(ctx); err != nil {
+			return st, err
+		}
+	}
 	return st, nil
 }
+
+// scipOutputTailBytes bounds the captured scip-typescript output. Only a short
+// tail is ever shown on failure, so an unbounded buffer would let a chatty
+// resolver hold megabytes for nothing (P7).
+const scipOutputTailBytes = 64 * 1024
+
+// tailBuffer keeps the last limit bytes written to it. Writes always succeed, so a
+// child writing a lot to stderr can never block on a full pipe.
+type tailBuffer struct {
+	limit int
+	buf   []byte
+}
+
+func newTailBuffer(limit int) *tailBuffer { return &tailBuffer{limit: limit} }
+
+func (b *tailBuffer) Write(p []byte) (int, error) {
+	if len(p) >= b.limit {
+		b.buf = append(b.buf[:0], p[len(p)-b.limit:]...)
+		return len(p), nil
+	}
+	if drop := len(b.buf) + len(p) - b.limit; drop > 0 {
+		b.buf = append(b.buf[:0], b.buf[drop:]...)
+	}
+	b.buf = append(b.buf, p...)
+	return len(p), nil
+}
+
+func (b *tailBuffer) Bytes() []byte { return b.buf }
 
 func nonNilContext(ctx context.Context) context.Context {
 	if ctx == nil {
@@ -187,8 +234,12 @@ func nonNilContext(ctx context.Context) context.Context {
 // nodeEnv returns os.Environ with NODE_OPTIONS augmented by --max-old-space-size so
 // the scip-typescript child cannot grow past the auto-tuned budget.
 func nodeEnv(heapMB int) []string {
+	return nodeEnvFor(os.Environ(), heapMB)
+}
+
+func nodeEnvFor(variables []string, heapMB int) []string {
 	limit := fmt.Sprintf("--max-old-space-size=%d", heapMB)
-	env := os.Environ()
+	env := append([]string(nil), variables...)
 	for i, e := range env {
 		if strings.HasPrefix(e, "NODE_OPTIONS=") {
 			env[i] = e + " " + limit

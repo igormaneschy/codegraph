@@ -79,7 +79,7 @@ func TestSecurity_TSResolverUsesPrivateStableSnapshot(t *testing.T) {
 	oldRunner := scipRunAndRead
 	t.Cleanup(func() { scipRunAndRead = oldRunner })
 	var resolverDir string
-	scipRunAndRead = func(_ context.Context, dir, out string) (*scippb.Index, scip.RunStats, error) {
+	scipRunAndRead = func(_ context.Context, dir, out string, _ *scip.ExecutionEnvironment) (*scippb.Index, scip.RunStats, error) {
 		resolverDir = dir
 		staged, readErr := securefile.ReadFile(filepath.Join(dir, "main.ts"))
 		if readErr != nil {
@@ -125,7 +125,7 @@ func TestSecurity_RunAtomicResolverHandoffDoesNotPassRepositoryRoot(t *testing.T
 	oldRunner := scipRunAndRead
 	t.Cleanup(func() { scipRunAndRead = oldRunner })
 	var resolverDirs []string
-	scipRunAndRead = func(_ context.Context, dir, out string) (*scippb.Index, scip.RunStats, error) {
+	scipRunAndRead = func(_ context.Context, dir, out string, _ *scip.ExecutionEnvironment) (*scippb.Index, scip.RunStats, error) {
 		resolverDirs = append(resolverDirs, dir)
 		if err := os.WriteFile(out, nil, 0o600); err != nil {
 			return nil, scip.RunStats{}, err
@@ -162,7 +162,7 @@ func TestSecurity_GoResolverUsesPrivateStableSnapshot(t *testing.T) {
 		_ = os.Remove(originalPath)
 		_ = os.WriteFile(originalPath, original, 0o600)
 	})
-	goCallEdges = func(_ context.Context, _ string, stagedRoot string, _ func(string) bool) ([]graph.Edge, error) {
+	goCallEdges = func(_ context.Context, _ string, stagedRoot string, _ func(string) bool, _ []string) ([]graph.Edge, error) {
 		resolverRoot = stagedRoot
 		staged, readErr := securefile.ReadFile(filepath.Join(stagedRoot, "main.go"))
 		if readErr != nil {
@@ -240,12 +240,9 @@ func TestSecurity_ResolverRejectsExternalDependencySymlink(t *testing.T) {
 	if err := os.Symlink(filepath.Join(outside, "package"), filepath.Join(root, "node_modules", "package")); err != nil {
 		t.Skipf("symlink creation unavailable: %v", err)
 	}
-	scan, err := scanRepositoryContext(context.Background(), root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, _, _, err := resolverSnapshotForScan(context.Background(), scan); err == nil || !errors.Is(err, securefile.ErrUnsafePath) {
-		t.Fatalf("external dependency symlink error=%v, want ErrUnsafePath", err)
+	_, err := scanRepositoryContext(context.Background(), root)
+	if !errors.Is(err, securefile.ErrUnsafePath) {
+		t.Fatalf("external dependency symlink observation error=%v, want ErrUnsafePath", err)
 	}
 }
 
@@ -307,7 +304,7 @@ func TestSecurity_TSResolverCleanupFailureIsObservable(t *testing.T) {
 	defer store.Close()
 	oldRunner := scipRunAndRead
 	t.Cleanup(func() { scipRunAndRead = oldRunner })
-	scipRunAndRead = func(_ context.Context, dir, out string) (*scippb.Index, scip.RunStats, error) {
+	scipRunAndRead = func(_ context.Context, dir, out string, _ *scip.ExecutionEnvironment) (*scippb.Index, scip.RunStats, error) {
 		replacePrivateResolverDirectoryForTest(t, dir)
 		if err := os.WriteFile(out, nil, 0o600); err != nil {
 			return nil, scip.RunStats{}, err
@@ -326,7 +323,7 @@ func TestSecurity_GoResolverCleanupFailureIsObservable(t *testing.T) {
 	writeSecurityFile(t, root, "main.go", "package main\nfunc stable() {}\n")
 	oldResolver := goCallEdges
 	t.Cleanup(func() { goCallEdges = oldResolver })
-	goCallEdges = func(_ context.Context, _ string, stagedRoot string, _ func(string) bool) ([]graph.Edge, error) {
+	goCallEdges = func(_ context.Context, _ string, stagedRoot string, _ func(string) bool, _ []string) ([]graph.Edge, error) {
 		replacePrivateResolverDirectoryForTest(t, stagedRoot)
 		return nil, nil
 	}
@@ -345,7 +342,7 @@ func TestSecurity_RunPipelineResolverCleanupFailureIsObservable(t *testing.T) {
 	dbPath := filepath.Join(securityPhysicalTempDir(t), "graph.db")
 	oldRunner := scipRunAndRead
 	t.Cleanup(func() { scipRunAndRead = oldRunner })
-	scipRunAndRead = func(_ context.Context, dir, out string) (*scippb.Index, scip.RunStats, error) {
+	scipRunAndRead = func(_ context.Context, dir, out string, _ *scip.ExecutionEnvironment) (*scippb.Index, scip.RunStats, error) {
 		replacePrivateResolverDirectoryForTest(t, dir)
 		if err := os.WriteFile(out, nil, 0o600); err != nil {
 			return nil, scip.RunStats{}, err

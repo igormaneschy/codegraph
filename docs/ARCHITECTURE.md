@@ -41,7 +41,10 @@ nodes_fts  -- FTS5(name, qualified_name, label, file_path) → BM25
 ```
 
 `Store` (internal/graph/store.go) is the only thing that touches SQL:
-`InsertNodes` (keeps FTS in sync), `InsertEdges` (resolves QN→id via a
+`InsertNodes` (keeps FTS in sync; only inserts postings after `RowsAffected`
+confirms a new node, never using a retained rowid from an ignored duplicate),
+`InsertEdges` (validates a single non-empty project and non-empty endpoint QNs
+for the whole batch before any writes, resolves QN→id via a
 Store-scoped phase map, drops unresolved), `Search` (BM25), `Neighbors` (in/out/both, the basis for
 callers/callees), `Snippet` (reads file lines), `Stats`, `FileHashes`,
 `ForEachCallEdge` (streaming CALLS for incremental reuse), `ReplaceProject`,
@@ -50,6 +53,10 @@ replacement), `ValidateIntegrity` (exact SQLite/FTS/properties/endpoint
 validation), `LogicalGraphDigest` (deterministic content digest), and
 `BeginReadSnapshot`/`EndReadSnapshot` (pin a WAL read transaction — used by tests
 to prove a live reader vetoes `RunAtomic`'s replacement while holding the WAL).
+Node identity remains `UNIQUE(project, qualified_name)`: repeated declarations
+keep the first stored node, without adding duplicate FTS postings. This prevents
+storage corruption but does not model every legal overload, Go `init`, or Ruby
+reopening as a separate declaration; richer declaration identity is separate work.
 Every SQLite connection enables foreign-key enforcement through the driver's
 per-connection URI pragma, including connections created after `Reopen`.
 Two bounded-memory rules (P5): dead-code candidates stream in batches
@@ -91,7 +98,7 @@ prepareIndexingContext(store, root, strict)
                                 escaping → error)
   validateRepositoryObservation re-scan until two consecutive scans agree (bounded
                                 retries); an unstable repository fails closed
-  no-op gate (strict)           freshManifestFor: analysis/input identity matches,
+  no-op gate (strict)           freshManifestFor: healthy manifest, analysis/input identity matches,
                                 graph file identity (native: dev/ino on Unix, file
                                 indices on Windows, metadata fallback) matches,
                                 logical graph digest matches, and
@@ -131,9 +138,9 @@ post-build (strict path only)
 ### Freshness & integrity (sidecar manifest)
 
 The graph tables are unchanged; freshness is a sidecar contract. A valid run commits
-`dbPath+.manifest.json` (manifest v2, schema `nodes-edges-fts5-v1`) next to the graph,
+`dbPath+.manifest.json` (manifest v3, schema `nodes-edges-fts5-v1`) next to the graph,
 recording: analysis identity (schema/analysis/discovery/resolver versions), the
-canonical root, a **fingerprint of every graph-affecting sidecar input** (path +
+canonical root, a **fingerprint of admitted graph-affecting sidecar inputs** (path +
 sha256, sorted) — configuration, dependency, topology, and ignore files; source
 files are tracked separately, by per-file hashes kept on their nodes and compared
 during change observation — the **graph file identity** (native platform identity:
@@ -150,6 +157,66 @@ through repository-local `node_modules` only, never outside the repository),
 (`.gitignore`, `.cbmignore`) — a topology change can alter resolver scopes without
 touching a single source file.
 
+The `resolver-inputs-v2` plan additionally records admitted Go auxiliary files
+(C/headers/assembly and related compiler inputs) and repository-local
+`node_modules`/`vendor` trees, including below subprojects. Sorted file digests,
+directory membership, and effective confined symlink targets participate in the
+identity. Staging consumes this plan, never re-walks a live dependency tree:
+changed bytes/links fail closed, and newly added, unobserved files do not enter
+that snapshot. Auxiliary/dependency inputs do not become graph source nodes.
+Private `.env` files require explicit admission and are rejected before hashing.
+
+Go `//go:embed` assets also enter that plan from parsed comments in sources that
+import embed: package-relative literal/glob/directory patterns, quoted/multiple
+arguments, and `all:`. Directory recursion respects hidden/underscore rules and
+module/VCS boundaries; matching uses a virtual package root, not a glob containing
+the physical root's metacharacters. Directory listing uses no-follow descriptors,
+not path validation followed by os.ReadDir. Only selected regular asset bytes are
+hashed/copied; unreferenced files are not opened. Selected symlinks and private
+.env inputs fail closed. The union conservatively includes inactive directives;
+this local transport still does not certify complete program input coverage.
+The Go loader requests `NeedEmbedFiles` as well as syntax: otherwise a missing
+embed asset may be omitted from diagnostics and incorrectly reported healthy.
+Patterns invalid or without matches remain compiler diagnostics; explicitly
+matched invalid filenames/module boundaries fail preparation rather than being
+silently omitted from the staged program.
+
+`analysis-v3` / `go-vta-resolver-v5` bind Go to an effective `go env` observation.
+The tool runs against a private, hash-verified metadata view so it cannot follow
+a subsequently replaced original `go.mod`. Only a digest is persisted; effective
+settings stay in memory and are explicitly injected into `packages.Config.Env`,
+with `GOENV=off`, the selected toolchain, and snapshot-local module/workspace
+paths. Derived random `GOGCCFLAGS` debug-prefix paths are excluded from identity;
+their semantic inputs remain included. This covers tags/GOFLAGS, GOOS/GOARCH,
+CGO, selected toolchain, and persisted Go configuration, without recording auth
+or proxy values in the sidecar.
+
+`scip-typescript-bridge-v2` adds the mirrored TS/JS runtime identity
+(`ts-env-v1`). Observation records the sorted process settings plus the resolved
+Node and `npx` executable paths and SHA-256 digests without launching Node — a
+`NODE_OPTIONS` preload must not run merely to be identified. The raw settings may
+hold credentials, so only an opaque digest reaches the manifest. Every SCIP
+scope invocation receives that captured environment and launcher, with the
+`--max-old-space-size` heap cap still appended to `NODE_OPTIONS`; a later mutation
+of the process environment cannot change the child's settings. The observed
+executables are re-hashed immediately before and after each invocation, so a
+substitution is a resolver failure rather than a silently trusted run. Because
+the installed npm runtime, cache, and configuration are outside the admitted
+boundary, a TS/JS repository records `ts-runtime-inputs-unobserved`: it never
+certifies a no-op or CALLS reuse, and every explicit refresh retries the SCIP
+resolvers. When Node or `npx` is absent the resolver fails explicitly; the default
+Go suite and build still need no Node.
+
+This is **not complete program-input certification**. Go module requirements or
+replacements, workspaces/GOPATH, potential embed/cgo directives, external package
+drivers/compilers, and unavailable environments record `no_reuse_reasons` and
+cannot justify no-op or CALLS reuse, even with a healthy resolver report. Explicit
+refresh rebuilds all applicable scopes instead; local C/header snapshots can be
+healthy without certifying external native inputs. Overlay/modfile inputs are
+not admitted and fail before publication. External inputs, complete auxiliary
+coverage, and the external npm/SCIP runtime closure remain R04/R05 work;
+lockfiles alone never certify the installed local bytes.
+
 Freshness is **fail-closed**: a missing, malformed, version-mismatched, or
 identity-mismatched manifest is an ordinary freshness miss that forces a rebuild,
 never a certified no-op. The no-op gate runs the **exact validator** — SQLite
@@ -158,7 +225,12 @@ correspondence, FTS postings compared against a freshly rebuilt index, valid JSO
 `properties`, and project-consistent edge endpoints — as the last operation before
 certifying. Resolver reports must cover **exactly the expected scopes**
 (`ValidateExpected`): a healthy manifest recording a failed resolver scope is
-rejected, and a degraded manifest must record a failure. A repository that keeps
+rejected, and a degraded manifest must record a failure. A degraded first graph
+remains readable but is never a no-op or CALLS reuse source: every explicit refresh
+retries all applicable resolver scopes, including previously successful scopes
+whose edges were discarded. If the retry fails, the prior graph is preserved and
+the failure is surfaced; a successful recovery installs the healthy rebuilt graph.
+There is no automatic retry loop or watcher. A repository that keeps
 mutating during the validating re-scan fails closed after the bounded retries. The
 linearization point is explicit: mutations after it are not claimed impossible —
 they are observed by the next run. No probabilistic validation is involved anywhere.
@@ -174,25 +246,54 @@ real end lines, `is_exported`, and class/method decorators. `ResolveImports`
 and unresolved imports drop). `ResolveCalls` (calls.go) emits `CALLS` edges via the M2
 batch indexers — scip-typescript for TS/JS (`internal/scip`) and go/packages + a VTA
 call graph for Go (`internal/gocalls`) — dropping callees that aren't known graph symbols.
+The SCIP runner captures resolver stdout/stderr into a bounded tail buffer (only a
+short error tail is ever shown) and samples peak RSS over the whole child process
+tree, so the process npx spawns is measured rather than the npx shim (P7).
+The Go resolver identifies a function by its nominal declaration: an instantiated
+generic call (`Box[int].Get`) is mapped to the declared origin (`Box.Get`), and a
+generic receiver `Box[T]` yields the node QN `<file>.Box.Get`, so generic methods
+and functions keep their CALLS instead of being dropped as synthetic. A `go.work`
+workspace is loaded module-by-module (`./<use-dir>/...` per `use` entry) rather than
+the root `./...`, which fails when the workspace has no root module and omits nested
+modules when it does; workspace inputs stay uncertified for reuse
+(`go-workspace-inputs-unobserved`). A repository with nested modules and no root
+`go.mod`/`go.work` has no workspace to enumerate, so the Go resolver stays disabled
+and no Go CALLS are emitted — the supported way to resolve multiple modules is a
+`go.work` at the repository root.
 Incremental (M3, incremental.go): `DetectChanges` gates a no-op when nothing changed, and
 a re-index re-resolves only the changed scopes, reusing the stored CALLS edges of the rest
-via `forEachReusableCallEdge` + batched `insertReusedCallEdges`. TS scope narrowing (P7,
-tsdeps.go): Modified-only `.ts` transitions invalidate owning scopes plus proven
-dependents (project references transitively closed + observed direct importers from the
-old graph's IMPORTS); added/deleted files, configs, unverifiable tsconfigs and
-root-loose files keep invalidate-all, and the policy version rides the manifest
-fingerprint. Ruby File nodes carry a
+via `forEachReusableCallEdge` + batched `insertReusedCallEdges`. TS invalidation (R03,
+tsdeps.go) is conservative: every changed, added, or deleted TS/JS source invalidates
+all current TS/JS scopes and forbids reuse of older TS/JS CALLS, even for callers
+outside the current scope enumeration. Relative IMPORTS and project references
+are not a complete dependency proof for aliases, packages, reexports, or includes.
+The `ts-conservative-all-v2` policy version forces a rebuild of previously narrowed
+indices. Unchanged TS/JS inputs can still reuse CALLS during other-language edits.
+Config/analysis identity changes continue to invalidate all resolvers. Ruby File nodes carry a
 `ruby_analysis_version`; changing it forces one full Ruby analysis rebuild even when source
 hashes are unchanged, so parser/resolver upgrades are visible without requiring an edit.
 
 ### Memory budget (internal/memory)
 
-Indexing auto-tunes at process start from installed RAM (and WSL detection): worker
-count, definition batch size, Go `debug.SetMemoryLimit`, scip-typescript
-`--max-old-space-size`, and optional `SkipSimilar` on constrained hosts.
-`CODEGRAPH_*` env vars override for debugging only — users need not set anything.
+Indexing auto-tunes at process start from the **effective** memory budget (P7:
+the leaf cgroup memory limit when it is smaller than installed RAM, else
+`/proc/meminfo`) and WSL detection: worker count, definition batch size, Go
+`debug.SetMemoryLimit`, scip-typescript `--max-old-space-size`, and optional
+`SkipSimilar` on constrained hosts. An operator-set `GOMEMLIMIT` is respected —
+auto-tuning never overwrites it. `CODEGRAPH_*` env vars override for debugging
+only — users need not set anything.
 `memory.Gate()` runs between pipeline phases (and after each scip scope) to hand freed
 heap back to the OS, which matters for the long-running MCP server after a large index.
+It calls `debug.FreeOSMemory` alone: that already forces a collection, so an extra
+`runtime.GC` only doubled the stop-the-world pause (P1). The similarity signature
+pass gates once per `similarGateFiles` (64), not once per file, so a many-small-file
+repo no longer pays a full GC per file while the accumulation peak stays bounded.
+
+Both similarity entry points read sources through `securefile.ReadFile`, using
+the same descriptor-based, no-follow boundary as definitions. A symlink leaf or
+parent substituted between passes, or a non-regular input (including a FIFO),
+fails visibly rather than contributing external bytes or silently omitting evidence;
+the atomic pipeline preserves the previous graph on such a read failure.
 
 M4 enrichment: similarity emits `SIMILAR_TO` near-clone edges from a
 MinHash signature + LSH banding over each function's token shingles (`internal/similar`,
@@ -200,10 +301,17 @@ no embeddings). The LSH pass runs under a resource budget (P4 — `similar.Limit
 pair budget + edge cap, env-overridable for debugging): buckets are processed in
 sorted order over QN-sorted docs, so a binding budget keeps a deterministic,
 stable prefix instead of a map-random sample, and cancellation is honored
-between pairs. Coverage (`complete`/`partial`/`omitted`) travels in `Result`
+between pairs. Retention is bounded during the scan (P4): only the `MaxEdges`
+smallest `(source, target)` edges are held in a max-heap, which is exactly the set
+the old collect-everything-then-sort-then-truncate produced — so the output and
+coverage are unchanged while the memory bound is `MaxEdges`, not `MaxPairs`.
+Coverage (`complete`/`partial`/`omitted`) travels in `Result`
 and the manifest — a partial pass never degrades CALLS trust, and the
-algorithm+budget version participates in the no-op fingerprint, so a budget
-change rebuilds instead of certifying one budget's output as another's.
+algorithm+budget+effective skip policy participates in the no-op fingerprint, so a
+budget or enabled/omitted transition rebuilds instead of certifying another policy's
+output. In production, the policy is `memory.SkipSimilar()` (explicit override or
+host auto-tuning); worker counts and other non-semantic scheduling knobs are not
+part of this identity.
 `similar` answers and `status` surface the coverage with an actionable notice. The definitions pass also stamps McCabe cyclomatic complexity onto each
 Function/Method (`complexity.go`, one tree-sitter subtree walk) into `properties.complexity`.
 The Go/TS call resolvers credit calls inside closures to the enclosing named function and
@@ -212,7 +320,12 @@ keep recursive self-edges — recall fixes that took intra-repo callers to ~100%
 
 M5: the definitions pass also emits **`Route` nodes** from NestJS decorators
 (`routes.go`) — `@Controller` base + `@Get/@Post/...` path → `<VERB> <path>`, located at
-the handler. `get_architecture` (`query/architecture.go`) aggregates the stored graph
+the handler. A decorator path argument is tri-state: absent (`@Get()`), a single
+string literal (`@Get('users')`), or unknown (`@Get(PATH)`, arrays, interpolation,
+multiple arguments). Only absent and literal produce a Route. An unknown
+controller base or handler path omits the Route instead of inventing a literal
+`GET /`, and a literal empty string (`@Get('')`) remains a valid root path — the
+states are not conflated. `get_architecture` (`query/architecture.go`) aggregates the stored graph
 into a one-shot repo map (languages, node/edge counts, top packages, complexity/call
 hotspots) — the orientation call. `HTTP_CALLS` (client → route) is deferred to M6: it
 would be heuristic string matching, not type-checker-delegated.
@@ -257,7 +370,11 @@ to `scope controller:`. Missing, dynamic, and malformed targets drop.
 `Engine` exposes the agent-facing operations as **pages**: `SearchPage`,
 `CallersPage`, `CalleesPage`, `NeighborsPage`, `SimilarPage`, `DeadCodePage`
 (each returning a `RefPage`), `SnippetPage`, plus `Architecture` (the repo map
-— languages/counts/packages/hotspots, rendered compactly) and `DetectChanges`.
+— languages/counts/packages/hotspots, rendered compactly, with its top-N clamped
+to `MaxArchitectureTopN` so a giant `limit` cannot force an unbounded render, and
+cached per served generation + clamped top-N so repeated orientation calls skip the
+aggregate queries entirely; `Reopen` bumps the epoch and invalidates it) and
+`DetectChanges`.
 `Close`/`Reopen` wrap the underlying `Store`. This is the contract both the CLI
 and the MCP server use, so behavior is identical across entry points.
 
@@ -274,10 +391,15 @@ open SQLite handle with a newer on-disk manifest.
 `has_more` is derived from a limit+1 probe
 row (no COUNT); byte budgets (32 KiB text per page) prevail over counts
 (500 refs / 200 snippet lines default, giants clamp before any allocation);
-single oversize refs/lines go whole, never split into invalid references.
+single oversize refs/lines go whole, never split into invalid references, up to
+an absolute 1 MiB per-line ceiling beyond which the page fails with range/
+read-directly guidance instead of allocating without bound.
 Snippet pages stream incrementally (memory ∝ page, not file) and resume at
-line starts; a file whose size changes between pages fails the next page instead
-of shifting lines silently. Source files are opened through a descriptor-based,
+line starts; the cursor carries the sha256 of the whole file the page read, so
+any byte change between pages — a same-size edit, a line-break shift, or a
+rename-replacement — fails the next page instead of shifting lines silently
+(size, inode, and mtime are not proof of content). Source files are opened
+through a descriptor-based,
 no-follow path traversal after repository confinement; a symlink swapped into
 the resolved path before open cannot redirect a read outside the repository.
 Relationship rows come back in stable
@@ -326,7 +448,13 @@ carry the failure/resolver context, never silent staleness), `failed` (round
 failed and no queryable graph), `unavailable` (no graph ever committed).
 Generation = the manifest's `graph_content_digest` (short 12 chars); it changes
 iff the logical graph changes, so two cooperating sessions converge if and only
-if they report the same generation. Cursor/continuation binding to generations
+if they report the same generation. A round captures the generation, status, and
+similarity coverage from the engine **at reopen** (under the same shared lock that
+pins the commit), and `publish` reports that captured snapshot — never a later
+disk manifest. If an external writer commits a newer generation between reopen
+and publish, the session keeps reporting the graph it actually serves and status
+surfaces the divergence as `lag`, so `status` and page trailers can never
+disagree. Cursor/continuation binding to generations
 is P2's job; P1 only reports them.
 
 Cancellation: refresh runs under the session context; stdin close cancels it
@@ -339,7 +467,19 @@ rebuild, never to a certified no-op).
 Minimal stdio JSON-RPC 2.0 (newline-delimited — the MCP convention), stdlib only.
 Handles `initialize`, `tools/list`, `tools/call`. Tools: `search`, `callers`,
 `callees`, `neighbors`, `similar`, `dead_code`, `snippet`, `detect_changes`,
-plus `refresh` and `status` (P1, wired by the host command).
+plus `refresh` and `status` (P1, wired by the host command). `detect_changes`
+reports source changes plus recorded sidecar-input (config) changes as `config`
+lines, so a tsconfig/go.mod/ignore edit is not mistaken for a fresh index;
+environment identity (GOFLAGS, toolchain) is explicitly out of that comparison.
+A `snippet` cursor also carries the file digest described above.
+
+The transport is strict JSON-RPC: a malformed line is answered with a -32700
+parse error (null id) and the loop continues, a request without an `id` is a
+notification and never gets a reply, per-tool required fields (`query`,
+`qualified_name`, `file`) are validated as -32602 before any query, and an
+output-write failure ends `Serve` with the error instead of being swallowed.
+`initialize` negotiates the protocol version: a version this server supports
+(`2024-11-05`, `2025-03-26`) is echoed, anything else gets the supported default.
 
 The `mcp` command auto-indexes in a background goroutine on startup and gates
 tool calls behind a state check — the handshake answers

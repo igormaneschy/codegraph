@@ -33,15 +33,15 @@ type ScipReport struct {
 // Resolver hooks keep failure-path tests deterministic without weakening the
 // production resolver boundary. The defaults are the real batch resolvers.
 var (
-	scipRunAndRead = scip.RunAndReadContext
-	goCallEdges    = gocalls.CallEdgesContext
+	scipRunAndRead = scip.RunAndReadWithEnvironmentContext
+	goCallEdges    = gocalls.CallEdgesWithEnvironmentContext
 )
 
 // runSCIPInvocation gives every resolver call a private, random artifact
 // directory. A scope name is not an identity: two repositories can resolve the
 // same scope concurrently, and cleanup must never remove another invocation's
 // output.
-func runSCIPInvocation(ctx context.Context, dir string) (idx *scippb.Index, st scip.RunStats, err error) {
+func runSCIPInvocation(ctx context.Context, dir string, environment *scip.ExecutionEnvironment) (idx *scippb.Index, st scip.RunStats, err error) {
 	private, err := securefile.MkdirTempPrivate("", "codegraph-scip-")
 	if err != nil {
 		return nil, st, fmt.Errorf("create private SCIP output directory: %w", err)
@@ -61,7 +61,7 @@ func runSCIPInvocation(ctx context.Context, dir string) (idx *scippb.Index, st s
 		return nil, st, fmt.Errorf("verify private SCIP output directory: %w", err)
 	}
 	outPath := filepath.Join(tempDir, "index.scip")
-	idx, st, err = scipRunAndRead(ctx, dir, outPath)
+	idx, st, err = scipRunAndRead(ctx, dir, outPath, environment)
 	if verifyErr := private.Verify(); verifyErr != nil {
 		if err != nil {
 			err = errors.Join(err, fmt.Errorf("verify private SCIP output directory after resolver: %w", verifyErr))
@@ -96,13 +96,13 @@ func resolveTSCalls(ctx context.Context, store *graph.Store, project, root strin
 			return ScipReport{}, fmt.Errorf("verify resolver snapshot before SCIP: %w", verifyErr)
 		}
 	}
-	return resolveTSCallsWithDirs(ctx, store, project, resolverRoot, verify, scan.tsdirs, enc, changed)
+	return resolveTSCallsWithDirs(ctx, store, project, resolverRoot, verify, scan.tsdirs, enc, changed, scan.tsEnvironment)
 }
 
 // resolveTSCallsWithDirs consumes the scope list captured by preparation. The
 // production path must not walk the repository again after the freshness scan;
 // the wrapper above remains for focused callers that do not already have a scan.
-func resolveTSCallsWithDirs(ctx context.Context, store *graph.Store, project, root string, verify func() error, dirs []string, enc scip.Enclosing, changed map[string]bool) (ScipReport, error) {
+func resolveTSCallsWithDirs(ctx context.Context, store *graph.Store, project, root string, verify func() error, dirs []string, enc scip.Enclosing, changed map[string]bool, environment *scip.ExecutionEnvironment) (ScipReport, error) {
 	ctx = nonNilContext(ctx)
 	var rep ScipReport
 
@@ -123,7 +123,7 @@ func resolveTSCallsWithDirs(ctx context.Context, store *graph.Store, project, ro
 		}
 		scopeStatus := ResolverScopeStatus{Resolver: "scip-typescript", Scope: dir, Attempted: true}
 		abs := filepath.Join(root, filepath.FromSlash(dir))
-		idx, st, err := runSCIPInvocation(ctx, abs)
+		idx, st, err := runSCIPInvocation(ctx, abs, environment)
 		if rep.HeapCapMB == 0 {
 			rep.HeapCapMB = st.NodeHeapMB
 		}
@@ -193,7 +193,11 @@ func resolveGoCalls(ctx context.Context, project, root string, files []SourceFil
 		scopeStatus.Reused = true
 		return nil, scopeStatus, nil
 	}
-	resolverRoot, verify, cleanup, err := resolverSnapshotForRoot(ctx, root)
+	scan, err := scanRepositoryContext(ctx, root)
+	if err != nil {
+		return nil, scopeStatus, err
+	}
+	resolverRoot, verify, cleanup, err := resolverSnapshotForScan(ctx, scan)
 	if err != nil {
 		return nil, scopeStatus, err
 	}
@@ -209,10 +213,10 @@ func resolveGoCalls(ctx context.Context, project, root string, files []SourceFil
 			return nil, scopeStatus, fmt.Errorf("verify resolver snapshot before Go resolver: %w", verifyErr)
 		}
 	}
-	return resolveGoCallsAtRoot(ctx, project, resolverRoot, verify, files, enc, changed)
+	return resolveGoCallsAtRoot(ctx, project, resolverRoot, verify, files, enc, changed, goEnvironmentForRoot(scan.goEnvironment, root, resolverRoot))
 }
 
-func resolveGoCallsAtRoot(ctx context.Context, project, root string, verify func() error, files []SourceFile, enc scip.Enclosing, changed map[string]bool) ([]graph.Edge, ResolverScopeStatus, error) {
+func resolveGoCallsAtRoot(ctx context.Context, project, root string, verify func() error, files []SourceFile, enc scip.Enclosing, changed map[string]bool, environment []string) ([]graph.Edge, ResolverScopeStatus, error) {
 	ctx = nonNilContext(ctx)
 	scopeStatus := ResolverScopeStatus{Resolver: "go-vta", Scope: "go"}
 	if err := ctx.Err(); err != nil {
@@ -236,7 +240,7 @@ func resolveGoCallsAtRoot(ctx context.Context, project, root string, verify func
 		}
 	}
 	scopeStatus.Attempted = true
-	edges, err := goCallEdges(ctx, project, root, enc.Has)
+	edges, err := goCallEdges(ctx, project, root, enc.Has, environment)
 	memory.Gate()
 	if verify != nil {
 		if verifyErr := verify(); verifyErr != nil {

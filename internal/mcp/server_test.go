@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -303,5 +304,120 @@ func TestServer_OmitsEmptyReadyStatus(t *testing.T) {
 	const want = "# has_more=false cursor=- generation=none shown=0\n"
 	if got := driveToolCall(t, func() (bool, string) { return true, "" }); got != want {
 		t.Errorf("clean ready gate must serve the bare page, got %q want %q", got, want)
+	}
+}
+
+// TestServer_ParseErrorIsAnswered pins the JSON-RPC contract for a malformed line:
+// the server answers with a -32700 parse error (null id) and keeps serving instead
+// of only logging to stderr.
+func TestServer_ParseErrorIsAnswered(t *testing.T) {
+	var out bytes.Buffer
+	srv := NewServer(stubEngine{}, strings.NewReader("{not json\n{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"tools/list\"}\n"), &out)
+	if err := srv.Serve(); err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("responses=%q, want a parse error then the tools/list reply", out.String())
+	}
+	var first rpcResponse
+	if err := json.Unmarshal([]byte(lines[0]), &first); err != nil {
+		t.Fatal(err)
+	}
+	if first.Error == nil || first.Error.Code != -32700 {
+		t.Fatalf("first response=%+v, want parse error -32700", first)
+	}
+	if string(first.ID) != "null" {
+		t.Fatalf("parse error id=%s, want null", first.ID)
+	}
+	var second rpcResponse
+	if err := json.Unmarshal([]byte(lines[1]), &second); err != nil {
+		t.Fatal(err)
+	}
+	if second.Error != nil {
+		t.Fatalf("stream did not recover after a bad line: %+v", second)
+	}
+}
+
+// TestServer_NotificationGetsNoReply pins that a request without an id is a
+// JSON-RPC notification and must not receive a response, including an unknown
+// method.
+func TestServer_NotificationGetsNoReply(t *testing.T) {
+	var out bytes.Buffer
+	srv := NewServer(stubEngine{}, strings.NewReader(
+		"{\"jsonrpc\":\"2.0\",\"method\":\"tools/list\"}\n{\"jsonrpc\":\"2.0\",\"method\":\"no/such/method\"}\n"), &out)
+	if err := srv.Serve(); err != nil {
+		t.Fatal(err)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("notifications must not be answered, got %q", out.String())
+	}
+}
+
+// TestServer_RequiresToolArguments pins typed per-tool validation: a missing
+// required field is -32602, never a meaningless empty answer.
+func TestServer_RequiresToolArguments(t *testing.T) {
+	for _, tc := range []struct{ name, args string }{
+		{"search", `{}`},
+		{"search", `{"query":"   "}`},
+		{"callers", `{}`},
+		{"callees", `{"qualified_name":"  "}`},
+		{"neighbors", `{}`},
+		{"similar", `{}`},
+		{"snippet", `{}`},
+	} {
+		req := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":` + strconv.Quote(tc.name) + `,"arguments":` + tc.args + `}}` + "\n"
+		var out bytes.Buffer
+		srv := NewServer(stubEngine{}, strings.NewReader(req), &out)
+		if err := srv.Serve(); err != nil {
+			t.Fatal(err)
+		}
+		var resp rpcResponse
+		if err := json.Unmarshal(out.Bytes(), &resp); err != nil {
+			t.Fatal(err)
+		}
+		if resp.Error == nil || resp.Error.Code != -32602 {
+			t.Errorf("%s %s: error=%+v, want -32602", tc.name, tc.args, resp.Error)
+		}
+	}
+}
+
+// TestServer_WriteFailureStopsTheLoop pins transport failure propagation: a write
+// that fails ends Serve with an error instead of silently dropping answers.
+func TestServer_WriteFailureStopsTheLoop(t *testing.T) {
+	srv := NewServer(stubEngine{}, strings.NewReader("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}\n"), failingWriter{})
+	if err := srv.Serve(); err == nil {
+		t.Fatal("a failed write must be returned, not swallowed")
+	}
+}
+
+type failingWriter struct{}
+
+func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("writer closed") }
+
+// TestServer_NegotiatesProtocolVersion pins the initialize handshake: a supported
+// client version is echoed; an unsupported or absent one gets the server default.
+func TestServer_NegotiatesProtocolVersion(t *testing.T) {
+	for _, tc := range []struct{ request, want string }{
+		{`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26"}}`, "2025-03-26"},
+		{`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"1999-01-01"}}`, defaultProtocolVersion},
+		{`{"jsonrpc":"2.0","id":1,"method":"initialize"}`, defaultProtocolVersion},
+	} {
+		var out bytes.Buffer
+		srv := NewServer(stubEngine{}, strings.NewReader(tc.request+"\n"), &out)
+		if err := srv.Serve(); err != nil {
+			t.Fatal(err)
+		}
+		var resp struct {
+			Result struct {
+				ProtocolVersion string `json:"protocolVersion"`
+			} `json:"result"`
+		}
+		if err := json.Unmarshal(out.Bytes(), &resp); err != nil {
+			t.Fatal(err)
+		}
+		if resp.Result.ProtocolVersion != tc.want {
+			t.Errorf("request %s: version=%q, want %q", tc.request, resp.Result.ProtocolVersion, tc.want)
+		}
 	}
 }

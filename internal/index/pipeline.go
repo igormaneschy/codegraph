@@ -302,54 +302,69 @@ func nonNilContext(ctx context.Context) context.Context {
 	return ctx
 }
 
-// stableResolverHandoff performs the final repository observation immediately
-// before any parser or external resolver receives a path. It rejects config/
-// scope/source-shape drift since prepareIndexingContext, refreshes incremental
-// invalidation for source bytes that changed in that interval, and stages the
-// observed bytes into a private sibling snapshot. No downstream consumer gets
-// the original repository path.
-func stableResolverHandoff(ctx context.Context, in pipelineInput) (files []SourceFile, tsdirs []string, resolverRoot string, verify func() error, cleanup func() error, changed map[string]bool, err error) {
+// resolverHandoff binds paths, scope decisions, and effective Go environment
+// to the same observed snapshot, with explicit resource ownership.
+type resolverHandoff struct {
+	files         []SourceFile
+	tsdirs        []string
+	root          string
+	verify        func() error
+	cleanup       func() error
+	changed       map[string]bool
+	goEnvironment []string
+	tsEnvironment *scip.ExecutionEnvironment
+}
+
+// stableResolverHandoff rejects input/environment drift since preparation,
+// updates source invalidation, and stages only the observed private snapshot.
+func stableResolverHandoff(ctx context.Context, in pipelineInput) (resolverHandoff, error) {
 	ctx = nonNilContext(ctx)
 	if err := ctx.Err(); err != nil {
-		return nil, nil, "", nil, nil, nil, err
+		return resolverHandoff{}, err
 	}
-	changed = cloneChangedScopes(in.changed)
+	changed := cloneChangedScopes(in.changed)
 	if !resolverHandoffRequired(in) {
-		return in.files, in.tsdirs, in.root, nil, nil, changed, nil
+		return resolverHandoff{files: in.files, tsdirs: in.tsdirs, root: in.root, changed: changed}, nil
 	}
 	scan, err := scanRepositoryContext(ctx, in.root)
 	if err != nil {
-		return nil, nil, "", nil, nil, nil, fmt.Errorf("resolver handoff scan: %w", err)
+		return resolverHandoff{}, fmt.Errorf("resolver handoff scan: %w", err)
 	}
 	if !sameManifestFingerprint(in.manifest, scan.manifest) {
-		return nil, nil, "", nil, nil, nil, errors.New("repository configuration changed before resolver handoff")
+		return resolverHandoff{}, errors.New("repository configuration or resolver inputs changed before handoff")
 	}
 	if !sameResolverSourceShape(in.files, scan.files) || !sameStringSlice(in.tsdirs, scan.tsdirs) {
-		return nil, nil, "", nil, nil, nil, errors.New("repository source or resolver scope changed before resolver handoff")
+		return resolverHandoff{}, errors.New("repository source or resolver scope changed before resolver handoff")
 	}
-
-	if in.reuseFrom != nil {
-		storedHashes, hashErr := in.reuseFrom.FileHashes(in.project)
-		if hashErr != nil {
-			return nil, nil, "", nil, nil, nil, fmt.Errorf("read pre-reindex source hashes: %w", hashErr)
-		}
-		observedChanges := changesFromRepositoryScan(scan, storedHashes)
-		observedScopes, scopeErr := changedScopesWithTSDependencies(ctx, in.reuseFrom, in.project, in.root, inputsByPath(scan.manifest.Inputs), observedChanges, scan.tsdirs)
-		if scopeErr != nil {
-			return nil, nil, "", nil, nil, nil, scopeErr
-		}
-		for scope, isChanged := range observedScopes {
-			if isChanged {
-				changed[scope] = true
-			}
-		}
+	if err := mergeObservedChangedScopes(ctx, in, scan, changed); err != nil {
+		return resolverHandoff{}, err
 	}
-
-	resolverRoot, verify, cleanup, err = resolverSnapshotForScan(ctx, scan)
+	root, verify, cleanup, err := resolverSnapshotForScan(ctx, scan)
 	if err != nil {
-		return nil, nil, "", nil, nil, nil, fmt.Errorf("stage resolver handoff: %w", err)
+		return resolverHandoff{}, fmt.Errorf("stage resolver handoff: %w", err)
 	}
-	return sourceFilesAtResolverRoot(resolverRoot, scan.files), scan.tsdirs, resolverRoot, verify, cleanup, changed, nil
+	return resolverHandoff{files: sourceFilesAtResolverRoot(root, scan.files), tsdirs: scan.tsdirs, root: root,
+		verify: verify, cleanup: cleanup, changed: changed, goEnvironment: goEnvironmentForRoot(scan.goEnvironment, in.root, root), tsEnvironment: scan.tsEnvironment}, nil
+}
+
+func mergeObservedChangedScopes(ctx context.Context, in pipelineInput, scan repositoryScan, changed map[string]bool) error {
+	if in.reuseFrom == nil {
+		return nil
+	}
+	storedHashes, err := in.reuseFrom.FileHashes(in.project)
+	if err != nil {
+		return fmt.Errorf("read pre-reindex source hashes: %w", err)
+	}
+	observed, err := changedResolverScopes(ctx, changesFromRepositoryScan(scan, storedHashes), scan.tsdirs)
+	if err != nil {
+		return err
+	}
+	for scope, isChanged := range observed {
+		if isChanged {
+			changed[scope] = true
+		}
+	}
+	return nil
 }
 
 func resolverHandoffRequired(in pipelineInput) bool {
@@ -426,10 +441,12 @@ func runPipelineContext(ctx context.Context, store *graph.Store, in pipelineInpu
 	if !in.repositoryScanned {
 		return Result{}, errors.New("pipeline requires a validated repository observation")
 	}
-	files, tsdirs, resolverRoot, verifyResolverRoot, resolverCleanup, changed, err := stableResolverHandoff(ctx, in)
+	handoff, err := stableResolverHandoff(ctx, in)
 	if err != nil {
 		return Result{}, err
 	}
+	files, tsdirs, resolverRoot := handoff.files, handoff.tsdirs, handoff.root
+	verifyResolverRoot, resolverCleanup, changed := handoff.verify, handoff.cleanup, handoff.changed
 	if resolverCleanup != nil {
 		defer func() {
 			if cleanupErr := resolverCleanup(); cleanupErr != nil {
@@ -498,7 +515,7 @@ func runPipelineContext(ctx context.Context, store *graph.Store, in pipelineInpu
 	enc := scip.BuildEnclosingFromSpans(spans)
 	expectedScopes := expectedResolverScopeKeys(in.root, files, tsdirs)
 
-	scipRep, err := resolveTSCallsWithDirs(ctx, store, in.project, resolverRoot, verifyResolverRoot, tsdirs, enc, changed)
+	scipRep, err := resolveTSCallsWithDirs(ctx, store, in.project, resolverRoot, verifyResolverRoot, tsdirs, enc, changed, handoff.tsEnvironment)
 	if err != nil {
 		return Result{}, fmt.Errorf("ts calls: %w", err)
 	}
@@ -508,7 +525,7 @@ func runPipelineContext(ctx context.Context, store *graph.Store, in pipelineInpu
 	edgesDropped += scipRep.EdgesDropped
 	memory.Gate()
 
-	goEdges, goScope, err := resolveGoCallsAtRoot(ctx, in.project, resolverRoot, verifyResolverRoot, files, enc, changed)
+	goEdges, goScope, err := resolveGoCallsAtRoot(ctx, in.project, resolverRoot, verifyResolverRoot, files, enc, changed, handoff.goEnvironment)
 	if err != nil {
 		return Result{}, fmt.Errorf("go calls: %w", err)
 	}

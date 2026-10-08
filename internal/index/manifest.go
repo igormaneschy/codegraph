@@ -17,15 +17,16 @@ import (
 
 	"github.com/Lordymine/codegraph/internal/gocalls"
 	"github.com/Lordymine/codegraph/internal/graph"
+	"github.com/Lordymine/codegraph/internal/memory"
 	"github.com/Lordymine/codegraph/internal/scip"
 	"github.com/Lordymine/codegraph/internal/securefile"
 	"github.com/Lordymine/codegraph/internal/similar"
 )
 
 const (
-	manifestVersion        = 2
+	manifestVersion        = 3
 	graphSchemaVersion     = "nodes-edges-fts5-v1"
-	analysisVersion        = "analysis-v1"
+	analysisVersion        = "analysis-v3"
 	discoveryRuleVersion   = "discovery-v2"
 	manifestFileSuffix     = ".manifest.json"
 	manifestBuildingSuffix = ".manifest.building"
@@ -43,19 +44,22 @@ type InputFingerprint struct {
 // configuration inputs, and the logical graph content that produced the adjacent
 // database.
 type Manifest struct {
-	ManifestVersion      int                `json:"manifest_version"`
-	SchemaVersion        string             `json:"schema_version"`
-	AnalysisVersion      string             `json:"analysis_version"`
-	CanonicalRoot        string             `json:"canonical_root"`
-	DiscoveryRuleVersion string             `json:"discovery_rule_version"`
-	RubyResolverVersion  string             `json:"ruby_resolver_version"`
-	SCIPResolverVersion  string             `json:"scip_resolver_version"`
-	GoResolverVersion    string             `json:"go_resolver_version"`
-	Inputs               []InputFingerprint `json:"inputs"`
-	GraphIdentity        string             `json:"graph_identity"`
-	GraphContentDigest   string             `json:"graph_content_digest"`
-	Status               IndexStatus        `json:"status"`
-	Resolver             ResolverReport     `json:"resolver"`
+	ManifestVersion      int                   `json:"manifest_version"`
+	SchemaVersion        string                `json:"schema_version"`
+	AnalysisVersion      string                `json:"analysis_version"`
+	CanonicalRoot        string                `json:"canonical_root"`
+	DiscoveryRuleVersion string                `json:"discovery_rule_version"`
+	RubyResolverVersion  string                `json:"ruby_resolver_version"`
+	SCIPResolverVersion  string                `json:"scip_resolver_version"`
+	GoResolverVersion    string                `json:"go_resolver_version"`
+	Inputs               []InputFingerprint    `json:"inputs"`
+	ResolverInputs       ResolverInputPlan     `json:"resolver_inputs"`
+	GoEnvironment        GoEnvironmentIdentity `json:"go_environment"`
+	TSEnvironment        TSEnvironmentIdentity `json:"ts_environment"`
+	GraphIdentity        string                `json:"graph_identity"`
+	GraphContentDigest   string                `json:"graph_content_digest"`
+	Status               IndexStatus           `json:"status"`
+	Resolver             ResolverReport        `json:"resolver"`
 	// SimilarVersion identifies the similarity algorithm plus the budget that
 	// produced the SIMILAR_TO edges; it participates in the no-op fingerprint
 	// so an algorithm or budget change rebuilds instead of reusing.
@@ -108,6 +112,15 @@ func validateManifest(manifest Manifest) error {
 		manifest.SCIPResolverVersion == "" || manifest.GoResolverVersion == "" ||
 		manifest.SimilarVersion == "" || manifest.TSInvalidationVersion == "" {
 		return errors.New("manifest is missing analysis identity")
+	}
+	if err := validateResolverInputPlan(manifest.ResolverInputs); err != nil {
+		return err
+	}
+	if manifest.GoEnvironment.Version != "" && (manifest.GoEnvironment.Version != "go-env-v1" || !validSHA256(manifest.GoEnvironment.Digest)) {
+		return errors.New("manifest has an invalid Go environment identity")
+	}
+	if manifest.TSEnvironment.Version != "" && (manifest.TSEnvironment.Version != "ts-env-v1" || !validSHA256(manifest.TSEnvironment.Digest)) {
+		return errors.New("manifest has an invalid TS environment identity")
 	}
 	if manifest.Status != StatusHealthy && manifest.Status != StatusDegraded {
 		return fmt.Errorf("invalid manifest status %q", manifest.Status)
@@ -166,9 +179,10 @@ func newManifest(root string, inputs []InputFingerprint) Manifest {
 		RubyResolverVersion:   fmt.Sprintf("ruby-analysis-%d", rubyAnalysisVersion),
 		SCIPResolverVersion:   scip.ResolverVersion(),
 		GoResolverVersion:     gocalls.ResolverVersion(),
-		SimilarVersion:        similar.LimitsFromEnv().Version(),
+		SimilarVersion:        fmt.Sprintf("%s+skip=%t", similar.LimitsFromEnv().Version(), memory.SkipSimilar()),
 		TSInvalidationVersion: tsInvalidationPolicy,
 		Inputs:                inputs,
+		ResolverInputs:        ResolverInputPlan{Version: resolverInputVersion},
 	}
 }
 
@@ -182,6 +196,8 @@ type repositoryScan struct {
 	sourceDigest       string
 	tsdirs             []string
 	manifest           Manifest
+	goEnvironment      map[string]string // effective values never persisted
+	tsEnvironment      *scip.ExecutionEnvironment
 }
 
 type sourceObservation struct {
@@ -193,7 +209,9 @@ type sourceObservation struct {
 // and SCIP resolvers. Source/config bytes are copied through securefile into a
 // private sibling directory, so a later replacement of an original path cannot
 // change what the external resolver observes. The sibling placement preserves
-// relative module/workspace paths such as a Go replace to ../shared. Dependency
+// relative module/workspace paths such as a Go replace to ../shared, without
+// certifying external bytes. Auxiliary/dependency entries come only from the
+// observed input plan; staging does not rediscover their live namespace. Dependency
 // symlinks that escape the repository are rejected; links that target an
 // in-repository file or directory are copied and rewritten to a snapshot-local
 // relative target. The private directory retains its parent and child
@@ -232,10 +250,7 @@ func resolverSnapshotForScan(ctx context.Context, scan repositoryScan) (snapshot
 	}
 
 	copied := make(map[string]bool, len(scan.files)+len(scan.manifest.Inputs))
-	expectedHashes := make(map[string]string, len(scan.sourceObservations)+len(scan.manifest.Inputs))
-	for _, observation := range scan.sourceObservations {
-		expectedHashes[observation.path] = observation.hash
-	}
+	expectedHashes := sourceObservationHashes(scan.sourceObservations)
 	for _, input := range scan.manifest.Inputs {
 		expectedHashes[input.Path] = input.SHA256
 	}
@@ -266,30 +281,14 @@ func resolverSnapshotForScan(ctx context.Context, scan repositoryScan) (snapshot
 		}
 		copied[input.Path] = true
 	}
-	for _, dependencyRoot := range []string{"node_modules", "vendor"} {
-		if err := ctx.Err(); err != nil {
-			return "", nil, nil, err
-		}
-		if err := snapshotVerify(); err != nil {
-			return "", nil, nil, fmt.Errorf("verify resolver snapshot before dependency staging: %w", err)
-		}
-		if err := copyResolverDependencyTree(ctx, root, snapshot, dependencyRoot, copied); err != nil {
-			return "", nil, nil, err
-		}
+	if err := stageResolverInputPlan(ctx, root, snapshot, scan.manifest.ResolverInputs, copied, snapshotVerify); err != nil {
+		return "", nil, nil, fmt.Errorf("stage observed resolver inputs: %w", err)
 	}
 	if err := snapshotVerify(); err != nil {
 		return "", nil, nil, fmt.Errorf("verify private resolver snapshot after staging: %w", err)
 	}
 	failed = false
 	return snapshot, snapshotVerify, snapshotCleanup, nil
-}
-
-func resolverSnapshotForRoot(ctx context.Context, root string) (string, func() error, func() error, error) {
-	scan, err := scanRepositoryContext(ctx, root)
-	if err != nil {
-		return "", nil, nil, err
-	}
-	return resolverSnapshotForScan(ctx, scan)
 }
 
 // sourceFilesAtResolverRoot keeps repository-relative identity unchanged while
@@ -352,159 +351,6 @@ func cleanResolverRelativePath(rel string) (string, error) {
 	return rel, nil
 }
 
-func copyResolverDependencyTree(ctx context.Context, root, snapshot, rel string, copied map[string]bool) error {
-	return copyResolverDependencyTreeVisited(ctx, root, snapshot, rel, copied, make(map[string]bool))
-}
-
-func copyResolverDependencyTreeVisited(ctx context.Context, root, snapshot, rel string, copied, visiting map[string]bool) error {
-	if copied[rel] {
-		return nil
-	}
-	if visiting[rel] {
-		return fmt.Errorf("cyclic dependency symlink at %q", rel)
-	}
-	visiting[rel] = true
-	defer delete(visiting, rel)
-
-	source := filepath.Join(root, filepath.FromSlash(rel))
-	info, err := os.Lstat(source)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return fmt.Errorf("inspect dependency root %q: %w", rel, err)
-	}
-	if info.Mode()&os.ModeSymlink != 0 {
-		if err := copyResolverDependencySymlink(ctx, root, snapshot, source, rel, copied, visiting); err != nil {
-			return err
-		}
-		copied[rel] = true
-		return nil
-	}
-	if !info.IsDir() {
-		return fmt.Errorf("dependency root %q is not a directory", rel)
-	}
-	err = filepath.WalkDir(source, func(path string, entry os.DirEntry, walkErr error) error {
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return ctxErr
-		}
-		if walkErr != nil {
-			return walkErr
-		}
-		entryRel, err := filepath.Rel(root, path)
-		if err != nil {
-			return err
-		}
-		entryRel = filepath.ToSlash(entryRel)
-		if entry.Type()&os.ModeSymlink != 0 {
-			if copied[entryRel] {
-				return nil
-			}
-			if err := copyResolverDependencySymlink(ctx, root, snapshot, path, entryRel, copied, visiting); err != nil {
-				return err
-			}
-			copied[entryRel] = true
-			return nil
-		}
-		dst := filepath.Join(snapshot, filepath.FromSlash(entryRel))
-		if entry.IsDir() {
-			return securefile.MkdirAllPrivate(dst)
-		}
-		if copied[entryRel] {
-			return nil
-		}
-		if err := copyResolverFile(ctx, root, snapshot, entryRel, ""); err != nil {
-			return fmt.Errorf("copy dependency %q: %w", entryRel, err)
-		}
-		copied[entryRel] = true
-		return nil
-	})
-	if err != nil {
-		return fmt.Errorf("snapshot dependency tree %q: %w", rel, err)
-	}
-	return nil
-}
-
-func copyResolverDependencySymlink(ctx context.Context, root, snapshot, source, rel string, copied, visiting map[string]bool) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	// #nosec G703 -- source is built from the validated repository root and a
-	// repository-relative dependency entry; Lstat does not follow the symlink
-	// leaf, and the after-check below rejects identity replacement.
-	before, err := os.Lstat(source)
-	if err != nil {
-		return fmt.Errorf("inspect dependency symlink %q: %w", rel, err)
-	}
-	if before.Mode()&os.ModeSymlink == 0 {
-		return fmt.Errorf("dependency path %q is no longer a symlink", rel)
-	}
-	target, err := os.Readlink(source)
-	if err != nil {
-		return fmt.Errorf("read dependency symlink %q: %w", rel, err)
-	}
-	// #nosec G703 -- the same confined path is rechecked with no-follow Lstat;
-	// this must remain an identity check rather than a path-following read.
-	after, err := os.Lstat(source)
-	if err != nil {
-		return fmt.Errorf("reinspect dependency symlink %q: %w", rel, err)
-	}
-	if !os.SameFile(before, after) || after.Mode()&os.ModeSymlink == 0 {
-		return fmt.Errorf("%w: dependency symlink %q changed while staging", securefile.ErrUnsafePath, rel)
-	}
-	targetPath := filepath.Clean(target)
-	if !filepath.IsAbs(targetPath) {
-		targetPath = filepath.Join(filepath.Dir(source), targetPath)
-	}
-	targetPath, err = filepath.Abs(targetPath)
-	if err != nil {
-		return fmt.Errorf("absolute dependency symlink target %q: %w", rel, err)
-	}
-	targetPath = filepath.Clean(targetPath)
-	targetRel, ok := resolverPathWithin(root, targetPath)
-	if !ok || targetRel == "." || targetRel == "" {
-		return fmt.Errorf("%w: dependency symlink %q targets outside repository: %q", securefile.ErrUnsafePath, rel, target)
-	}
-	if err := resolverDependencyTargetSafe(root, targetRel); err != nil {
-		return fmt.Errorf("dependency symlink %q target %q: %w", rel, targetRel, err)
-	}
-	dst := filepath.Join(snapshot, filepath.FromSlash(rel))
-	if err := securefile.MkdirAllPrivate(filepath.Dir(dst)); err != nil {
-		return err
-	}
-	if !copied[targetRel] {
-		info, statErr := os.Lstat(filepath.Join(root, filepath.FromSlash(targetRel)))
-		if statErr != nil {
-			return fmt.Errorf("inspect in-repository dependency target %q: %w", targetRel, statErr)
-		}
-		switch {
-		case info.IsDir(), info.Mode()&os.ModeSymlink != 0:
-			if err := copyResolverDependencyTreeVisited(ctx, root, snapshot, targetRel, copied, visiting); err != nil {
-				return fmt.Errorf("copy in-repository dependency target %q: %w", targetRel, err)
-			}
-		case info.Mode().IsRegular():
-			if err := copyResolverFile(ctx, root, snapshot, targetRel, ""); err != nil {
-				return fmt.Errorf("copy in-repository dependency target %q: %w", targetRel, err)
-			}
-			copied[targetRel] = true
-		default:
-			return fmt.Errorf("in-repository dependency target %q is not a regular file, directory, or symlink", targetRel)
-		}
-	}
-	targetSnapshotPath := filepath.Join(snapshot, filepath.FromSlash(targetRel))
-	linkTarget, err := filepath.Rel(filepath.Dir(dst), targetSnapshotPath)
-	if err != nil {
-		return fmt.Errorf("relativize dependency symlink %q: %w", rel, err)
-	}
-	if err := securefile.SymlinkPrivate(linkTarget, dst); err != nil {
-		if os.IsExist(err) {
-			return fmt.Errorf("dependency symlink destination %q already exists", rel)
-		}
-		return fmt.Errorf("write dependency symlink %q: %w", rel, err)
-	}
-	return nil
-}
-
 func resolverDependencyTargetSafe(root, rel string) error {
 	parts := strings.Split(filepath.ToSlash(rel), "/")
 	current := root
@@ -513,6 +359,8 @@ func resolverDependencyTargetSafe(root, rel string) error {
 			return fmt.Errorf("%w: invalid dependency target path %q", securefile.ErrUnsafePath, rel)
 		}
 		current = filepath.Join(current, filepath.FromSlash(part))
+		// #nosec G703 -- rel is checked component-by-component for traversal;
+		// Lstat inspects metadata without following the current component.
 		info, err := os.Lstat(current)
 		if err != nil {
 			return fmt.Errorf("inspect dependency target %q: %w", rel, err)
@@ -573,6 +421,7 @@ func scanRepositoryContext(ctx context.Context, root string) (repositoryScan, er
 	var files []SourceFile
 	var sourceObservations []sourceObservation
 	var tsconfigDirs []string
+	var dependencyRoots, auxiliaryPaths []string
 	rootHasTSConfig := false
 	err = manifestWalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
 		if ctxErr := ctx.Err(); ctxErr != nil {
@@ -580,6 +429,13 @@ func scanRepositoryContext(ctx context.Context, root string) (repositoryScan, er
 		}
 		if walkErr != nil {
 			return classifyManifestWalkError(root, path, entry, walkErr)
+		}
+		rel := filepath.ToSlash(mustRel(root, path))
+		if rel != "." && (entry.IsDir() || entry.Type()&os.ModeSymlink != 0) && (entry.Name() == "node_modules" || entry.Name() == "vendor") {
+			dependencyRoots = append(dependencyRoots, rel)
+		}
+		if !entry.IsDir() && isGoAuxiliaryInput(rel) {
+			auxiliaryPaths = append(auxiliaryPaths, rel)
 		}
 		// Never hash, fingerprint, or read an unrecognized symlink entry: it may
 		// point outside the repository root. Recognized manifest/resolver inputs
@@ -602,7 +458,6 @@ func scanRepositoryContext(ctx context.Context, root string) (repositoryScan, er
 			}
 			return nil
 		}
-		rel := filepath.ToSlash(mustRel(root, path))
 		ignoredByDiscovery := ignore.matchFile(rel) || underIgnoredDirectory(rel, ignore)
 		lang, isSource := langByExt[strings.ToLower(filepath.Ext(path))]
 		isIgnoreInput := rel == ".gitignore" || rel == ".cbmignore"
@@ -683,13 +538,53 @@ func scanRepositoryContext(ctx context.Context, root string) (repositoryScan, er
 		inputs = append(inputs, input)
 	}
 	sort.Slice(inputs, func(i, j int) bool { return inputs[i].Path < inputs[j].Path })
-	return repositoryScan{
-		files:              files,
-		sourceObservations: sourceObservations,
-		sourceDigest:       sourceDigest,
-		tsdirs:             tsconfigDirs,
-		manifest:           newManifest(root, inputs),
-	}, nil
+	scan := repositoryScan{files: files, sourceObservations: sourceObservations, sourceDigest: sourceDigest,
+		tsdirs: tsconfigDirs, manifest: newManifest(root, inputs)}
+	if !resolverNeedsSnapshot(root, files, tsconfigDirs) {
+		return scan, nil
+	}
+	goConfigured := hasGo(files) && hasGoResolverConfig(root)
+	if !goConfigured {
+		auxiliaryPaths = nil
+	} else {
+		embedPaths, embedErr := goEmbedInputPaths(ctx, scan)
+		if embedErr != nil {
+			return repositoryScan{}, embedErr
+		}
+		auxiliaryPaths = append(auxiliaryPaths, embedPaths...)
+	}
+	scan.manifest.ResolverInputs, err = observeResolverInputs(ctx, root, dependencyRoots, auxiliaryPaths)
+	if err != nil {
+		return repositoryScan{}, err
+	}
+	if goConfigured {
+		scan.manifest.GoEnvironment, scan.goEnvironment, err = observeGoEnvironment(ctx, root, inputs)
+		if err != nil {
+			return repositoryScan{}, err
+		}
+		scan.manifest.ResolverInputs.NoReuseReasons, err = goInputReuseReasons(scan)
+		if err != nil {
+			return repositoryScan{}, err
+		}
+	}
+	if len(tsconfigDirs) != 0 {
+		scan.manifest.TSEnvironment, scan.tsEnvironment, err = observeTSEnvironment(ctx)
+		if err != nil {
+			return repositoryScan{}, err
+		}
+		// Launcher identity and installed repository bytes do not certify npm's
+		// external runtime/config/cache. Retrying is safer than stale CALLS.
+		scan.manifest.ResolverInputs.NoReuseReasons = append(scan.manifest.ResolverInputs.NoReuseReasons, "ts-runtime-inputs-unobserved")
+	}
+	return scan, nil
+}
+
+func sourceObservationHashes(observations []sourceObservation) map[string]string {
+	hashes := make(map[string]string, len(observations))
+	for _, observation := range observations {
+		hashes[observation.path] = observation.hash
+	}
+	return hashes
 }
 
 func sourceObservationDigest(observations []sourceObservation) string {
@@ -1162,13 +1057,16 @@ func sameManifestFingerprint(stored, current Manifest) bool {
 		stored.GoResolverVersion == current.GoResolverVersion &&
 		stored.SimilarVersion == current.SimilarVersion &&
 		stored.TSInvalidationVersion == current.TSInvalidationVersion &&
+		stored.GoEnvironment == current.GoEnvironment &&
+		stored.TSEnvironment == current.TSEnvironment &&
+		reflect.DeepEqual(stored.ResolverInputs, current.ResolverInputs) &&
 		sameManifestInputs(stored.Inputs, current.Inputs)
 }
 
 // freshManifestFor returns the persisted manifest only when its analysis/input
 // identity, graph file identity, SQLite integrity, and logical graph content
-// agree. Both healthy and explicitly degraded committed graphs are reusable;
-// ReadManifest rejects a healthy manifest that records failed resolver scopes.
+// agree. Only healthy committed graphs may be reused. A degraded first graph
+// is structural-only and must retry every resolver, even with unchanged inputs.
 func freshManifestFor(store *graph.Store, project string, current Manifest) (Manifest, bool) {
 	stored, ok := manifestFingerprintFor(store, current)
 	if !ok {
@@ -1196,7 +1094,7 @@ func manifestFingerprintFor(store *graph.Store, current Manifest) (Manifest, boo
 		return Manifest{}, false
 	}
 	stored, err := ReadManifest(store.DBPath())
-	if err != nil || !sameManifestFingerprint(stored, current) {
+	if err != nil || stored.Status != StatusHealthy || len(current.ResolverInputs.NoReuseReasons) != 0 || !sameManifestFingerprint(stored, current) {
 		return Manifest{}, false
 	}
 	identity, err := graphIdentity(store.DBPath())

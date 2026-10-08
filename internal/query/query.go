@@ -9,6 +9,7 @@ package query
 import (
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/Lordymine/codegraph/internal/graph"
 	"github.com/Lordymine/codegraph/internal/index"
@@ -71,6 +72,18 @@ type Engine struct {
 	repoRoot    string
 	manifest    index.Manifest
 	manifestErr error
+
+	// Architecture is an aggregate over an immutable graph; cache it per served
+	// generation and clamped top-N so repeated orientation calls do not redo the
+	// same GROUP BY/sorts. Reloading the manifest (open/reopen) bumps the epoch,
+	// which invalidates it even when the digest is unavailable.
+	archMu        sync.Mutex
+	archSeq       int // monotonic epoch, bumped on every open/reopen
+	archCachedSeq int // epoch the cached value was computed at
+	archGen       string
+	archTopN      int
+	archValue     Architecture
+	archValid     bool
 }
 
 func NewEngine(store *graph.Store, project, repoRoot string) *Engine {
@@ -81,6 +94,17 @@ func NewEngine(store *graph.Store, project, repoRoot string) *Engine {
 
 func (e *Engine) loadManifest() {
 	e.manifest, e.manifestErr = index.ReadManifest(e.store.DBPath())
+	e.archMu.Lock()
+	e.archSeq++ // invalidate the architecture cache on every open/reopen
+	e.archMu.Unlock()
+}
+
+// Manifest returns the manifest snapshot the engine captured when it opened or
+// was last reopened. It is the identity of the graph actually served, so status
+// generation, similarity coverage, and degraded/stale reporting must come from
+// here — never from a later disk read, which another writer may have replaced.
+func (e *Engine) Manifest() (index.Manifest, error) {
+	return e.manifest, e.manifestErr
 }
 
 // Close releases the underlying store. Safe to call multiple times.
@@ -191,8 +215,18 @@ func stripGoPointerReceiver(qn string) string {
 }
 
 // DetectChanges reports which source files changed since the last index — the
-// staleness check behind the detect_changes tool. The agent can tell whether the
-// graph is fresh for a region, and re-index if not (cheap now: scope-gated).
+// basis for refusing to trust a stale graph. Config changes recorded by the last
+// manifest are reported separately (Changes.ConfigChanged): an edit to a tsconfig,
+// go.mod, or ignore file changes what the index would build even when no source
+// moved. The comparison uses the manifest captured with the served engine, never a
+// fresh disk read another writer may have replaced.
 func (e *Engine) DetectChanges() (index.Changes, error) {
-	return index.DetectChanges(e.store, e.project, e.repoRoot)
+	ch, err := index.DetectChanges(e.store, e.project, e.repoRoot)
+	if err != nil {
+		return ch, err
+	}
+	if manifest, merr := e.Manifest(); merr == nil {
+		ch.ConfigChanged = index.ObserveConfigChanges(e.repoRoot, manifest)
+	}
+	return ch, nil
 }

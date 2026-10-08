@@ -79,6 +79,41 @@ func TestCallEdges_GenericsDoNotCrash(t *testing.T) {
 	if !hasEdge(edges, "use", "helper") {
 		t.Errorf("generic code poisoned the graph: use->helper missing; edges:%s", dumpEdges(edges))
 	}
+	// R07: an instantiated generic call is credited to its nominal declaration, and a
+	// call written in a generic method body keeps that method as its nominal caller.
+	for _, want := range [][2]string{
+		{"gen.go.use", "gen.go.Box.Get"},
+		{"gen.go.use", "gen.go.Map"},
+		{"gen.go.Box.CallHelper", "gen.go.helper"},
+	} {
+		if !hasEdge(edges, want[0], want[1]) {
+			t.Errorf("missing generic edge %s -> %s; edges:%s", want[0], want[1], dumpEdges(edges))
+		}
+	}
+}
+
+// TestCallEdges_GoWorkspaceLoadsEveryModule pins R08: a go.work workspace without a
+// root module must load each `use` module instead of failing on the root `./...`
+// pattern ("directory prefix . does not contain modules listed in go.work"), and
+// cross-module calls must resolve.
+func TestCallEdges_GoWorkspaceLoadsEveryModule(t *testing.T) {
+	root, err := filepath.Abs("testdata/workspace")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := loadPatterns(root); len(got) != 2 {
+		t.Fatalf("loadPatterns = %v, want one pattern per workspace module", got)
+	}
+	edges, err := CallEdges("test", root, func(string) bool { return true })
+	if err != nil {
+		t.Fatalf("CallEdges on a go.work workspace: %v", err)
+	}
+	if !hasEdge(edges, "a/a.go.A", "a/a.go.helperA") {
+		t.Errorf("missing intra-module edge a/a.go.A -> a/a.go.helperA; edges:%s", dumpEdges(edges))
+	}
+	if !hasEdge(edges, "b/b.go.B", "a/a.go.A") {
+		t.Errorf("missing cross-module edge b/b.go.B -> a/a.go.A; edges:%s", dumpEdges(edges))
+	}
 }
 
 // TestCallEdges_AttributesClosureCallsToEnclosing pins closure call attribution:

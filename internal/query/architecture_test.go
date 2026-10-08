@@ -1,6 +1,7 @@
 package query
 
 import (
+	"fmt"
 	"path/filepath"
 	"testing"
 
@@ -69,5 +70,142 @@ func TestEngine_Architecture(t *testing.T) {
 	}
 	if pkg["internal"] != 1 {
 		t.Errorf("packages = %v, want dir 'internal' with 1 symbol", arch.Packages)
+	}
+}
+
+// TestEngine_ArchitectureClampsTopN pins R16: a giant top_n cannot request an
+// unbounded hotspot/package render; it clamps to MaxArchitectureTopN.
+func TestEngine_ArchitectureClampsTopN(t *testing.T) {
+	store, err := graph.Open(filepath.Join(t.TempDir(), "g.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	const p = "proj"
+	if err := store.InsertNodes([]graph.Node{
+		{Project: p, Label: graph.LabelFile, Name: "a.go", QualifiedName: p + ":a.go", FilePath: "a.go", Props: map[string]any{"lang": "go"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	nodes := make([]graph.Node, 0, MaxArchitectureTopN+50)
+	for i := 0; i < MaxArchitectureTopN+50; i++ {
+		name := fmt.Sprintf("fn%04d", i)
+		nodes = append(nodes, graph.Node{Project: p, Label: graph.LabelFunction, Name: name,
+			QualifiedName: p + ":a.go." + name, FilePath: "a.go", StartLine: 1, EndLine: 2,
+			Props: map[string]any{"complexity": i + 1}})
+	}
+	if err := store.InsertNodes(nodes); err != nil {
+		t.Fatal(err)
+	}
+
+	eng := NewEngine(store, p, t.TempDir())
+	arch, err := eng.Architecture(1 << 30)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(arch.ComplexityHotspots) != MaxArchitectureTopN {
+		t.Fatalf("hotspots=%d, want the clamp %d", len(arch.ComplexityHotspots), MaxArchitectureTopN)
+	}
+}
+
+// TestEngine_ArchitectureCacheAndReopenInvalidation pins P6: a repeated
+// orientation call is served from the cache while the served generation is
+// unchanged, and reopening the engine (a new generation) recomputes it.
+func TestEngine_ArchitectureCacheAndReopenInvalidation(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "g.db")
+	store, err := graph.Open(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	const p = "proj"
+	fn := func(name string) graph.Node {
+		return graph.Node{Project: p, Label: graph.LabelFunction, Name: name,
+			QualifiedName: p + ":a.go." + name, FilePath: "a.go", StartLine: 1, EndLine: 2}
+	}
+	if err := store.InsertNodes([]graph.Node{fn("one"), fn("two")}); err != nil {
+		t.Fatal(err)
+	}
+	eng := NewEngine(store, p, t.TempDir())
+	first, err := eng.Architecture(10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.NodeCounts["Function"] != 2 {
+		t.Fatalf("first Architecture functions=%d, want 2", first.NodeCounts["Function"])
+	}
+
+	// Mutating the store without reopening does not change the served generation,
+	// so the cached aggregate is returned (the graph is immutable per generation).
+	if err := store.InsertNodes([]graph.Node{fn("three")}); err != nil {
+		t.Fatal(err)
+	}
+	cached, err := eng.Architecture(10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cached.NodeCounts["Function"] != 2 {
+		t.Fatalf("cache miss: functions=%d, want the cached 2", cached.NodeCounts["Function"])
+	}
+
+	// Reopening reloads the manifest and invalidates the cache.
+	if err := eng.Reopen(dbPath); err != nil {
+		t.Fatal(err)
+	}
+	fresh, err := eng.Architecture(10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fresh.NodeCounts["Function"] != 3 {
+		t.Fatalf("reopen did not invalidate the cache: functions=%d, want 3", fresh.NodeCounts["Function"])
+	}
+}
+
+func benchmarkArchitectureStore(b *testing.B, functions int) *Engine {
+	b.Helper()
+	store, err := graph.Open(filepath.Join(b.TempDir(), "g.db"))
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.Cleanup(func() { _ = store.Close() })
+	const p = "proj"
+	nodes := make([]graph.Node, 0, functions)
+	for i := 0; i < functions; i++ {
+		name := fmt.Sprintf("fn%05d", i)
+		nodes = append(nodes, graph.Node{Project: p, Label: graph.LabelFunction, Name: name,
+			QualifiedName: p + ":a.go." + name, FilePath: "a.go", StartLine: 1, EndLine: 2,
+			Props: map[string]any{"complexity": i % 25}})
+	}
+	if err := store.InsertNodes(nodes); err != nil {
+		b.Fatal(err)
+	}
+	return NewEngine(store, p, b.TempDir())
+}
+
+// BenchmarkEngine_ArchitectureCache measures the served path after the first call
+// (P6): a linear scan of the cached struct, no SQL.
+func BenchmarkEngine_ArchitectureCache(b *testing.B) {
+	eng := benchmarkArchitectureStore(b, 3000)
+	if _, err := eng.Architecture(50); err != nil {
+		b.Fatal(err)
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, err := eng.Architecture(50); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// BenchmarkEngine_ArchitectureCompute measures the cached path's predecessor: the
+// full aggregate queries every call.
+func BenchmarkEngine_ArchitectureCompute(b *testing.B) {
+	eng := benchmarkArchitectureStore(b, 3000)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, err := eng.computeArchitecture(50); err != nil {
+			b.Fatal(err)
+		}
 	}
 }

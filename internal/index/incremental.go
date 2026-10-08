@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/Lordymine/codegraph/internal/graph"
@@ -15,7 +16,12 @@ type Changes struct {
 	Changed []string // indexed, but content hash differs now
 	Added   []string // on disk, absent from the index
 	Deleted []string // in the index, gone from disk
-	files   []SourceFile
+	// ConfigChanged lists sidecar inputs the last manifest recorded (tsconfig,
+	// go.mod/go.work, ignore files, workspace config) whose bytes no longer match
+	// on disk. Editing one changes what the index would build even when no source
+	// file moved. Environment identity (GOFLAGS, toolchain) is not re-observed here.
+	ConfigChanged []string
+	files         []SourceFile
 }
 
 // These markers live in the same map as ordinary resolver scopes but cannot be
@@ -29,11 +35,14 @@ const (
 
 // Any reports whether anything changed since the last index.
 func (c Changes) Any() bool {
-	return len(c.Changed)+len(c.Added)+len(c.Deleted) > 0
+	return len(c.Changed)+len(c.Added)+len(c.Deleted)+len(c.ConfigChanged) > 0
 }
 
 // Summary renders the change set as the compact wire format the detect_changes tool
-// returns: one `status<TAB>path` line per file (changed, then added, then deleted).
+// returns: one `status<TAB>path` line per file (changed, then added, then deleted,
+// then config). A config line means the index would rebuild even though no source
+// moved; an empty summary means no source or recorded-config change (environment
+// identity is not compared).
 func (c Changes) Summary() string {
 	var b strings.Builder
 	for _, p := range c.Changed {
@@ -45,7 +54,29 @@ func (c Changes) Summary() string {
 	for _, p := range c.Deleted {
 		b.WriteString("deleted\t" + p + "\n")
 	}
+	for _, p := range c.ConfigChanged {
+		b.WriteString("config\t" + p + "\n")
+	}
 	return b.String()
+}
+
+// ObserveConfigChanges compares the sidecar inputs recorded by manifest against
+// the files on disk. It is the configuration half of detect_changes: a tsconfig,
+// go.mod, or ignore-file edit changes what the index would build even with no
+// source edit. Only inputs the manifest recorded are compared, so a brand-new
+// config file with no source change is not reported (run index to be certain); a
+// read failure is reported as changed rather than silently ignored.
+func ObserveConfigChanges(root string, manifest Manifest) []string {
+	var changed []string
+	for _, input := range manifest.Inputs {
+		path := filepath.Join(root, filepath.FromSlash(input.Path))
+		data, err := securefile.ReadFile(path)
+		if err != nil || hashBytes(data) != input.SHA256 {
+			changed = append(changed, input.Path)
+		}
+	}
+	sort.Strings(changed)
+	return changed
 }
 
 // DetectChanges compares the source files currently under root against the per-file
@@ -209,46 +240,6 @@ func changedScopes(ch Changes, tsconfigDirs []string) map[string]bool {
 		}
 	}
 	return out
-}
-
-// changedScopesWithTSDependencies expands TS/JS source transitions to the
-// scopes that must re-resolve. Modified-only .ts transitions narrow to owning
-// scopes plus proven dependents (project references, transitively closed, plus
-// observed direct importers) — see tsdeps.go. Anything else (added/deleted
-// files, unresolvable ownership, unverifiable configs) keeps the historical
-// invalidate-all-TS-scopes behavior: a guessed scope set could certify a stale
-// caller in another TS project.
-func changedScopesWithTSDependencies(ctx context.Context, store *graph.Store, project, root string, inputs map[string]InputFingerprint, ch Changes, tsconfigDirs []string) (map[string]bool, error) {
-	out := changedScopes(ch, tsconfigDirs)
-	var modifiedTS []string
-	for _, rel := range ch.Changed {
-		if isTSSourcePath(rel) {
-			modifiedTS = append(modifiedTS, rel)
-		}
-	}
-	if len(modifiedTS) == 0 {
-		return out, nil
-	}
-	expandAll := func() map[string]bool {
-		out[allTSCallScopesMarker] = true
-		for _, dir := range tsconfigDirs {
-			out[dir] = true
-		}
-		return out
-	}
-	if len(ch.Added) > 0 || len(ch.Deleted) > 0 {
-		// Membership or resolvability may have shifted; the manifest gate
-		// widens these too, but the fallback is explicit here.
-		return expandAll(), nil
-	}
-	seeds, ok := selectiveTSInvalidation(ctx, store, project, root, inputs, modifiedTS, tsconfigDirs)
-	if !ok {
-		return expandAll(), nil
-	}
-	for scope := range seeds {
-		out[scope] = true
-	}
-	return out, nil
 }
 
 func isTSSourcePath(rel string) bool {

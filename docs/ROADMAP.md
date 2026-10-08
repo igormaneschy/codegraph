@@ -2,6 +2,97 @@
 
 Milestones, smallest-useful-first. Each one ships something runnable.
 
+## Review hardening — 2026-10-07 (in progress)
+
+See [the review](CODE_REVIEW_2026-10-07.md) for findings and validation contracts.
+
+- [x] Delivery 1 — R02/R09/R17: correct duplicate-node FTS writes, enforce secure
+  similarity reads, and reject invalid/mixed-project edge batches atomically.
+- [ ] Delivery 2 — R03/R04/R05/R06/R12: freshness, dependency inputs, snapshots,
+  and degraded-index recovery.
+  - [x] 2a — R03/R06/R12: conservative TS invalidation (real SCIP binding
+    oracles), full degraded recovery on refresh, and similarity skip-policy identity.
+  - [ ] 2b — R04/R05: complete program-input certification remains open.
+    - [x] Effective Go environment identity and frozen `packages.Config.Env`;
+      tags change expected CALLS and match a full rebuild.
+    - [x] Typed observed input plan: local compiler auxiliaries and nested
+      node_modules/vendor bytes, membership and links; plan-only verified staging.
+    - [x] Healthy local cgo oracle and fail-closed graph preservation; uncertified
+      Go inputs disable no-op/CALLS reuse instead of trusting dependency intent.
+    - [x] 2c — local Go embed asset transport (literal/glob/directory/quoted/all),
+      driver-oracle equality, no-follow directory reads, and missing-asset diagnostics.
+      Full embed certification/reuse remains conservative.
+    - [x] 2d — R04 TS/JS runtime identity (`ts-env-v1`, `scip-typescript-bridge-v2`):
+      sorted settings plus Node/`npx` path and digest observed without launching
+      Node, opaque digest persisted, captured environment/launcher injected into
+      every SCIP scope, re-hash before/after invocation, explicit failure when
+      Node is absent, and `ts-runtime-inputs-unobserved` disabling TS no-op/CALLS
+      reuse so refresh retries the resolvers.
+    - [ ] Complete external/auxiliary coverage, workspace support, and the external
+      npm/SCIP runtime closure. Local gates passed; remote CI pending.
+- [x] Delivery 3 — R01/R07/R08/R14/R15: operational support and language fixtures.
+  - [x] R01 — Windows is no longer a published release asset, and the runtime
+    limitation is documented (README, CONTRIBUTING). Re-adding it requires a
+    natively tested handle/ACL implementation and a Windows smoke test.
+  - [x] R07 — generic Go methods and functions keep CALLS: the nominal receiver QN
+    is `<file>.Box.Get` and SSA instantiations map to their declared origin
+    (`go-vta-resolver-v5`).
+  - [x] R08 — a `go.work` workspace loads every `use` module, so intra- and
+    cross-module CALLS resolve. Nested modules without root config stay outside
+    the contract (documented in ARCHITECTURE.md).
+  - [x] R14 — the installer accepts JSONC, validates the object shape, propagates
+    read errors, merges without clobbering, and replaces the file atomically.
+  - [x] R15 — NestJS route decorators are tri-state; an unresolvable path omits
+    the Route instead of inventing `GET /` (`analysis-v3` forces a rebuild).
+- [x] Delivery 4 — R10/R11/R13/R16/R18/R19: query snapshots, session identity,
+  pagination/evaluation, and transport contracts.
+  - [x] R10 — the snippet cursor binds to the whole-file sha256 the page read, so
+    a same-size edit, line-break shift, or rename-replacement fails the next page
+    instead of shifting lines (size alone was not proof).
+  - [x] R11 — a round publishes the generation/status/similarity captured with the
+    engine at reopen; an external writer between reopen and publish shows up as
+    `lag`, and status can no longer disagree with the page trailer.
+  - [x] R13 — `eval/graph-answers.js` walks every ref page to `has_more=false`,
+    charges real calls/bytes, and takes the executable from `CODEGRAPH_EXE`; the
+    workflow hints teach cursor continuation. Validated on a 720-caller hub
+    (4 pages, 720 refs).
+  - [x] R16 — architecture top-N is clamped (`MaxArchitectureTopN`) and snippet
+    lines have a 1 MiB absolute ceiling with actionable guidance, applied to the
+    lookahead/skip too.
+  - [x] R18 — `detect_changes` adds `config<TAB>path` for recorded sidecar inputs,
+    so a tsconfig/go.mod/ignore edit is not reported as a fresh index; environment
+    identity is explicitly excluded.
+  - [x] R19 — JSON-RPC parse errors are answered (-32700, null id), notifications
+    get no reply, required tool fields are validated (-32602), write failures end
+    the loop, and `initialize` negotiates the protocol version.
+  - Open: a strict qualified-name scorer for homonyms (the eval scorer stays
+    name-based by design); only the tools/stdio MCP surface is exercised.
+- [~] Delivery 5 — P1–P7: measured performance improvements after correctness.
+  - [x] P1 — removed the redundant `runtime.GC` from `memory.Gate`
+    (`debug.FreeOSMemory` already forces one) and gated the similarity signature
+    pass per 64 files instead of per file. Measured on a garbage-heavy gate
+    microbenchmark (median of 5×20 iterations): ~604 µs → ~453 µs per gate
+    (~25% this run, ~19% another; the review's Ruby fixture measured 16%).
+  - [x] P4 — similarity retains only the `MaxEdges` smallest `(source, target)`
+    edges in a bounded max-heap during the scan, the exact set the old
+    sort-and-truncate produced. Clone-bomb pass: 140.5 MB → 76.5 MB allocated
+    (−45%) and 146.7 ms → 124.5 ms; output and coverage unchanged.
+  - [x] P6 — `Architecture` is cached per served generation + clamped top-N and
+    invalidated on reopen; 3000-function store: 5.82 ms → 17 ns per repeat call.
+  - [x] P7 (limits) — effective memory is the leaf cgroup limit when smaller than
+    host RAM, an operator `GOMEMLIMIT` is no longer overwritten, SCIP stdout/stderr
+    is a bounded tail buffer, and peak RSS sums the child process tree.
+  - [ ] Open — P2 (keyset pagination / snippet byte offsets), P3 (compact
+    projection without property decode), P5 (canonicalization/staging reuse), and
+    the remaining P7 observability (per-phase duration, staging bytes, invalidation
+    reason, reused scopes). Each needs its own benchmark and correctness contract;
+    no claim is made for them here.
+
+Delivery 1 retains first-wins node identity; modeling every repeated declaration
+is separate work. Windows runtime support (R01) remains unimplemented and
+unpublished; blocking the asset clears the false support promise but not the
+underlying gap.
+
 ## M0 — Scaffold ✅ (done)
 
 - Two-table SQLite store + FTS5, mirroring upstream schema.
@@ -168,9 +259,9 @@ Production fixes shipped after dogfooding on large repos and long-running MCP se
 
 The sidecar manifest turns "nothing changed" from a guess into a certified no-op:
 
-- **Sidecar manifest** (`<db>.manifest.json`, v2) — records analysis identity
+- **Sidecar manifest** (`<db>.manifest.json`, v3) — records analysis identity
   (schema/analysis/discovery/resolver versions), the canonical root, a fingerprint of
-  every graph-affecting **sidecar input** (path + sha256, sorted) — configuration,
+  admitted graph-affecting **sidecar inputs** (path + sha256, sorted) — configuration,
   dependency, topology, and ignore files; source files are tracked separately by
   per-file hashes on their nodes, compared during change observation — the graph
   file identity (platform-native: dev/ino on Unix, file indices on Windows, metadata
@@ -189,6 +280,13 @@ The sidecar manifest turns "nothing changed" from a guess into a certified no-op
   come from one candidate-aware walk; a validating re-scan retries up to a bounded
   number of times and fails closed on an unstable repository (no no-op, no rebuild
   from a half-observed repo).
+- **Coverage gate** — the observed resolver input plan includes local installed
+  dependency bytes/topology, Go auxiliary files, and the TS/JS Node/`npx` runtime
+  identity; the Go environment and TS runtime settings are digested and frozen for
+  analysis. Uncertified Go inputs and the unobserved external npm runtime record
+  reasons and disable no-op and CALLS reuse even when source hashes match. Complete
+  program closure remains open under R04/R05; see ARCHITECTURE.md for current
+  admission limits.
 - **Exact no-op gate** — `RunAtomic` certifies a no-op only when the fingerprint,
   graph identity, `LogicalGraphDigest`, and `Store.ValidateIntegrity` (SQLite
   `integrity_check`, FTS5 integrity-check, nodes↔FTS row-id correspondence, FTS

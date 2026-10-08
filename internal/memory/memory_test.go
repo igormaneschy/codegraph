@@ -15,3 +15,24 @@ func TestSystemRAMBytes_Platform(t *testing.T) {
 		t.Fatalf("suspicious RAM reading: %d", ram)
 	}
 }
+
+// TestOperatorPinnedMemoryLimit pins P7: an explicit GOMEMLIMIT is an operator
+// decision that auto-tuning must not overwrite; empty/"off" leaves it unpinned.
+func TestOperatorPinnedMemoryLimit(t *testing.T) {
+	for _, tc := range []struct {
+		value string
+		want  bool
+	}{
+		{"", false},
+		{"off", false},
+		{"OFF", false},
+		{"   ", false},
+		{"512MiB", true},
+		{"1073741824", true},
+	} {
+		t.Setenv("GOMEMLIMIT", tc.value)
+		if got := operatorPinnedMemoryLimit(); got != tc.want {
+			t.Errorf("GOMEMLIMIT=%q: pinned=%v, want %v", tc.value, got, tc.want)
+		}
+	}
+}

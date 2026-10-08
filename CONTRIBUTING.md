@@ -7,13 +7,27 @@ code knowledge graph for AI agents. This guide is short on purpose.
 
 - **Go 1.26+**.
 - **A C compiler** (gcc/clang) — the build links tree-sitter via cgo, so
-  `CGO_ENABLED=1` is required. On Windows, MinGW-w64 (e.g. WinLibs) on `PATH`.
-- **Node.js** — only at *index time*, for TypeScript/JS repos (scip-typescript runs
-  via `npx`). Not needed to build or to test.
+  `CGO_ENABLED=1` is required.
+- **Node.js** — at *index time* for TypeScript/JS repos (scip-typescript runs via
+  `npx`), and for the opt-in real-resolver integration tests below. Not needed to
+  build or run the default Go test suite.
+
+### Supported platforms
+
+Linux and macOS (amd64/arm64) are supported and released. Windows builds compile
+but the **runtime is not supported**: `internal/securefile` fails closed with
+`ErrUnsupported` for the private cache/snapshot/manifest operations, so indexing,
+stats, and MCP cannot work there. No Windows release asset is published while
+that holds (see R01 in `docs/CODE_REVIEW_2026-10-07.md`).
 
 ```bash
 go build -o codegraph ./cmd/codegraph    # or: make build
 make test                                 # or: go test ./...
+
+# Opt-in TS binding oracles: real SCIP, expected CALLS, incremental == rebuild.
+# CI pins Node 26.0.0 and SCIP TypeScript 0.4.0 in a separate job.
+go test -race -tags integration ./internal/index \
+  -run '^TestTSInvalidation_RealResolver' -count=1 -timeout 10m
 ```
 
 ## The loop (small, reviewable increments)
