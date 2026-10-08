@@ -920,3 +920,54 @@ leitura isolada deu 45%, medianas estáveis 19–25% — reportada a faixa);
 P2/P3/P5 e a observabilidade restante do P7 continuam abertos; P4 não limita o mapa
 `seen` nem os buckets (custos separados). Sem claims além do medido. Windows/Linux
 nativos e o CI remoto Linux/Go 1.26 não foram verificados. Sem commit.
+
+## Contrato — lote 6, performance de consulta (P2/P3)
+
+- [x] P3: as consultas compactas (search, callers, callees, neighbors, similar)
+  selecionam apenas as colunas de ref (`graph.RefNode`) e nunca leem nem decodificam
+  a propriedades JSON. Mesmas refs, ordem, paginação e erros.
+- [x] P2 (neighbors): as páginas de vizinhos continuam por **keyset** no último
+  `qualified_name` servido (cursor V=2), não por `OFFSET`; página profunda custa o
+  mesmo que a primeira. Cursor V=1 (offset) num tool de vizinhos é rejeitado com
+  orientação de reiniciar.
+- [x] P2 (snippet): a página profunda avança até a linha de retomada em blocos, sem
+  materializar uma string por linha pulada, mantendo o hash (digest do arquivo) e o
+  teto de linha nessa fase também.
+- [x] Gates default/race/SCIP real, build/vet/mod/lint/gofmt.
+
+Medições (`/tmp/codegraph-fixes-lot6-bench.log`):
+- P3: hub de 500 callers 1,77 ms → 0,79 ms (−55%), 657 KB → 204 KB (−69%);
+  search 200 hits 1,44 ms → 1,03 ms (−28%), 277 KB → 90 KB (−67%).
+- P2b: hub de 5000, página 500 no offset 4500: 4,39 ms → 2,06 ms (−53%), agora
+  igual à primeira página (2,33 ms).
+- P2a: página a partir da linha 4001: 301 µs → 202 µs (−33%), 221 KB → 93 KB
+  (−58%), allocs 8.506 → 506 (−94%).
+
+`EXPLAIN QUERY PLAN` (offset e keyset) mostra o mesmo plano de acesso:
+`SEARCH e USING INDEX idx_edges_target_type (target_id=? AND type=?)` +
+`SEARCH n USING INTEGER PRIMARY KEY` + `USE TEMP B-TREE FOR ORDER BY`. Ou seja, o
+índice existente já é usado e **nenhum índice composto foi acrescentado**; o ganho
+vem de o filtro keyset reduzir o conjunto antes do sort. O `USE TEMP B-TREE` é
+inerente ao `ORDER BY n.qualified_name` sobre o join e permanece nos dois casos.
+
+Implementação: `internal/graph/refs.go` (`RefNode`, projeção compacta,
+`searchSelect`/`neighborSelect` compartilhados, `SearchRefs`, `NeighborRefs`,
+`NeighborRefsAfter`), `internal/graph/store.go` (usa os builders),
+`internal/graph/snippet_page.go` (`skipSnippetLines`), `internal/query/{page,budget,query}.go`
+(cursor V=2 keyset, `refBudget`, rejeição de V incompatível). Sem mudança de
+identidade de análise (o grafo e as respostas não mudam), então nenhum rebuild.
+
+Regressões: `TestRefs_MatchFullNodeQueries` (projeção == nós completos),
+`TestNeighborRefsAfter_MatchesOffsetPaging` (enumerar por keyset == enumerar por
+offset, nas três direções, com o dedup do UNION), `TestNeighborRefs_RejectsUnknownDirection`,
+`TestSnippetPaged_RejectsOversizeLine` (caso `skipped-before-range`), além dos
+testes de paginação/limite existentes que passam sem alteração.
+Benchmarks: `BenchmarkNeighborRefs_{Compact,FullNode}`, `BenchmarkSearchRefs_{Compact,FullNode}`,
+`BenchmarkNeighborRefs_{FirstPage,DeepPage}`, `BenchmarkNeighborRefsAfter_DeepPage`,
+`BenchmarkSnippetPaged_{FirstPage,DeepPage}`.
+
+Limites: o keyset foi aplicado aos vizinhos; **search** fica no cursor de offset
+porque a ordem é por `fts.rank` (tupla (rank,id) é frágil) — documentado como
+aberto. `dead_code` já usava cursor de candidato bruto. P5 e a observabilidade do
+P7 continuam abertos. Benchmarks sintéticos, sem claim de ganho universal.
+Windows/Linux nativos e o CI remoto Linux/Go 1.26 não foram verificados.

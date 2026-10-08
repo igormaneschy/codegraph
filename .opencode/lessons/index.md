@@ -60,3 +60,7 @@
 ## Change review-perf-p1-p4-p6-p7 (2026-10-08)
 - [pattern] [bounded-retention-equal-output](learned/bounded-retention-equal-output.md)
 - [pattern] [gate-without-double-gc](learned/gate-without-double-gc.md)
+
+## Change review-perf-p2-p3 (2026-10-08)
+- [pattern] [keyset-continuation](learned/keyset-continuation.md)
+- [pattern] [project-only-what-you-return](learned/project-only-what-you-return.md)

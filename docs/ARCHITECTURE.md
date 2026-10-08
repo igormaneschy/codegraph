@@ -394,8 +394,21 @@ row (no COUNT); byte budgets (32 KiB text per page) prevail over counts
 single oversize refs/lines go whole, never split into invalid references, up to
 an absolute 1 MiB per-line ceiling beyond which the page fails with range/
 read-directly guidance instead of allocating without bound.
+Compact answers never decode what they do not return (P3): search and neighbor
+pages select only the ref columns (`graph.RefNode`) instead of every node column,
+so the properties JSON is neither read from SQLite nor unmarshalled. Neighbor
+pages (callers/callees/neighbors/similar) continue by **keyset** on the last
+served `qualified_name` (a V=2 cursor) rather than an `OFFSET`, so a deep page
+costs the same as the first; search keeps its offset cursor (rank order) and
+`dead_code` its raw-candidate cursor. A V=1 offset cursor replayed against a
+neighbor tool is rejected with orientation to restart. `EXPLAIN QUERY PLAN`
+confirms the existing `idx_edges_target_type` index is already used and no
+composite index is needed: the keyset filter shrinks the pre-sort row set.
 Snippet pages stream incrementally (memory ∝ page, not file) and resume at
-line starts; the cursor carries the sha256 of the whole file the page read, so
+line starts; the fast-forward counts skipped lines in chunks without
+materializing a string per line (still hashing them for the digest and
+enforcing the line ceiling), so a page deep in a file costs about the same as
+the first. The cursor carries the sha256 of the whole file the page read, so
 any byte change between pages — a same-size edit, a line-break shift, or a
 rename-replacement — fails the next page instead of shifting lines silently
 (size, inode, and mtime are not proof of content). Source files are opened
