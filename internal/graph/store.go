@@ -740,9 +740,21 @@ func (s *Store) InsertNodes(nodes []Node) (retErr error) {
 		if err != nil {
 			return err
 		}
+		affected, err := res.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("count inserted node %q: %w", n.QualifiedName, err)
+		}
+		if affected == 0 {
+			// An ignored insert retains the connection's previous rowid. Only
+			// a newly inserted node may contribute postings to the FTS index.
+			continue
+		}
 		id, err := res.LastInsertId()
-		if err != nil || id == 0 {
-			continue // duplicate qualified_name (INSERT OR IGNORE) — skip FTS
+		if err != nil {
+			return fmt.Errorf("get inserted node ID for %q: %w", n.QualifiedName, err)
+		}
+		if id <= 0 {
+			return fmt.Errorf("inserted node %q has ID %d; expected a positive rowid", n.QualifiedName, id)
 		}
 		if _, err := insFTS.Exec(id, n.Name, n.QualifiedName, string(n.Label), n.FilePath); err != nil {
 			return err
@@ -838,11 +850,16 @@ func (s *Store) RubyAnalysisCurrent(project string, version int) (bool, error) {
 // InsertEdges resolves source/target qualified names to node IDs and inserts.
 // QN→id resolution is done once in memory (was one correlated subquery per edge —
 // O(edges) two-table lookups). Edges whose endpoints don't exist are dropped.
+// Every batch must belong to one non-empty project and have non-empty QNs;
+// validation precedes any writes so an invalid batch cannot partially persist.
 func (s *Store) InsertEdges(edges []Edge) (inserted, dropped int, err error) {
 	if len(edges) == 0 {
 		return 0, 0, nil
 	}
 
+	if err := validateEdgeBatch(edges); err != nil {
+		return 0, 0, err
+	}
 	project := edges[0].Project
 	idByQN, err := s.qnIDs(project)
 	if err != nil {
@@ -899,6 +916,19 @@ func (s *Store) InsertEdges(edges []Edge) (inserted, dropped int, err error) {
 		return 0, 0, err
 	}
 	return inserted, dropped, nil
+}
+
+func validateEdgeBatch(edges []Edge) error {
+	project := edges[0].Project
+	for i, edge := range edges {
+		if strings.TrimSpace(edge.Project) == "" || edge.Project != project {
+			return fmt.Errorf("edge %d: project %q; expected project %q (non-empty and identical for every edge)", i, edge.Project, project)
+		}
+		if strings.TrimSpace(edge.SourceQN) == "" || strings.TrimSpace(edge.TargetQN) == "" {
+			return fmt.Errorf("edge %d: source=%q target=%q; expected non-empty qualified names", i, edge.SourceQN, edge.TargetQN)
+		}
+	}
+	return nil
 }
 
 // DeleteEdgesByType removes one relationship class from a project. The indexer
