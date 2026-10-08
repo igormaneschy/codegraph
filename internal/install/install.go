@@ -6,6 +6,7 @@
 package install
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -110,20 +111,24 @@ func CodexCommand(bin string) []string {
 
 // mergeOpencodeConfig adds the codegraph local server to an opencode config blob
 // without clobbering the rest: existing top-level keys and other MCP servers are
-// preserved. A nil/empty blob starts a fresh config.
+// preserved. The input may be JSON or JSONC — opencode reads opencode.jsonc, so
+// comments and trailing commas are accepted. A non-object or null document, or a
+// non-object "mcp" value, is an error instead of a silent overwrite.
 func mergeOpencodeConfig(existing []byte, bin string) ([]byte, error) {
-	cfg := map[string]any{}
-	if len(strings.TrimSpace(string(existing))) > 0 {
-		if err := json.Unmarshal(existing, &cfg); err != nil {
-			return nil, fmt.Errorf("opencode config is not valid JSON: %w", err)
-		}
+	cfg, err := parseOpencodeConfig(existing)
+	if err != nil {
+		return nil, err
 	}
 	if _, ok := cfg["$schema"]; !ok {
 		cfg["$schema"] = "https://opencode.ai/config.json"
 	}
-	mcp, _ := cfg["mcp"].(map[string]any)
-	if mcp == nil {
-		mcp = map[string]any{}
+	mcp := map[string]any{}
+	if raw, ok := cfg["mcp"]; ok && raw != nil {
+		existingMCP, ok := raw.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("opencode config \"mcp\" must be a JSON object, found %T", raw)
+		}
+		mcp = existingMCP
 	}
 	mcp["codegraph"] = map[string]any{
 		"type":    "local",
@@ -134,9 +139,116 @@ func mergeOpencodeConfig(existing []byte, bin string) ([]byte, error) {
 	return json.MarshalIndent(cfg, "", "  ")
 }
 
+// parseOpencodeConfig decodes a JSON or JSONC document into a top-level object.
+// An empty document is a fresh config; anything that is not a JSON object is an
+// error, so a malformed blob can never be replaced by a partial merge.
+func parseOpencodeConfig(existing []byte) (map[string]any, error) {
+	if len(bytes.TrimSpace(existing)) == 0 {
+		return map[string]any{}, nil
+	}
+	var value any
+	if err := json.Unmarshal(stripJSONTrailingCommas(stripJSONComments(existing)), &value); err != nil {
+		return nil, fmt.Errorf("opencode config is not valid JSON/JSONC: %w", err)
+	}
+	cfg, ok := value.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("opencode config must be a JSON object, found %T", value)
+	}
+	return cfg, nil
+}
+
+// stripJSONComments removes // and /* */ comments so encoding/json can parse a
+// JSONC document. Detection is string-aware, so "https://x" and "/*" inside a
+// string survive untouched. Whitespace is otherwise preserved.
+func stripJSONComments(src []byte) []byte {
+	out := make([]byte, 0, len(src))
+	inString, escaped := false, false
+	for i := 0; i < len(src); i++ {
+		c := src[i]
+		if inString {
+			out = append(out, c)
+			switch {
+			case escaped:
+				escaped = false
+			case c == '\\':
+				escaped = true
+			case c == '"':
+				inString = false
+			}
+			continue
+		}
+		switch {
+		case c == '"':
+			inString = true
+			out = append(out, c)
+		case c == '/' && i+1 < len(src) && src[i+1] == '/':
+			for i < len(src) && src[i] != '\n' {
+				i++
+			}
+			if i < len(src) {
+				out = append(out, '\n')
+			}
+		case c == '/' && i+1 < len(src) && src[i+1] == '*':
+			i += 2
+			for i+1 < len(src) && (src[i] != '*' || src[i+1] != '/') {
+				i++
+			}
+			i++ // land on the closing '/', or past the end when unterminated
+			out = append(out, ' ')
+		default:
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// stripJSONTrailingCommas removes a comma that is followed only by whitespace and
+// a closing brace or bracket, which JSONC permits and encoding/json rejects.
+func stripJSONTrailingCommas(src []byte) []byte {
+	out := make([]byte, 0, len(src))
+	inString, escaped := false, false
+	for i := 0; i < len(src); i++ {
+		c := src[i]
+		if inString {
+			out = append(out, c)
+			switch {
+			case escaped:
+				escaped = false
+			case c == '\\':
+				escaped = true
+			case c == '"':
+				inString = false
+			}
+			continue
+		}
+		if c == '"' {
+			inString = true
+			out = append(out, c)
+			continue
+		}
+		if c == ',' {
+			j := i + 1
+			for j < len(src) && (src[j] == ' ' || src[j] == '\t' || src[j] == '\n' || src[j] == '\r') {
+				j++
+			}
+			if j < len(src) && (src[j] == '}' || src[j] == ']') {
+				out = append(out, ' ')
+				continue
+			}
+		}
+		out = append(out, c)
+	}
+	return out
+}
+
 func installOpencode(bin string) error {
 	path := opencodeConfigPath()
-	existing, _ := os.ReadFile(path) // missing file → empty → fresh config
+	existing, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		// Only a missing file means "fresh config"; a permission or I/O error must
+		// never be treated as empty and overwrite the user's real config.
+		return fmt.Errorf("read opencode config %q: %w", path, err)
+	}
 	merged, err := mergeOpencodeConfig(existing, bin)
 	if err != nil {
 		return err
@@ -145,8 +257,9 @@ func installOpencode(bin string) error {
 		return err
 	}
 	// User-scoped agent config; owner-only perms are the safe default and the
-	// agents read it as the same user.
-	return os.WriteFile(path, merged, 0o600)
+	// agents read it as the same user. Atomic replace keeps an interrupted install
+	// from truncating the config.
+	return writeFileAtomic(path, merged, 0o600)
 }
 
 func opencodeManual(bin string) string {
@@ -223,7 +336,48 @@ func installGrok(bin string) error {
 	// #nosec G703 -- path comes from grokConfigPath(): os.UserHomeDir plus the
 	// fixed ".grok/config.toml" components, never from user-supplied input.
 	// User-scoped agent config; owner-only perms are the safe default.
-	return os.WriteFile(path, merged, 0o600)
+	return writeFileAtomic(path, merged, 0o600)
+}
+
+// writeFileAtomic replaces path with data through a same-directory temporary file
+// and a rename, so an interrupted install cannot leave a truncated config. The
+// temporary file is removed on every failure path.
+func writeFileAtomic(path string, data []byte, mode os.FileMode) (retErr error) {
+	// A user may symlink a dotfile into their config dir. Resolve an existing
+	// link so the atomic rename lands on its target and the link keeps working;
+	// a missing path keeps its own location.
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		path = resolved
+	}
+	temp, err := os.CreateTemp(filepath.Dir(path), ".codegraph-config-*")
+	if err != nil {
+		return fmt.Errorf("stage config write for %q: %w", path, err)
+	}
+	tempPath := temp.Name()
+	defer func() {
+		if retErr != nil {
+			_ = os.Remove(tempPath)
+		}
+	}()
+	if err := temp.Chmod(mode); err != nil {
+		_ = temp.Close()
+		return fmt.Errorf("set config mode for %q: %w", path, err)
+	}
+	if _, err := temp.Write(data); err != nil {
+		_ = temp.Close()
+		return fmt.Errorf("write config %q: %w", path, err)
+	}
+	if err := temp.Sync(); err != nil {
+		_ = temp.Close()
+		return fmt.Errorf("sync config %q: %w", path, err)
+	}
+	if err := temp.Close(); err != nil {
+		return fmt.Errorf("close config %q: %w", path, err)
+	}
+	if err := os.Rename(tempPath, path); err != nil {
+		return fmt.Errorf("replace config %q: %w", path, err)
+	}
+	return nil
 }
 
 func grokManual(bin string) string {

@@ -39,8 +39,12 @@ jobs:
             asset: codegraph-linux-amd64
           - os: macos-latest
             asset: codegraph-darwin-arm64
-          - os: windows-latest
-            asset: codegraph-windows-amd64.exe
+          # No Windows asset: internal/securefile returns ErrUnsupported for
+          # MkdirAllPrivate/WritePrivate/WritePrivateTemp/MkdirTempPrivate on
+          # Windows, so index/stats/mcp cannot operate there (R01). Publishing a
+          # binary that always fails is a false support promise. Re-add this
+          # entry only with a natively tested handle/ACL implementation and a
+          # Windows runtime smoke test (index -> no-op -> query -> refresh).
     runs-on: ${{ matrix.os }}
     permissions:
       contents: read

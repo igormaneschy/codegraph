@@ -66,3 +66,50 @@ func keysOf(m map[string]graph.Node) []string {
 	}
 	return out
 }
+
+// TestRoutes_NestJS_DynamicPathsAreOmitted pins the tri-state path contract: an
+// unresolvable @Controller base, handler path, array, interpolation, or computed
+// expression must omit the Route instead of being guessed as a literal "/".
+func TestRoutes_NestJS_DynamicPathsAreOmitted(t *testing.T) {
+	src := "import { Controller, Get } from '@nestjs/common';\n\n" +
+		"const BASE = 'api';\nconst PATH = ':id';\n\n" +
+		"@Controller(BASE)\nexport class DynamicController {\n" +
+		"  @Get(PATH)\n  findOne() {}\n\n" +
+		"  @Get('literal')\n  literalUnderUnknownBase() {}\n}\n\n" +
+		"@Controller('users')\nexport class PartiallyKnownController {\n" +
+		"  @Get(PATH)\n  byId() {}\n\n" +
+		"  @Get(['active', 'archived'])\n  byState() {}\n\n" +
+		"  @Get('a' + 'b')\n  joined() {}\n\n" +
+		"  @Get(`users/${PATH}`)\n  interpolated() {}\n}\n\n" +
+		"@Controller()\nexport class RootController {\n" +
+		"  @Get('health')\n  health() {}\n}\n\n" +
+		"@Controller('empty')\nexport class EmptyPathController {\n" +
+		"  @Get('')\n  root() {}\n}\n"
+
+	nodes, _ := extractDefsFromSource("proj", "dynamic.controller.ts", LangTS, []byte(src))
+	routes := map[string]bool{}
+	for _, n := range nodes {
+		if n.Label == graph.LabelRoute {
+			routes[n.Name] = true
+		}
+	}
+	// @Controller() with @Get('health') and @Controller('empty') with @Get('') are
+	// the only fully-known paths; everything else is statically unresolvable.
+	want := map[string]bool{"GET /health": true, "GET /empty": true}
+	if len(routes) != len(want) {
+		t.Fatalf("routes=%v, want exactly %v", routeNames(routes), routeNames(want))
+	}
+	for name := range want {
+		if !routes[name] {
+			t.Errorf("missing known route %q; got %v", name, routeNames(routes))
+		}
+	}
+}
+
+func routeNames(routes map[string]bool) []string {
+	out := make([]string, 0, len(routes))
+	for name := range routes {
+		out = append(out, name)
+	}
+	return out
+}

@@ -185,3 +185,180 @@ default = "grok-4.5"
 		t.Errorf("want 1 codegraph table, got %d:\n%s", n, out2)
 	}
 }
+
+// TestMergeOpencodeConfig_AcceptsJSONC pins R14: opencode.jsonc is the file the
+// installer prefers, so its comments and trailing commas must parse. Comment
+// markers inside string values must survive untouched.
+func TestMergeOpencodeConfig_AcceptsJSONC(t *testing.T) {
+	existing := []byte(`{
+  // opencode user config
+  "$schema": "https://opencode.ai/config.json",
+  "model": "anthropic/claude", /* inline block */
+  "mcp": {
+    "other": { "type": "local", "command": ["other"], "enabled": true, },
+  },
+  "instructions": ["url://with//slashes", "/* not a comment */"],
+}`)
+	out, err := mergeOpencodeConfig(existing, "/opt/codegraph")
+	if err != nil {
+		t.Fatalf("JSONC config must parse: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("merged output is not JSON: %v", err)
+	}
+	if got["model"] != "anthropic/claude" {
+		t.Errorf("merge clobbered model: %v", got)
+	}
+	mcp, _ := got["mcp"].(map[string]any)
+	if _, ok := mcp["other"]; !ok {
+		t.Errorf("merge dropped the user's other server: %v", mcp)
+	}
+	if _, ok := mcp["codegraph"]; !ok {
+		t.Errorf("merge did not add codegraph: %v", mcp)
+	}
+	instr, _ := got["instructions"].([]any)
+	if len(instr) != 2 || instr[0] != "url://with//slashes" || instr[1] != "/* not a comment */" {
+		t.Errorf("comment-like string values were mangled: %v", instr)
+	}
+}
+
+// TestMergeOpencodeConfig_RejectsNonObjectDocuments pins that a null/array/scalar
+// blob is an error, never a nil-map panic or a silent overwrite.
+func TestMergeOpencodeConfig_RejectsNonObjectDocuments(t *testing.T) {
+	for _, tc := range []struct{ name, doc string }{
+		{"null", "null"},
+		{"array", "[]"},
+		{"string", `"nope"`},
+		{"number", "42"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := mergeOpencodeConfig([]byte(tc.doc), "/opt/codegraph"); err == nil {
+				t.Fatalf("%s must be rejected, not merged", tc.name)
+			}
+		})
+	}
+	if _, err := mergeOpencodeConfig([]byte(`{"mcp":"nope"}`), "/opt/codegraph"); err == nil {
+		t.Fatal(`a non-object "mcp" value must be rejected, not clobbered`)
+	}
+}
+
+// TestInstallOpencode_PropagatesReadErrors pins that only a missing config is
+// treated as empty: an unreadable path must fail, not be overwritten.
+func TestInstallOpencode_PropagatesReadErrors(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	// A directory at the config path makes os.ReadFile fail with EISDIR, not ENOENT.
+	if err := os.MkdirAll(filepath.Join(dir, "opencode", "opencode.json"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := installOpencode("/opt/codegraph"); err == nil {
+		t.Fatal("an unreadable config path must fail instead of being treated as empty")
+	}
+}
+
+// TestInstallOpencode_MergesIntoExistingJSONC pins the end-to-end install: the
+// existing .jsonc wins, its user keys survive, the result is owner-only, and no
+// staging file is left behind.
+func TestInstallOpencode_MergesIntoExistingJSONC(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	ocDir := filepath.Join(dir, "opencode")
+	if err := os.MkdirAll(ocDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(ocDir, "opencode.jsonc")
+	if err := os.WriteFile(path, []byte("{\n  // keep me\n  \"model\": \"anthropic/claude\"\n}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := installOpencode("/opt/codegraph"); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("installed config is not JSON: %v", err)
+	}
+	if got["model"] != "anthropic/claude" {
+		t.Errorf("install clobbered the user's model: %v", got)
+	}
+	if _, ok := got["mcp"].(map[string]any)["codegraph"]; !ok {
+		t.Errorf("codegraph was not installed: %v", got)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o600 {
+		t.Errorf("config mode = %o, want 0600", perm)
+	}
+	entries, err := os.ReadDir(ocDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name() != "opencode.jsonc" {
+		t.Errorf("staging files left behind: %v", entries)
+	}
+}
+
+// TestWriteFileAtomic_ReplacesWithoutTempLeftovers pins the atomic writer used by
+// both config installers.
+func TestWriteFileAtomic_ReplacesWithoutTempLeftovers(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	if err := writeFileAtomic(path, []byte("first"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeFileAtomic(path, []byte("second"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || string(data) != "second" {
+		t.Fatalf("content=%q err=%v, want second", data, err)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name() != "config.json" {
+		t.Fatalf("temp file left behind: %v", entries)
+	}
+}
+
+// TestWriteFileAtomic_PreservesSymlinkTarget pins that a dotfile-style symlinked
+// config is written through (the link survives), not replaced by a regular file.
+func TestWriteFileAtomic_PreservesSymlinkTarget(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "real.json")
+	if err := os.WriteFile(target, []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(t.TempDir(), "link.json")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if err := writeFileAtomic(link, []byte("new"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(target)
+	if err != nil || string(data) != "new" {
+		t.Fatalf("symlink target content=%q err=%v, want new", data, err)
+	}
+	info, err := os.Lstat(link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		t.Fatal("atomic write replaced the symlink instead of following it")
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name() != "real.json" {
+		t.Fatalf("temp file left behind: %v", entries)
+	}
+}

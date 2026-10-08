@@ -13,12 +13,30 @@ import (
 // we join the controller base path with each handler's path into a Route node, placed
 // at the handler method so snippet/search land on the handling code.
 
-// decor is a captured decorator: its bare name and first string-literal argument
-// (the path for @Controller('users') / @Get(':id'); "" when there's no string arg).
+// decor is a captured decorator: its bare name and path argument. The argument
+// is tri-state (routeArg) because "" alone cannot distinguish @Get()/@Controller()
+// (valid: the root) from @Get(PATH) (statically unresolvable).
 type decor struct {
 	name string
-	arg  string
+	arg  routeArg
 }
+
+// routeArg is a decorator's path argument in one of three states: absent
+// (@Get()), a single string literal (@Get('users')), or unknown (@Get(PATH),
+// arrays, interpolation, or multiple arguments). Only absent and literal may
+// produce a Route: an unknown argument is omitted, never guessed as "/".
+type routeArg struct {
+	kind    routeArgKind
+	literal string
+}
+
+type routeArgKind uint8
+
+const (
+	routeArgAbsent routeArgKind = iota
+	routeArgLiteral
+	routeArgUnknown
+)
 
 // httpVerbs maps NestJS method decorators to their HTTP verb.
 var httpVerbs = map[string]string{
@@ -27,18 +45,21 @@ var httpVerbs = map[string]string{
 }
 
 // emitRoutes emits one Route node per HTTP-verb decorator on a handler method, but
-// only inside a class that is itself a @Controller. The route's location is the
-// handler method's, and add() wires the file→route DEFINES edge.
-func emitRoutes(pending []decor, isController bool, base, methodQN string, m *tree_sitter.Node, add addFn) {
-	if !isController {
+// only inside a class that is itself a @Controller and only when both the
+// controller base and the handler path are known. An unresolvable argument
+// (@Controller(BASE), @Get(PATH), arrays) omits the Route instead of inventing
+// "GET /". The route's location is the handler method's, and add() wires the
+// file→route DEFINES edge.
+func emitRoutes(pending []decor, isController bool, base routeArg, methodQN string, m *tree_sitter.Node, add addFn) {
+	if !isController || base.kind == routeArgUnknown {
 		return
 	}
 	for _, d := range pending {
 		verb, ok := httpVerbs[d.name]
-		if !ok {
+		if !ok || d.arg.kind == routeArgUnknown {
 			continue
 		}
-		path := joinRoute(base, d.arg)
+		path := joinRoute(base.literal, d.arg.literal)
 		add(graph.LabelRoute, verb+" "+path, methodQN+"#"+verb,
 			m.StartPosition().Row, m.EndPosition().Row,
 			map[string]any{"method": verb, "path": path, "handler": methodQN})
@@ -68,18 +89,19 @@ func decorNames(ds []decor) []string {
 }
 
 // controllerArg returns (isController, basePath) for a class's decorators.
-func controllerArg(ds []decor) (bool, string) {
+func controllerArg(ds []decor) (bool, routeArg) {
 	for _, d := range ds {
 		if d.name == "Controller" {
 			return true, d.arg
 		}
 	}
-	return false, ""
+	return false, routeArg{}
 }
 
-// decoratorArg returns a decorator's first string-literal argument, or "".
-// (@Controller('users') -> "users", @Get(':id') -> ":id", @Get() -> "").
-func decoratorArg(d *tree_sitter.Node, src []byte) string {
+// decoratorPath classifies a decorator's path argument without guessing.
+// (@Controller('users') -> literal "users", @Get() -> absent, @Get(PATH) or
+// @Get(['a','b']) -> unknown.)
+func decoratorPath(d *tree_sitter.Node, src []byte) routeArg {
 	var call *tree_sitter.Node
 	for i := uint(0); i < d.NamedChildCount(); i++ {
 		if c := d.NamedChild(i); c.Kind() == "call_expression" {
@@ -88,18 +110,30 @@ func decoratorArg(d *tree_sitter.Node, src []byte) string {
 		}
 	}
 	if call == nil {
-		return ""
+		return routeArg{kind: routeArgUnknown}
 	}
 	args := call.ChildByFieldName("arguments")
 	if args == nil {
-		return ""
+		return routeArg{kind: routeArgUnknown}
 	}
+	var only *tree_sitter.Node
+	count := uint(0)
 	for i := uint(0); i < args.NamedChildCount(); i++ {
-		if a := args.NamedChild(i); a.Kind() == "string" {
-			return stringFragment(a, src)
+		child := args.NamedChild(i)
+		if child.Kind() == "comment" {
+			continue
 		}
+		count++
+		only = child
 	}
-	return ""
+	switch {
+	case count == 0:
+		return routeArg{kind: routeArgAbsent}
+	case count == 1 && only.Kind() == "string":
+		return routeArg{kind: routeArgLiteral, literal: stringFragment(only, src)}
+	default:
+		return routeArg{kind: routeArgUnknown}
+	}
 }
 
 // stringFragment returns the content of a tree-sitter `string` node (without quotes);
