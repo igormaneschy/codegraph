@@ -215,6 +215,9 @@ func (s *mcpSession) statusText() string {
 	if s.hasResult {
 		fmt.Fprintf(&b, "files=%d nodes=%d edges=%d reused=%v\n",
 			s.lastResult.Files, s.lastResult.Nodes, s.lastResult.EdgesKept, s.lastResult.Reused)
+		if summary := s.lastResult.MetricsSummary(); summary != "" {
+			fmt.Fprintf(&b, "%s\n", summary)
+		}
 	} else {
 		b.WriteString("files=0 nodes=0 edges=0 reused=false\n")
 	}
@@ -443,6 +446,12 @@ func (s *mcpSession) round() {
 	}
 
 	res, ierr := s.indexFn(s.ctx, s.dbPath, s.root)
+	// Last-round diagnostics belong to the attempted run, even when cancellation
+	// or a failed reopen prevents publication. Served identity remains separate.
+	s.mu.Lock()
+	s.lastResult = res
+	s.hasResult = true
+	s.mu.Unlock()
 	// Hand freed heap back to the OS after the resolver spike, as before.
 	if s.ctx.Err() == nil {
 		debug.FreeOSMemory()
@@ -463,8 +472,6 @@ func (s *mcpSession) round() {
 			return
 		}
 		s.mu.Lock()
-		s.lastResult = res
-		s.hasResult = true
 		s.state = mcpStateFailed
 		s.notice = "codegraph: indexing " + s.project + " failed: " + ierr.Error() + "; serving previous generation " + shortDigest(s.generation)
 		s.everServed = s.everServed || s.serving

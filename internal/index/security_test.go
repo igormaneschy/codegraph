@@ -33,7 +33,7 @@ func TestSecurity_SourceConsumersRejectSymlinkedInputs(t *testing.T) {
 		t.Fatalf("definitions symlink error=%v, want ErrUnsafePath", err)
 	}
 	if _, err := collectImportsStreamingContext(context.Background(), "project", []SourceFile{{
-		AbsPath: linked, RelPath: "linked.go", Lang: LangGo,
+		AbsPath: linked, RelPath: "linked.ts", Lang: LangTS,
 	}}); !errors.Is(err, securefile.ErrUnsafePath) {
 		t.Fatalf("imports symlink error=%v, want ErrUnsafePath", err)
 	}

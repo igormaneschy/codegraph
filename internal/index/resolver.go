@@ -137,11 +137,19 @@ func sortedResolverScopeKeys(scopes map[string]struct{}) []string {
 // manifest boundaries. Source-only repositories intentionally have no resolver
 // scope until a usable resolver configuration exists.
 func expectedResolverScopeKeys(root string, files []SourceFile, tsdirs []string) map[string]struct{} {
+	repository, err := validateRoot(root)
+	if err != nil {
+		return expectedResolverScopesAtRoot(repositoryRoot{}, files, tsdirs)
+	}
+	return expectedResolverScopesAtRoot(repository, files, tsdirs)
+}
+
+func expectedResolverScopesAtRoot(repository repositoryRoot, files []SourceFile, tsdirs []string) map[string]struct{} {
 	expected := make(map[string]struct{}, len(tsdirs)+2)
 	for _, dir := range tsdirs {
 		expected[resolverScopeKey("scip-typescript", dir)] = struct{}{}
 	}
-	if hasGo(files) && hasGoResolverConfig(root) {
+	if repository.path != "" && hasGo(files) && hasGoResolverConfigAtRoot(repository.path) {
 		expected[resolverScopeKey("go-vta", "go")] = struct{}{}
 	}
 	if hasRuby(files) {
