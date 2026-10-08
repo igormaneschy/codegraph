@@ -89,7 +89,10 @@ jobs:
           node-version: "26.0.0"
           package-manager-cache: false
 
-      # Match the package pinned by internal/scip/run.go; unit tests need no Node.
+      - name: evaluation producer contracts
+        run: node --test eval/*.test.js
+
+      # Match the package pinned by internal/scip/run.go; Go unit tests need no Node.
       - name: install pinned SCIP TypeScript
         run: npx --yes @sourcegraph/scip-typescript@0.4.0 --version
 

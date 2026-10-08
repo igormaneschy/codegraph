@@ -1,85 +1,109 @@
 package quality
 
 import (
+	"fmt"
+	"math"
 	"path"
 	"strconv"
 	"strings"
 )
 
-// Evaluate scores every answer against the oracle truth and aggregates per mode.
-// Structural answers score by F1 (definition by file:line match); open answers
-// take the judge's 0..1 score (0 if the judge left none).
-func Evaluate(qs []Question, truths []Truth, answers []Answer) ([]Score, map[string]Agg) {
-	qByID := map[string]Question{}
-	for _, q := range qs {
-		qByID[q.ID] = q
-	}
-	tByID := map[string]Truth{}
-	for _, t := range truths {
-		tByID[t.ID] = t
-	}
-
-	var scores []Score
-	aggs := map[string]*Agg{}
-	for _, a := range answers {
-		q, ok := qByID[a.ID]
-		if !ok {
-			continue
-		}
-		var sc Score
-		switch q.Type {
-		case TypeOpen:
-			j := 0.0
-			if a.Judge != nil {
-				j = clamp01(*a.Judge)
-			}
-			sc = Score{ID: a.ID, Mode: a.Mode, Type: q.Type, Quality: j, Precision: j, Recall: j}
-		case TypeDefinition:
-			ok := matchDefinition(a.Items, tByID[a.ID].Items)
-			q01 := b2f(ok)
-			sc = Score{ID: a.ID, Mode: a.Mode, Type: q.Type, Quality: q01, Precision: q01, Recall: q01}
-		default: // callers / callees
-			p, r, f := f1(a.Items, tByID[a.ID].Items)
-			sc = Score{ID: a.ID, Mode: a.Mode, Type: q.Type, Quality: f, Precision: p, Recall: r}
-		}
-		scores = append(scores, sc)
-
-		ag := aggs[a.Mode]
-		if ag == nil {
-			ag = &Agg{Mode: a.Mode, ByType: map[QType]float64{}}
-			aggs[a.Mode] = ag
-		}
-		ag.N++
-		ag.MeanQuality += sc.Quality
-		ag.ByType[q.Type] += sc.Quality
-		ag.TotalTokens += a.Tokens
-		ag.TotalCalls += a.Calls
-	}
-
-	// finalize means
-	out := map[string]Agg{}
-	typeCounts := map[QType]int{}
-	for _, q := range qs {
-		typeCounts[q.Type]++
-	}
-	for mode, ag := range aggs {
-		if ag.N > 0 {
-			ag.MeanQuality /= float64(ag.N)
-		}
-		for typ, sum := range ag.ByType {
-			if c := typeCounts[typ]; c > 0 {
-				ag.ByType[typ] = sum / float64(c)
-			}
-		}
-		out[mode] = *ag
-	}
-	return scores, out
+// Evaluation labels the method and complete mode matrix alongside its scores.
+type Evaluation struct {
+	Scorer     Scorer         `json:"scorer"`
+	Modes      []string       `json:"modes"`
+	Scores     []Score        `json:"scores"`
+	Aggregates map[string]Agg `json:"aggregates"`
 }
 
-// f1 computes set precision/recall/F1 over normalized symbol names.
+// Evaluate validates the whole run before grading, never inferring completeness
+// from the answers that happen to be present. Example: Evaluate(qs, truths,
+// answers, EvaluationOptions{}) uses exact QNs and expects graph+baseline.
+func Evaluate(qs []Question, truths []Truth, answers []Answer, options EvaluationOptions) (Evaluation, error) {
+	plan, err := validateEvaluation(qs, truths, answers, options)
+	if err != nil {
+		return Evaluation{}, err
+	}
+	var scores []Score
+	for _, q := range qs {
+		for _, mode := range plan.options.Modes {
+			scores = append(scores, scoreAnswer(q, plan.truths[q.ID], plan.answers[answerKey{q.ID, mode}], plan.options.Scorer))
+		}
+	}
+	aggregates, err := aggregateScores(qs, scores, plan.answers)
+	if err != nil {
+		return Evaluation{}, err
+	}
+	return Evaluation{Scorer: plan.options.Scorer, Modes: plan.options.Modes, Scores: scores, Aggregates: aggregates}, nil
+}
+
+func scoreAnswer(q Question, truth Truth, answer Answer, scorer Scorer) Score {
+	score := Score{ID: q.ID, Mode: answer.Mode, Type: q.Type}
+	switch q.Type {
+	case TypeOpen:
+		score.Quality = *answer.Judge
+	case TypeDefinition:
+		if scorer == ScorerLegacy {
+			score.Quality = b2f(matchDefinition(answer.Items, truth.Items))
+		} else {
+			score.Quality = b2f(strictDefinition(answer.Items, truth.Items))
+		}
+	default:
+		if scorer == ScorerLegacy {
+			score.Precision, score.Recall, score.Quality = f1(answer.Items, truth.Items)
+		} else {
+			score.Precision, score.Recall, score.Quality = setF1(exactSet(answer.Items), exactSet(truth.Items))
+		}
+		return score
+	}
+	score.Precision, score.Recall = score.Quality, score.Quality
+	return score
+}
+
+func aggregateScores(qs []Question, scores []Score, answers map[answerKey]Answer) (map[string]Agg, error) {
+	counts := map[QType]int{}
+	for _, q := range qs {
+		counts[q.Type]++
+	}
+	aggregates := map[string]Agg{}
+	for _, score := range scores {
+		aggregate := aggregates[score.Mode]
+		if aggregate.ByType == nil {
+			aggregate = Agg{Mode: score.Mode, ByType: map[QType]float64{}}
+		}
+		if err := addScore(&aggregate, score, answers[answerKey{score.ID, score.Mode}]); err != nil {
+			return nil, err
+		}
+		aggregates[score.Mode] = aggregate
+	}
+	for mode, aggregate := range aggregates {
+		aggregate.MeanQuality /= float64(aggregate.N)
+		for typ, sum := range aggregate.ByType {
+			aggregate.ByType[typ] = sum / float64(counts[typ])
+		}
+		aggregates[mode] = aggregate
+	}
+	return aggregates, nil
+}
+
+func addScore(aggregate *Agg, score Score, answer Answer) error {
+	if answer.Tokens > math.MaxInt-aggregate.TotalTokens || answer.Calls > math.MaxInt-aggregate.TotalCalls {
+		return fmt.Errorf("cost overflow for question %q in mode %q: tokens=%d calls=%d cannot be aggregated as int", answer.ID, answer.Mode, answer.Tokens, answer.Calls)
+	}
+	aggregate.N++
+	aggregate.MeanQuality += score.Quality
+	aggregate.ByType[score.Type] += score.Quality
+	aggregate.TotalTokens += answer.Tokens
+	aggregate.TotalCalls += answer.Calls
+	return nil
+}
+
+// f1 retains the explicitly selected legacy name-normalization semantics.
 func f1(answer, truth []string) (p, r, f float64) {
-	A := toSet(answer)
-	T := toSet(truth)
+	return setF1(toSet(answer), toSet(truth))
+}
+
+func setF1(A, T map[string]bool) (p, r, f float64) {
 	if len(T) == 0 {
 		if len(A) == 0 {
 			return 1, 1, 1 // correctly said "nothing"
@@ -190,15 +214,6 @@ func splitFileLine(s string) (file string, line int) {
 	return s, 0
 }
 
-func clamp01(f float64) float64 {
-	if f < 0 {
-		return 0
-	}
-	if f > 1 {
-		return 1
-	}
-	return f
-}
 func b2f(b bool) float64 {
 	if b {
 		return 1

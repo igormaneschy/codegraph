@@ -420,16 +420,16 @@ func TestQualityArtifacts_RestrictPreexistingFileModes(t *testing.T) {
 	if err := os.Chmod(questionsPath, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := writeJSON(questionsPath, []quality.Question{}); err != nil {
+	if err := writeJSON(questionsPath, []quality.Question{{ID: "callers-01", Type: quality.TypeCallers}}); err != nil {
 		t.Fatal(err)
 	}
 	assertPrivateMode(t, questionsPath)
 
 	// The score path must do the same for report.md over a pre-existing 0644.
-	if err := os.WriteFile(filepath.Join(dir, "truth.json"), []byte("[]"), 0o600); err != nil {
+	if err := writeJSON(filepath.Join(dir, "truth.json"), []quality.Truth{{ID: "callers-01", Items: []string{}}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "answers.json"), []byte("[]"), 0o600); err != nil {
+	if err := writeJSON(filepath.Join(dir, "answers.json"), []quality.Answer{{ID: "callers-01", Mode: "graph", Items: []string{}}, {ID: "callers-01", Mode: "baseline", Items: []string{}}}); err != nil {
 		t.Fatal(err)
 	}
 	reportPath := filepath.Join(dir, "report.md")
