@@ -153,10 +153,10 @@ func TestRunMetrics_CancellationAndInvalidRoot(t *testing.T) {
 func TestMetricsSummaryBoundsAndQuotesScopeNames(t *testing.T) {
 	metrics := RunMetrics{Decision: "noop", Outcome: "success", Duration: time.Second}
 	for i := 0; i < 50; i++ {
-		metrics.ReusedScopes = append(metrics.ReusedScopes, strings.Repeat("scope", 1000)+"\nforged=1")
+		metrics.ReusedScopes = append(metrics.ReusedScopes, "scope\nforged=1"+strings.Repeat("scope", 1000))
 	}
 	text := (Result{Metrics: metrics}).MetricsSummary()
-	if len(text) > 10000 || strings.Count(text, "reused_scope=") != 20 || !strings.Contains(text, "reused_scopes_omitted=30") || strings.Contains(text, "\nforged=1") || !strings.Contains(text, "truncated=true") {
+	if len(text) > 10000 || strings.Count(text, "reused_scope=") != 20 || !strings.Contains(text, "reused_scopes_omitted=30") || strings.Contains(text, "\nforged=1") || !strings.Contains(text, "\\nforged=1") || !strings.Contains(text, "truncated=true") {
 		t.Fatalf("unbounded or unescaped summary: %s", text)
 	}
 }
