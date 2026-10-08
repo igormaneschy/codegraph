@@ -518,3 +518,60 @@ func TestTwoProcesses_WriterHoldsOverTwoSeconds(t *testing.T) {
 		t.Fatalf("writer failed after release (permanent block): rc=%d stdout=%q stderr=%q", rc, stdout, stderr)
 	}
 }
+
+// TestSession_PublishReportsServedGeneration pins R11: the generation and
+// similarity coverage reported by status belong to the graph the engine serves,
+// not to a disk manifest another writer installed between reopen and publish. The
+// divergence is reported as lag, never as a status that disagrees with the page.
+func TestSession_PublishReportsServedGeneration(t *testing.T) {
+	root := writeP1Repo(t, map[string]string{"x.go": "package x\nfunc Before() int { return 1 }\n"})
+	sess, dbPath := openP1Session(t, root)
+
+	sess.startInitial()
+	if !sess.waitRound(30 * time.Second) {
+		t.Fatal("initial round did not finish")
+	}
+
+	if err := os.WriteFile(filepath.Join(root, "y.go"), []byte("package x\nfunc After() int { return 2 }\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// Between reopen and publish of the refresh round, an external writer commits
+	// a newer generation (with an extra file) — the exact race R11 covers.
+	var once sync.Once
+	sess.hooks.afterReopen = func() {
+		once.Do(func() {
+			if err := os.WriteFile(filepath.Join(root, "z.go"), []byte("package x\nfunc Later() int { return 3 }\n"), 0o600); err != nil {
+				t.Error(err)
+				return
+			}
+			if _, err := index.RunAtomic(dbPath, root); err != nil {
+				t.Errorf("external writer: %v", err)
+			}
+		})
+	}
+	if got := sess.refreshAsync(); !strings.Contains(got, "refresh started") {
+		t.Fatalf("refresh did not start: %q", got)
+	}
+	if !sess.waitRound(60 * time.Second) {
+		t.Fatal("refresh round did not finish")
+	}
+	served := sessionGeneration(t, sess)
+	if served == "" {
+		t.Fatal("round published an empty generation")
+	}
+
+	page, err := sess.engine().SearchPage("After", "", 5, "")
+	if err != nil {
+		t.Fatalf("query: %v", err)
+	}
+	if page.Generation != shortDigest(served) {
+		t.Fatalf("page generation=%q, status served=%q", page.Generation, shortDigest(served))
+	}
+	status := sess.statusText()
+	if !strings.Contains(status, "generation="+shortDigest(served)) {
+		t.Fatalf("status generation disagrees with the served graph:\n%s", status)
+	}
+	if !strings.Contains(status, "lag=disk holds newer generation") {
+		t.Fatalf("status must report the external writer's newer generation as lag:\n%s", status)
+	}
+}

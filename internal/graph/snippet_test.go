@@ -12,7 +12,7 @@ func TestSnippet_ValidRelativePath(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(repo, "a.go"), []byte("one\ntwo\nthree\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	got, err := SnippetPaged(repo, "a.go", 2, 200, 32*1024, 2, -1)
+	got, err := SnippetPaged(repo, "a.go", 2, 200, 32*1024, 2, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,7 +38,7 @@ func TestSnippet_RejectsTraversal(t *testing.T) {
 	}
 	for _, p := range cases {
 		p = filepath.ToSlash(p)
-		if _, err := SnippetPaged(repo, p, 1, 200, 32*1024, 1, -1); err == nil || !strings.Contains(err.Error(), "outside repository root") {
+		if _, err := SnippetPaged(repo, p, 1, 200, 32*1024, 1, ""); err == nil || !strings.Contains(err.Error(), "outside repository root") {
 			t.Fatalf("path %q should be rejected, err=%v", p, err)
 		}
 	}
@@ -50,7 +50,7 @@ func TestSnippet_RejectsAbsolutePath(t *testing.T) {
 	if err := os.WriteFile(abs, []byte("x\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := SnippetPaged(repo, abs, 1, 200, 32*1024, 1, -1); err == nil || !strings.Contains(err.Error(), "absolute paths") {
+	if _, err := SnippetPaged(repo, abs, 1, 200, 32*1024, 1, ""); err == nil || !strings.Contains(err.Error(), "absolute paths") {
 		t.Fatalf("absolute path should be rejected, err=%v", err)
 	}
 }
@@ -75,7 +75,7 @@ func TestSnippet_RejectsSymlinkOutsideRoot(t *testing.T) {
 	if err := os.Symlink(filepath.Join(outside, "secret.txt"), filepath.Join(repo, "leak.go")); err != nil {
 		t.Skipf("symlink creation unavailable: %v", err)
 	}
-	if _, err := SnippetPaged(repo, "leak.go", 1, 200, 32*1024, 1, -1); err == nil || !strings.Contains(err.Error(), "outside repository root") {
+	if _, err := SnippetPaged(repo, "leak.go", 1, 200, 32*1024, 1, ""); err == nil || !strings.Contains(err.Error(), "outside repository root") {
 		t.Fatalf("symlink escaping the root should be rejected, err=%v", err)
 	}
 }
@@ -91,7 +91,7 @@ func TestSnippet_AllowsSymlinkResolvingInsideRoot(t *testing.T) {
 	if err := os.Symlink(filepath.Join(repo, "real.go"), filepath.Join(repo, "alias.go")); err != nil {
 		t.Skipf("symlink creation unavailable: %v", err)
 	}
-	got, err := SnippetPaged(repo, "alias.go", 1, 200, 32*1024, 2, -1)
+	got, err := SnippetPaged(repo, "alias.go", 1, 200, 32*1024, 2, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +121,7 @@ func TestSnippet_RejectsPathSwappedAfterResolution(t *testing.T) {
 		}
 	}
 	t.Cleanup(func() { snippetBeforeOpenHook = oldHook })
-	chunk, err := SnippetPaged(repo, "real.go", 1, 200, 32*1024, 1, -1)
+	chunk, err := SnippetPaged(repo, "real.go", 1, 200, 32*1024, 1, "")
 	if err == nil || chunk.Text != "" {
 		t.Fatalf("swapped path read outside content: chunk=%+v, err=%v", chunk, err)
 	}

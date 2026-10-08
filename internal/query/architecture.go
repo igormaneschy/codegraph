@@ -34,10 +34,37 @@ type Architecture struct {
 // edge counts, top packages by symbol count, and the complexity/call-hub hotspots.
 // All from stored data — no re-scan — so an agent gets direction in a single call
 // instead of grepping its way in. Hotspots read the M4 cyclomatic complexity.
+// topN is clamped to MaxArchitectureTopN, and the result is cached per served
+// generation: the graph is immutable within a generation, so the same aggregate is
+// computed once. The returned value is shared and must be treated as read-only.
 func (e *Engine) Architecture(topN int) (Architecture, error) {
 	if topN <= 0 {
 		topN = 10
 	}
+	if topN > MaxArchitectureTopN {
+		topN = MaxArchitectureTopN
+	}
+	gen := e.manifest.GraphContentDigest
+	e.archMu.Lock()
+	seq := e.archSeq
+	if e.archValid && e.archGen == gen && e.archCachedSeq == seq && e.archTopN == topN {
+		cached := e.archValue
+		e.archMu.Unlock()
+		return cached, nil
+	}
+	e.archMu.Unlock()
+
+	a, err := e.computeArchitecture(topN)
+	if err != nil {
+		return a, err
+	}
+	e.archMu.Lock()
+	e.archGen, e.archCachedSeq, e.archTopN, e.archValue, e.archValid = gen, seq, topN, a, true
+	e.archMu.Unlock()
+	return a, nil
+}
+
+func (e *Engine) computeArchitecture(topN int) (Architecture, error) {
 	var a Architecture
 	var err error
 	if a.Languages, err = e.store.LanguageCounts(e.project); err != nil {

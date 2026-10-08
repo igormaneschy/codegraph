@@ -346,7 +346,7 @@ func (e *Engine) SnippetPage(filePath string, start, end, limit int, cursor stri
 	}
 	fromLine := start
 	endBound := end
-	expectSize := int64(-1)
+	expectDigest := ""
 	if cursor != "" {
 		c, err := decodeSnippetCursor(cursor)
 		if err != nil {
@@ -363,7 +363,7 @@ func (e *Engine) SnippetPage(filePath string, start, end, limit int, cursor stri
 		}
 		fromLine = c.Line
 		endBound = c.End
-		expectSize = c.Fsize
+		expectDigest = c.Digest
 	} else {
 		if end < 0 {
 			return out, fmt.Errorf("invalid end line %d: want 0 (EOF) or a line >= start", end)
@@ -372,7 +372,7 @@ func (e *Engine) SnippetPage(filePath string, start, end, limit int, cursor stri
 			return out, fmt.Errorf("bad range %d-%d: start is past end", start, end)
 		}
 	}
-	chunk, err := graph.SnippetPaged(e.repoRoot, filePath, fromLine, maxLines, MaxSnippetBytes, endBound, expectSize)
+	chunk, err := graph.SnippetPaged(e.repoRoot, filePath, fromLine, maxLines, MaxSnippetBytes, endBound, expectDigest)
 	if err != nil {
 		return out, err
 	}
@@ -382,7 +382,7 @@ func (e *Engine) SnippetPage(filePath string, start, end, limit int, cursor stri
 	out.LongLine = chunk.LongLine
 	out.HasMore = chunk.HasMore
 	if chunk.HasMore {
-		out.Cursor = encodeCursor(snippetCursor{V: 1, Gen: gen, File: filePath, Line: chunk.NextLine, End: endBound, Fsize: chunk.FileSize})
+		out.Cursor = encodeCursor(snippetCursor{V: 2, Gen: gen, File: filePath, Line: chunk.NextLine, End: endBound, Digest: chunk.FileDigest})
 	} else {
 		out.Cursor = "-"
 	}

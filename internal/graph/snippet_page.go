@@ -2,6 +2,8 @@ package graph
 
 import (
 	"bufio"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -13,31 +15,47 @@ import (
 // snippetBeforeOpenHook is a test seam for replacing a resolved path before open.
 var snippetBeforeOpenHook func()
 
+// MaxSnippetLineBytes is the absolute ceiling for one source line in a snippet
+// page. The page byte budget is normally far smaller, and a line between the two
+// is still emitted whole (LongLine); a line beyond this ceiling is an actionable
+// error instead of an unbounded allocation — including when the line is only
+// skipped before the range or held as the one-line lookahead.
+const MaxSnippetLineBytes = 1 << 20
+
 // SnippetChunk is one streamed page of a source file. Pages always cover whole
 // lines: a single line longer than maxBytes is emitted whole with LongLine set
 // (never split mid-line), so continuation is lossless by construction.
 type SnippetChunk struct {
-	Text      string // page lines joined by "\n", no trailing newline
-	FirstLine int    // 1-based first line covered (0 when Text is empty)
-	LastLine  int    // 1-based last line covered (0 when Text is empty)
-	NextLine  int    // line the next page resumes at
-	HasMore   bool   // more lines remain (within the end bound, if any)
-	LongLine  bool   // the page is one line longer than the byte budget
-	FileSize  int64  // observed file size, for cross-page change detection
+	Text       string // page lines joined by "\n", no trailing newline
+	FirstLine  int    // 1-based first line covered (0 when Text is empty)
+	LastLine   int    // 1-based last line covered (0 when Text is empty)
+	NextLine   int    // line the next page resumes at
+	HasMore    bool   // more lines remain (within the end bound, if any)
+	LongLine   bool   // the page is one line longer than the byte budget
+	FileSize   int64  // observed file size, for diagnostics
+	FileDigest string // sha256 of the whole file as read, the continuation's proof
 }
 
 // SnippetPaged streams one page of filePath from fromLine (1-based), stopping
 // at endLine (0 = EOF), after maxLines lines, or before the first line that
 // would push the payload past maxBytes — whichever comes first. Memory stays
 // proportional to the page, not the file: lines are read incrementally and at
-// most one line is held as lookahead. When expectSize >= 0 a size mismatch
-// fails the page instead of silently shifting lines (the file changed between
-// pages); pass -1 on the first page to record the size.
+// most one line is held as lookahead.
+//
+// Continuation is bound to content, not to size: the page returns the sha256 of
+// the whole file it read, and a continuing page must pass that digest back so it
+// can prove it is serving the same bytes. A same-size edit, a line-break shift,
+// or a rename-replacement fails with an actionable error instead of silently
+// shifting lines; size/inode/mtime alone are not proof of content. The digest is
+// computed in the single read pass (a tee into the hasher) and the file is
+// drained to EOF, so the hash covers the whole file.
 //
 // The byte budget counts payload bytes (line content plus the joined
 // newlines). A page holds at least one line: an oversize first line is
-// returned whole with LongLine set and the next page resumes after it.
-func SnippetPaged(repoRoot, filePath string, fromLine, maxLines, maxBytes, endLine int, expectSize int64) (SnippetChunk, error) {
+// returned whole with LongLine set and the next page resumes after it. A line
+// beyond MaxSnippetLineBytes is an actionable error, never an unbounded
+// allocation — including when it is only skipped or held as lookahead.
+func SnippetPaged(repoRoot, filePath string, fromLine, maxLines, maxBytes, endLine int, expectDigest string) (SnippetChunk, error) {
 	var out SnippetChunk
 	if fromLine < 1 {
 		fromLine = 1
@@ -68,11 +86,9 @@ func SnippetPaged(repoRoot, filePath string, fromLine, maxLines, maxBytes, endLi
 		return out, err
 	}
 	out.FileSize = info.Size()
-	if expectSize >= 0 && out.FileSize != expectSize {
-		return out, fmt.Errorf("file %q changed between pages (size %d, was %d): restart the snippet from its first page", filePath, out.FileSize, expectSize)
-	}
 
-	r := bufio.NewReaderSize(f, 64*1024)
+	hasher := sha256.New()
+	r := bufio.NewReaderSize(io.TeeReader(f, hasher), 64*1024)
 	lineNo := 0
 	var lines []string
 	acc := 0
@@ -125,6 +141,14 @@ func SnippetPaged(repoRoot, filePath string, fromLine, maxLines, maxBytes, endLi
 			break // last line (no trailing newline) consumed
 		}
 	}
+	// Drain to EOF so the digest covers the whole file, not just the page.
+	if _, err := io.Copy(io.Discard, r); err != nil {
+		return out, fmt.Errorf("read snippet %q: %w", filePath, err)
+	}
+	out.FileDigest = hex.EncodeToString(hasher.Sum(nil))
+	if expectDigest != "" && out.FileDigest != expectDigest {
+		return out, fmt.Errorf("file %q changed between pages (digest %s, was %s): restart the snippet from its first page", filePath, shortHash(out.FileDigest), shortHash(expectDigest))
+	}
 	out.Text = strings.Join(lines, "\n")
 	if len(lines) > 0 {
 		out.FirstLine = fromLine
@@ -136,10 +160,30 @@ func SnippetPaged(repoRoot, filePath string, fromLine, maxLines, maxBytes, endLi
 	return out, nil
 }
 
-func readSnippetLine(r *bufio.Reader, filePath string) (string, bool, error) {
-	line, err := r.ReadString('\n')
-	if err != nil && !errors.Is(err, io.EOF) {
-		return "", false, fmt.Errorf("read snippet %q: %w", filePath, err)
+func shortHash(digest string) string {
+	if len(digest) > 12 {
+		return digest[:12]
 	}
-	return line, errors.Is(err, io.EOF), nil
+	return digest
+}
+
+func readSnippetLine(r *bufio.Reader, filePath string) (string, bool, error) {
+	var line []byte
+	for {
+		frag, err := r.ReadSlice('\n')
+		if len(line)+len(frag) > MaxSnippetLineBytes {
+			return "", false, fmt.Errorf("line in %q exceeds the %d-byte snippet line limit: request a narrower line range or read the file directly", filePath, MaxSnippetLineBytes)
+		}
+		line = append(line, frag...)
+		switch {
+		case err == nil:
+			return string(line), false, nil
+		case errors.Is(err, io.EOF):
+			return string(line), true, nil
+		case errors.Is(err, bufio.ErrBufferFull):
+			// Line continues past the reader buffer; keep accumulating up to the ceiling.
+		default:
+			return "", false, fmt.Errorf("read snippet %q: %w", filePath, err)
+		}
+	}
 }

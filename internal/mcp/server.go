@@ -12,7 +12,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
+	"strings"
 
 	"github.com/Lordymine/codegraph/internal/index"
 	"github.com/Lordymine/codegraph/internal/query"
@@ -27,7 +27,7 @@ type rpcRequest struct {
 
 type rpcResponse struct {
 	JSONRPC string          `json:"jsonrpc"`
-	ID      json.RawMessage `json:"id,omitempty"`
+	ID      json.RawMessage `json:"id"`
 	Result  any             `json:"result,omitempty"`
 	Error   *rpcError       `json:"error,omitempty"`
 }
@@ -113,7 +113,21 @@ func (s *Server) RegisterTool(name, description string, properties map[string]an
 // gated, so the agent still sees the server and its tools immediately.
 func (s *Server) SetReadiness(fn func() (bool, string)) { s.ready = fn }
 
-// Serve runs the request loop until stdin closes.
+// defaultProtocolVersion is answered when the client requests a version this
+// server does not support; supportedProtocolVersions lists what it can serve. Only
+// the tools/stdio surface is used, which is stable across these revisions; we never
+// advertise capabilities we do not implement.
+const defaultProtocolVersion = "2024-11-05"
+
+var supportedProtocolVersions = map[string]bool{
+	"2024-11-05": true,
+	"2025-03-26": true,
+}
+
+// Serve runs the request loop until stdin closes. A malformed line is answered
+// with a JSON-RPC parse error and the stream continues; a write failure ends the
+// loop (the transport is gone, so silently swallowing it would leave the client
+// waiting forever).
 func (s *Server) Serve() error {
 	for s.in.Scan() {
 		line := s.in.Bytes()
@@ -122,39 +136,70 @@ func (s *Server) Serve() error {
 		}
 		var req rpcRequest
 		if err := json.Unmarshal(line, &req); err != nil {
-			fmt.Fprintf(os.Stderr, "codegraph mcp: invalid JSON-RPC line: %v\n", err)
+			if werr := s.fail(nil, -32700, "parse error: "+err.Error()); werr != nil {
+				return werr
+			}
 			continue
 		}
-		s.handle(req)
+		if err := s.handle(req); err != nil {
+			return err
+		}
 	}
 	return s.in.Err()
 }
 
-func (s *Server) reply(id json.RawMessage, result any) {
-	_ = s.out.Encode(rpcResponse{JSONRPC: "2.0", ID: id, Result: result})
+func (s *Server) reply(id json.RawMessage, result any) error {
+	return s.out.Encode(rpcResponse{JSONRPC: "2.0", ID: id, Result: result})
 }
-func (s *Server) fail(id json.RawMessage, code int, msg string) {
-	_ = s.out.Encode(rpcResponse{JSONRPC: "2.0", ID: id, Error: &rpcError{Code: code, Message: msg}})
+func (s *Server) fail(id json.RawMessage, code int, msg string) error {
+	return s.out.Encode(rpcResponse{JSONRPC: "2.0", ID: id, Error: &rpcError{Code: code, Message: msg}})
 }
 
-func (s *Server) handle(req rpcRequest) {
+// respond sends a result for a request and stays silent for a notification.
+func (s *Server) respond(id json.RawMessage, notification bool, result any) error {
+	if notification {
+		return nil
+	}
+	return s.reply(id, result)
+}
+
+// handle dispatches one request. A request with no id is a JSON-RPC notification
+// and never receives a response. A non-nil error is a transport failure and stops
+// the loop.
+func (s *Server) handle(req rpcRequest) error {
+	notification := len(req.ID) == 0
 	switch req.Method {
 	case "initialize":
-		s.reply(req.ID, map[string]any{
-			"protocolVersion": "2024-11-05",
-			"capabilities":    map[string]any{"tools": map[string]any{}},
-			"serverInfo":      map[string]any{"name": "codegraph", "version": "0.0.1"},
-		})
+		return s.respond(req.ID, notification, s.initializeResult(req.Params))
 	case "notifications/initialized":
-		// no response for notifications
+		return nil // notification: no response by design
 	case "tools/list":
-		s.reply(req.ID, map[string]any{"tools": s.toolSpecs()})
+		return s.respond(req.ID, notification, map[string]any{"tools": s.toolSpecs()})
 	case "tools/call":
-		s.callTool(req)
+		return s.callTool(req, notification)
 	default:
-		if len(req.ID) > 0 {
-			s.fail(req.ID, -32601, "method not found: "+req.Method)
+		if notification {
+			return nil // unknown notifications must not be answered
 		}
+		return s.fail(req.ID, -32601, "method not found: "+req.Method)
+	}
+}
+
+// initializeResult negotiates the protocol version: echo the client's version when
+// it is one this server supports, otherwise answer with the supported default (the
+// MCP handshake lets the server choose the version it will use).
+func (s *Server) initializeResult(params json.RawMessage) map[string]any {
+	version := defaultProtocolVersion
+	var client struct {
+		ProtocolVersion string `json:"protocolVersion"`
+	}
+	if len(params) > 0 && json.Unmarshal(params, &client) == nil && supportedProtocolVersions[client.ProtocolVersion] {
+		version = client.ProtocolVersion
+	}
+	return map[string]any{
+		"protocolVersion": version,
+		"capabilities":    map[string]any{"tools": map[string]any{}},
+		"serverInfo":      map[string]any{"name": "codegraph", "version": "0.0.1"},
 	}
 }
 
@@ -163,51 +208,78 @@ type toolCallParams struct {
 	Arguments json.RawMessage `json:"arguments"`
 }
 
-func (s *Server) callTool(req rpcRequest) {
+// toolArgs is the union of the built-in tools' parameters.
+type toolArgs struct {
+	Query         string `json:"query"`
+	Label         string `json:"label"`
+	QualifiedName string `json:"qualified_name"`
+	File          string `json:"file"`
+	StartLine     int    `json:"start_line"`
+	EndLine       int    `json:"end_line"`
+	Limit         int    `json:"limit"`
+	Cursor        string `json:"cursor"`
+}
+
+// validateToolArgs rejects a call whose required field is empty before any query
+// runs, so a missing qualified_name/file/query is a parameter error rather than a
+// meaningless empty answer.
+func validateToolArgs(name string, args toolArgs) error {
+	switch name {
+	case "search":
+		if strings.TrimSpace(args.Query) == "" {
+			return fmt.Errorf("search requires a non-empty `query`")
+		}
+	case "callers", "callees", "neighbors", "similar":
+		if strings.TrimSpace(args.QualifiedName) == "" {
+			return fmt.Errorf("%s requires a non-empty `qualified_name`", name)
+		}
+	case "snippet":
+		if strings.TrimSpace(args.File) == "" {
+			return fmt.Errorf("snippet requires a non-empty `file`")
+		}
+	}
+	return nil
+}
+
+func (s *Server) callTool(req rpcRequest, notification bool) error {
+	failTool := func(code int, msg string) error {
+		if notification {
+			return nil
+		}
+		return s.fail(req.ID, code, msg)
+	}
 	var p toolCallParams
 	if !jsonObject(req.Params) || json.Unmarshal(req.Params, &p) != nil || p.Name == "" {
-		s.fail(req.ID, -32602, "tools/call params must be an object with a tool name")
-		return
+		return failTool(-32602, "tools/call params must be an object with a tool name")
 	}
 	if len(p.Arguments) == 0 {
 		p.Arguments = json.RawMessage(`{}`)
 	}
 	if !jsonObject(p.Arguments) {
-		s.fail(req.ID, -32602, "tool arguments must be a JSON object")
-		return
+		return failTool(-32602, "tool arguments must be a JSON object")
 	}
 	if text, err, handled := s.callExtra(p, req); handled {
 		if err != nil {
-			s.fail(req.ID, -32000, err.Error())
-			return
+			return failTool(-32000, err.Error())
 		}
-		s.reply(req.ID, map[string]any{
+		return s.respond(req.ID, notification, map[string]any{
 			"content": []map[string]any{{"type": "text", "text": text}},
 		})
-		return
 	}
 	var notice string
 	if s.ready != nil {
 		ok, msg := s.ready()
 		if !ok {
-			s.reply(req.ID, map[string]any{"content": []map[string]any{{"type": "text", "text": msg}}})
-			return
+			return s.respond(req.ID, notification, map[string]any{"content": []map[string]any{{"type": "text", "text": msg}}})
 		}
 		notice = msg
 	}
-	var args struct {
-		Query         string `json:"query"`
-		Label         string `json:"label"`
-		QualifiedName string `json:"qualified_name"`
-		File          string `json:"file"`
-		StartLine     int    `json:"start_line"`
-		EndLine       int    `json:"end_line"`
-		Limit         int    `json:"limit"`
-		Cursor        string `json:"cursor"`
-	}
+	var args toolArgs
 	if err := json.Unmarshal(p.Arguments, &args); err != nil {
-		s.fail(req.ID, -32602, "invalid tool arguments: "+err.Error())
-		return
+		return failTool(-32602, "invalid tool arguments: "+err.Error())
+	}
+	if err := validateToolArgs(p.Name, args); err != nil {
+		return failTool(-32602, err.Error())
 	}
 
 	// Ref/snippet tools emit one page plus a `#` trailer line carrying
@@ -261,16 +333,14 @@ func (s *Server) callTool(req rpcRequest) {
 		ch, derr := s.eng.DetectChanges()
 		if err = derr; err == nil {
 			if text = ch.Summary(); text == "" {
-				text = "no changes since the last index"
+				text = "no source or recorded-config changes since the last index (environment identity is not compared; run index to verify)"
 			}
 		}
 	default:
-		s.fail(req.ID, -32602, "unknown tool: "+p.Name)
-		return
+		return failTool(-32602, "unknown tool: "+p.Name)
 	}
 	if err != nil {
-		s.fail(req.ID, -32000, err.Error())
-		return
+		return failTool(-32000, err.Error())
 	}
 	if notice != "" {
 		if text != "" {
@@ -279,7 +349,7 @@ func (s *Server) callTool(req rpcRequest) {
 			text = notice
 		}
 	}
-	s.reply(req.ID, map[string]any{
+	return s.respond(req.ID, notification, map[string]any{
 		"content": []map[string]any{{"type": "text", "text": text}},
 	})
 }
@@ -337,7 +407,7 @@ func (s *Server) toolSpecs() []map[string]any {
 			map[string]any{"limit": num}),
 		spec("snippet", "Read one page of source lines for a node (default 200 lines / 32 KiB, bytes prevail) plus a `#` trailer with has_more/cursor/generation and the covered line range. A single oversize line comes back whole, marked long_line=true. Pass the trailer cursor back as `cursor` to continue; the file must not change between pages. Use only when you must see code.",
 			map[string]any{"file": str, "start_line": num, "end_line": num, "limit": num, "cursor": str}, "file"),
-		spec("detect_changes", "List source files changed/added/deleted since the last index (TSV: status<TAB>path, empty = fresh). Check it before trusting the graph for a region; re-index if stale.",
+		spec("detect_changes", "List source files changed/added/deleted since the last index, plus `config<TAB>path` lines for recorded sidecar inputs (tsconfig, go.mod/go.work, ignore/workspace config) whose bytes changed. TSV: status<TAB>path. Empty = no source or recorded-config change (environment identity, e.g. GOFLAGS, is not compared — run index to verify). Check it before trusting the graph for a region; re-index if stale.",
 			map[string]any{}),
 	}
 	for _, e := range s.extra {

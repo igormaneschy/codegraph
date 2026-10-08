@@ -47,6 +47,14 @@ codegraph quality score eval/runs/<id>     # -> eval/runs/<id>/report.md
 `eval/checkouts/` and `eval/runs/` are gitignored (clones + per-repo artifacts).
 `repos.json` and this protocol are versioned.
 
+Graph-mode answers (`eval/graph-answers.js`) walk every ref page to
+`has_more=false` and charge the real call/byte cost, so a hub cut by the 32 KiB
+budget is not under-reported. Point it at the built binary with
+`CODEGRAPH_EXE=/path/to/codegraph node eval/graph-answers.js <repo> <outdir>`.
+Scoring normalizes symbols to bare names (`internal/quality/score.go`), which
+folds same-named symbols in different files together; a strict qualified-name
+scorer for homonyms is still open (see `docs/QUALITY.md`).
+
 ## TODO before the paper run
 
 - [ ] Verify each candidate's build in `repos.json` (flip `status` to `verified`).

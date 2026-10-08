@@ -50,9 +50,16 @@ function oracleOpenPrompt(q) {
   return `You are establishing a grading rubric independently. Repo root: ${REPO}. Read \`${q.symbol}\` at ${q.file}:${q.line} and its surroundings (grep/read only, no 'codegraph' tool). In notes, list the KEY FACTS a correct 2-4 sentence explanation MUST contain: the symbol's responsibility, what calls it, and what it depends on. Be concrete (name the real collaborators).`
 }
 
+// pageHint describes the paged contract: every ref tool ends with a `#` trailer,
+// and a hub can be cut by the 32 KiB byte budget before `limit`, so the agent must
+// follow the cursor until has_more=false or it will under-report the answer.
+function pageHint(tool, qn) {
+  return `Run: "${EXE}" cli ${tool} "${REPO}" '{"qualified_name":"${qn}","limit":200}'. The output is TSV refs plus a trailing "# has_more=<bool> cursor=<tok> generation=<gen>" line. If has_more=true, call again with '{"qualified_name":"${qn}","cursor":"<cursor>"}' until has_more=false — a byte-budget cut can happen well before 200 refs. items = the 2nd (tab-separated) column = names, de-duplicated ACROSS pages. Count every invocation as a call.`
+}
+
 function hint(q) {
-  if (q.type === 'callers') return `Run: "${EXE}" cli callers "${REPO}" '{"qualified_name":"${q.qn}","limit":200}'. The output is TSV; items = the 2nd (tab-separated) column = caller names.`
-  if (q.type === 'callees') return `Run: "${EXE}" cli callees "${REPO}" '{"qualified_name":"${q.qn}","limit":200}'. items = 2nd column = callee names.`
+  if (q.type === 'callers') return pageHint('callers', q.qn)
+  if (q.type === 'callees') return pageHint('callees', q.qn)
   if (q.type === 'definition') return `Run: "${EXE}" cli search "${REPO}" '{"query":"${q.symbol}","limit":10}'. Pick the defining node; items = ["relpath:line"] from its 3rd column (file:line).`
   return `Use "${EXE}" cli callers/callees/search on qualified_name ${q.qn} to gather structure, then write a 2-4 sentence explanation as text.`
 }

@@ -29,6 +29,11 @@ const (
 	MaxSnippetLines     = 2000
 	// MaxSnippetBytes caps one snippet page by bytes, prevailing over lines.
 	MaxSnippetBytes = 32 * 1024
+
+	// MaxArchitectureTopN clamps the architecture package/hotspot count. The answer
+	// is a bounded overview by definition ("top N"); a caller asking for everything
+	// gets this bounded answer instead of an unbounded render.
+	MaxArchitectureTopN = 200
 )
 
 // checkRefLimit validates a caller-supplied ref limit before any allocation:
@@ -77,19 +82,19 @@ type pageCursor struct {
 }
 
 // snippetCursor continues a snippet page losslessly: line is the 1-based next
-// line, end the caller's end_line bound (0 = EOF), fsize the file size observed
-// on page one (a concurrent modification fails the next page with an
-// actionable error instead of silently shifting lines). Pages always resume at
-// a line start: a single line longer than the byte budget is emitted whole
-// (marked long_line) rather than split, so a cut qualified reference can never
-// strand half a line.
+// line, end the caller's end_line bound (0 = EOF), digest the sha256 of the whole
+// file observed on page one (a concurrent modification, even a same-size edit,
+// fails the next page with an actionable error instead of silently shifting
+// lines). Pages always resume at a line start: a single line longer than the byte
+// budget is emitted whole (marked long_line) rather than split, so a cut qualified
+// reference can never strand half a line.
 type snippetCursor struct {
-	V     int    `json:"v"`
-	Gen   string `json:"gen"`
-	File  string `json:"file"`
-	Line  int    `json:"line"`
-	End   int    `json:"end"`
-	Fsize int64  `json:"fsize"`
+	V      int    `json:"v"`
+	Gen    string `json:"gen"`
+	File   string `json:"file"`
+	Line   int    `json:"line"`
+	End    int    `json:"end"`
+	Digest string `json:"digest"`
 }
 
 func encodeCursor(v any) string {
@@ -141,7 +146,7 @@ func decodeSnippetCursor(token string) (snippetCursor, error) {
 	if err := json.Unmarshal(raw, &c); err != nil {
 		return c, fmt.Errorf("malformed cursor: restart the snippet from its first page")
 	}
-	if c.V != 1 || c.Line < 1 || c.Fsize < 0 {
+	if c.V != 2 || c.Line < 1 || c.Digest == "" {
 		return c, fmt.Errorf("unsupported cursor: restart the snippet from its first page")
 	}
 	return c, nil
