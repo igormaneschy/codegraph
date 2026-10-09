@@ -84,3 +84,7 @@
 ## Change personal-macos-scope (2026-10-09)
 - [process] [operating-scope-before-platform-backlog](learned/operating-scope-before-platform-backlog.md)
 - [context] [fixture-validation-not-workload-priority](learned/fixture-validation-not-workload-priority.md)
+
+## Change go-stress-calls (2026-10-09)
+- [anti-pattern] [stress-call-bindings-not-total-edges](learned/stress-call-bindings-not-total-edges.md)
+- [pattern] [stress-oracle-outside-memory-sampler](learned/stress-oracle-outside-memory-sampler.md)
