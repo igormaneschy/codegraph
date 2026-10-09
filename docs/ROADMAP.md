@@ -15,10 +15,14 @@ not a prerequisite for personal use. Existing Linux CI stays in place.
   Default tests, focused race workflow tests, real SCIP oracles, Node harness and
   build/vet/modules/format/lint PASS. This is fixture behavior evidence, not a
   benchmark of personal workloads or proof of full external-input certification.
-- [ ] Choose an owner-used repository/workload, then measure it in an exclusive
-  disposable copy. Existing public pilots are not representative by default.
-- [ ] Select the next bounded fix/optimization only from demonstrated correctness
-  need or measured cost. Search keyset/staging/certification remain conditional.
+- [x] Chose this repository (owner-used, Go) and measured it in an exclusive
+  disposable clone: an unchanged refresh was a full rebuild (4.6–5.1 s,
+  1.4–1.7 GiB) because Go module dependency bytes were uncertified.
+- [x] Selected and delivered the measured fix: Go module dependency input
+  certification (`resolver-inputs-v5`) — an unchanged refresh now certifies a
+  no-op (1.09–1.12 s, ~48 MB); rebuild pays +24% (enumeration twice plus the
+  exact certification now reached). See VALIDATION_GO_DEPENDENCY_INPUTS.md.
+  Search keyset/staging/remaining certification stay conditional on new evidence.
 - **Outside current milestones:** Windows runtime/native tests and Linux/Windows
   benchmark matrices. Revisit if actual usage changes, not to complete checklists.
 
@@ -56,6 +60,14 @@ See [the review](CODE_REVIEW_2026-10-07.md) for findings and validation contract
       wrapper edits and unrelated-language edits never reuse Go CALLS; reference
       rebuilds and unchanged admitted tag-only fixtures retain their contracts.
       See VALIDATION_GO_INPUT_ADMISSION.md. No external reuse is newly enabled.
+    - [x] Go module dependency inputs (2026-10-09) — bounded subset delivered from
+      demonstrated need: build-consumed dependency files (`CompiledGoFiles` plus
+      cgo sources/headers, `-test`, offline/read-only) are enumerated and
+      digested (`go-dependency-inputs-v1`, plan v5); an unchanged Go repository
+      certifies no-op (measured 4.6–5.1 s / ~1.5 GiB → 1.09–1.12 s / ~48 MB).
+      Real `import "C"`/`//go:embed` detection is parser-based; vendored trees
+      certify through the existing plan. Rebuild pays +24% (double enumeration
+      plus exact certification now reached). See VALIDATION_GO_DEPENDENCY_INPUTS.md.
     - **Conditional backlog, not a personal-use gate:** complete external/auxiliary/
       workspace input closure and external npm/SCIP runtime closure. Local go.work
       loading already works; full certification is not claimed. Advance bounded
