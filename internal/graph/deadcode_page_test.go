@@ -1,6 +1,7 @@
 package graph
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 	"testing"
@@ -63,54 +64,66 @@ func seedDeadMix(t *testing.T, nDead, nEntry int) *Store {
 	return s
 }
 
-// TestDeadCodeCandidates_BatchesCoverAll pins the streaming contract: small
-// batches walk the whole raw set in (file_path, start_line) order with no
-// duplicates or omissions, and exhaustion returns empty (not an error).
-func TestDeadCodeCandidates_BatchesCoverAll(t *testing.T) {
+// TestForEachDeadCodeCandidate_StreamsAllInOrder pins the streaming contract:
+// the visitor walks the whole raw set in (file_path, start_line) order with no
+// duplicates or omissions, and exhaustion past the end is empty, not an error.
+func TestForEachDeadCodeCandidate_StreamsAllInOrder(t *testing.T) {
 	s := seedDeadMix(t, 30, 10)
 	var got []string
 	prev := ""
-	for off := 0; ; off += 7 {
-		batch, err := s.DeadCodeCandidates("p", off, 7)
-		if err != nil {
-			t.Fatal(err)
+	if err := s.ForEachDeadCodeCandidate("p", 0, func(n Node) error {
+		key := fmt.Sprintf("%s:%06d", n.FilePath, n.StartLine)
+		if key < prev {
+			t.Fatalf("stream order violated: %q after %q", key, prev)
 		}
-		if len(batch) == 0 {
-			break
-		}
-		for _, n := range batch {
-			key := fmt.Sprintf("%s:%06d", n.FilePath, n.StartLine)
-			if key < prev {
-				t.Fatalf("batch order violated: %q after %q", key, prev)
-			}
-			prev = key
-			got = append(got, n.QualifiedName)
-		}
-		if len(got) > 100 {
-			t.Fatal("walk did not terminate")
-		}
+		prev = key
+		got = append(got, n.QualifiedName)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
 	}
 	seen := map[string]bool{}
 	for _, qn := range got {
 		if seen[qn] {
-			t.Fatalf("duplicate %q across batches", qn)
+			t.Fatalf("duplicate %q in stream", qn)
 		}
 		seen[qn] = true
 	}
 	// 30 dead + main + used-callers...: every uncalled Function/Method streams.
 	// main is uncalled (entry, still a raw candidate); used* have inbound CALLS.
 	if len(got) < 30 {
-		t.Errorf("walk missed raw candidates: got %d, want >= 30", len(got))
+		t.Errorf("stream missed raw candidates: got %d, want >= 30", len(got))
 	}
-	if _, err := s.DeadCodeCandidates("p", 100000, 7); err != nil {
-		t.Fatalf("past-end batch must be empty, not an error: %v", err)
-	} else if n, _ := s.DeadCodeCandidates("p", 100000, 7); len(n) != 0 {
-		t.Errorf("past-end batch = %d rows, want 0", len(n))
+	visited := 0
+	if err := s.ForEachDeadCodeCandidate("p", 100000, func(Node) error { visited++; return nil }); err != nil {
+		t.Fatalf("past-end stream must be empty, not an error: %v", err)
 	}
-	if _, err := s.DeadCodeCandidates("p", -1, 7); err == nil {
+	if visited != 0 {
+		t.Errorf("past-end stream visited %d rows, want 0", visited)
+	}
+	if err := s.ForEachDeadCodeCandidate("p", -1, func(Node) error { return nil }); err == nil {
 		t.Error("negative offset must fail")
 	}
-	if _, err := s.DeadCodeCandidates("p", 0, 0); err == nil {
-		t.Error("non-positive batch must fail")
+}
+
+// TestForEachDeadCodeCandidate_EarlyStopStopsIteration pins the page contract:
+// a visitor error stops the iteration immediately and propagates unchanged, so
+// serving a page never pays for candidates beyond its continuation probe.
+func TestForEachDeadCodeCandidate_EarlyStopStopsIteration(t *testing.T) {
+	s := seedDeadMix(t, 100, 0)
+	stop := errors.New("page complete")
+	visited := 0
+	err := s.ForEachDeadCodeCandidate("p", 0, func(Node) error {
+		visited++
+		if visited == 3 {
+			return stop
+		}
+		return nil
+	})
+	if !errors.Is(err, stop) {
+		t.Fatalf("early-stop error = %v, want the visitor sentinel", err)
+	}
+	if visited != 3 {
+		t.Fatalf("visited %d rows after early stop, want 3", visited)
 	}
 }

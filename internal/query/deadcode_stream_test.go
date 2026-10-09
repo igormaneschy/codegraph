@@ -179,10 +179,11 @@ func TestDeadCodePage_OldCursorAndTiedPositions(t *testing.T) {
 }
 
 // TestDeadCodePage_BoundedAllocs pins the memory contract: serving one page
-// from thousands of candidates allocates proportionally to the batch, never
-// to the total. Measured ~6k allocs/run against a 20k bound; materializing
+// from thousands of candidates allocates proportionally to the visited rows
+// (the page plus its continuation probe), never to the total. Materializing
 // the full set would pay one Node plus props-map plus JSON parse per
-// candidate (linear in the total), which the batch loop never pays.
+// candidate, which the streaming page never does; the bound stays as a
+// regression tripwire.
 func TestDeadCodePage_BoundedAllocs(t *testing.T) {
 	eng := seedDeadStream(t, 4000, 0)
 	if _, err := eng.DeadCodePage(50, ""); err != nil { // warm caches, stabilize GC
