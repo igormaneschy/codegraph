@@ -80,3 +80,7 @@
 ## Change go-input-admission (2026-10-09)
 - [anti-pattern] [go-flags-not-shell-fields](learned/go-flags-not-shell-fields.md)
 - [pattern] [go-env-control-probe-before-costly-observation](learned/go-env-control-probe-before-costly-observation.md)
+
+## Change go-stress-calls (2026-10-09)
+- [anti-pattern] [stress-call-bindings-not-total-edges](learned/stress-call-bindings-not-total-edges.md)
+- [pattern] [stress-oracle-outside-memory-sampler](learned/stress-oracle-outside-memory-sampler.md)

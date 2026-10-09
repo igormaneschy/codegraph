@@ -83,6 +83,12 @@ See [the review](CODE_REVIEW_2026-10-07.md) for findings and validation contract
     This is contract evidence, not a new real-repository quality result; historical
     numbers remain labelled legacy. See VALIDATION_R13.md. Only the tools/stdio
     MCP surface remains exercised.
+  - [x] Test-review follow-up — Go stress requires healthy/cold successful Go
+    resolution and the exact 2*n CALLS set/source files, not total edges including
+    DEFINES. Real 280-file fixture verifies 560 calls; structural-only SQL graph,
+    wrong same-count bindings, missing/extra/duplicate calls and invalid outcomes
+    fail. Heap sampler/ceiling/corpus unchanged, oracle outside measurement;
+    test-only, no runtime or identity change. See VALIDATION_GO_STRESS_CALLS.md.
 - [~] Delivery 5 — P1–P7: measured performance improvements after correctness.
   - [x] P1 — removed the redundant `runtime.GC` from `memory.Gate`
     (`debug.FreeOSMemory` already forces one) and gated the similarity signature

@@ -446,6 +446,18 @@ O objetivo não é obedecer a um limite arbitrário de linhas, mas tornar os inv
 
 ## Melhorias dos testes e da avaliação
 
+**Acompanhamento — stress Go (2026-10-09):** o item de `stress_test.go` abaixo
+foi corrigido em recorte test-only. A fixture de 280 arquivos exige resultado
+healthy/cold, escopo Go tentado e bem-sucedido e exatamente 560 CALLS independentes:
+FnI → Fn((I+1)%n) e FnI → localI, com QNs e arquivo de origem exatos. O oracle
+rejeita grafo SQL só com DEFINES, ausência/excesso/duplicação de CALLS e bindings
+errados mesmo com a mesma contagem. Casos n=1 e n=2 cobrem self-call/ciclo; erros
+de leitura e estados/escopos inválidos falham. Integridade/oracle são checados fora
+do bloco PeakHeap; sampler, ceiling, skip policy e corpus não mudaram. O teste
+continua medindo `Run`, não certificação estrita `RunAtomic`. Contrato/evidências:
+`VALIDATION_GO_STRESS_CALLS.md`; sem mudança de runtime/identidade nem claim de ganho.
+Os bullets seguintes preservam o diagnóstico da revisão original.
+
 - R01–R16 precisam de regressões comportamentais, não só aumento de cobertura percentual.
 - `TestCallEdges_GenericsDoNotCrash` garante um call não genérico sobrevive; não valida calls genéricas.
 - `internal/index/tsdeps_test.go:210–272` compara digests mas não exige índice healthy nem um
