@@ -20,31 +20,30 @@ Written before implementation, 2026-10-09. Source base: `main` / `f47bbca`.
 
 ## Behavior
 
-- [ ] One ordered query per served page; candidates stream row by row and the
+- [x] One ordered query per served page; candidates stream row by row and the
   iteration stops as soon as `pageSize+1` filtered refs are collected (sentinel
   error), closing the rows.
-- [ ] Identical answer, order and `has_more`/cursor semantics: filtered offset,
+- [x] Identical answer, order and `has_more`/cursor semantics: filtered offset,
   raw positions (`RawOff` resume) and pre-optimization cursors keep working.
-- [ ] Memory bounded by visited rows plus the page, never by the candidate
+- [x] Memory bounded by visited rows plus the page, never by the candidate
   total; the store never materializes a batch slice.
-- [ ] Store API: `ForEachDeadCodeCandidate(project, offset, visit)`; visitor
+- [x] Store API: `ForEachDeadCodeCandidate(project, offset, visit)`; visitor
   errors propagate unchanged; a negative offset fails; exhaustion past the end
   is empty, not an error.
-- [ ] No schema, identity, resolver or wire-format change; `dead_code` remains a
+- [x] No schema, identity, resolver or wire-format change; `dead_code` remains a
   candidate list with unchanged filtering rules.
 
 ## Validation
 
-- [ ] Existing query tests stay green: full-answer equivalence, entry-point
+- [x] Existing query tests stay green: full-answer equivalence, entry-point
   starvation, old cursor and tied positions, bounded allocs (comment updated to
-  stream semantics — allocations stay proportional to visited rows).
-- [ ] Store test rewritten for the streaming API: full-walk order/coverage,
+  stream semantics — allocations dropped from ~6k to ~1.2k per page).
+- [x] Store test rewritten for the streaming API: full-walk order/coverage,
   past-end empty, negative offset failure, and early stop (a visitor error stops
   iteration and propagates).
-- [ ] Before/after measurement on the `AutoTradersOMQS-GO` clone (target
-  ≤ ~0.15 s for the 47-ref page) and a regression check on the codegraph clone
-  (~0.02 s before); gates: formatting/build/vet, full default, race
-  (query+graph), lint; remote exact-head CI is the merge gate.
+- [x] Before/after measurement on the `AutoTradersOMQS-GO` clone and a
+  regression check on the codegraph clone; gates: formatting/build/vet, full
+  default, race (query+graph), lint; remote exact-head CI is the merge gate.
 
 ## Limits and non-goals
 
@@ -55,4 +54,14 @@ Written before implementation, 2026-10-09. Source base: `main` / `f47bbca`.
 
 ## Recorded evidence
 
-- (to be filled after implementation: before/after logs, gate logs)
+- `AutoTradersOMQS-GO` clone (`4cc8dd6`, 3532 raw candidates, 47 accepted),
+  binary `f47bbca` before vs the branch build after, macOS/M1:
+  - single page (`limit=50`): **0.47–0.85 s → 0.07 s** (n=4 warm runs;
+    0.61 s on the first, cold, run); the ref list is byte-identical to the old
+    binary's answer (47 refs, `diff` clean);
+  - full walk (`limit=10`, 5 pages): **1.99 s → 1.08 s**;
+  - codegraph clone regression: 0.02–0.03 s (unchanged).
+- `TestDeadCodePage_BoundedAllocs`: 1186 allocs/run over 4000 candidates
+  (previously ~6k).
+- Local gate logs are kept outside the checkout under the session's temp
+  directory; remote CI is the merge gate.

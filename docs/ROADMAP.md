@@ -23,6 +23,11 @@ not a prerequisite for personal use. Existing Linux CI stays in place.
   no-op (1.09–1.12 s, ~48 MB); rebuild pays +24% (enumeration twice plus the
   exact certification now reached). See VALIDATION_GO_DEPENDENCY_INPUTS.md.
   Search keyset/staging/remaining certification stay conditional on new evidence.
+- [x] Second measured fix (owner workload `AutoTradersOMQS-GO`): dead-code pages
+  stream one ordered query per page instead of re-executing the ordered
+  candidate query per OFFSET batch — 0.47–0.85 s → 0.07 s for the 47-ref page
+  with an identical answer; full 5-page walk 1.99 s → 1.08 s. See
+  VALIDATION_DEADCODE_STREAM.md.
 - **Outside current milestones:** Windows runtime/native tests and Linux/Windows
   benchmark matrices. Revisit if actual usage changes, not to complete checklists.
 
