@@ -82,7 +82,7 @@ Usage:
   codegraph mcp   [path]          Serve the graph over MCP (stdio); default = cwd / $CLAUDE_PROJECT_DIR
   codegraph bench <path>          Re-index + measure token/tool-call/speed efficiency
   codegraph quality gen <repo> [outdir] [lang]   Generate the answer-quality question set
-  codegraph quality score <dir>                  Grade filled truth+answers -> report.md
+  codegraph quality score <dir> [--scorer qualified-name-v1|name-v1] [--modes graph,baseline]
   codegraph cli   <tool> <path> <json>   Run one query tool (search|callers|callees|neighbors|similar|dead_code|get_architecture|snippet)
   codegraph version               Print binary path + build identity (verify fork vs stale install)
 
@@ -615,7 +615,7 @@ func cmdQuality(args []string) error {
 		if len(args) < 2 {
 			return fmt.Errorf("usage: codegraph quality score <dir>")
 		}
-		return cmdQualityScore(args[1])
+		return cmdQualityScoreArgs(args[1:])
 	default:
 		return fmt.Errorf("unknown quality subcommand %q", args[0])
 	}
@@ -676,12 +676,11 @@ func cmdQualityGen(repo, outdir, lang string) error {
 	if err := securefile.MkdirAllPrivate(outdir); err != nil {
 		return err
 	}
-	// truth scaffold: one entry per structural question for the oracle to fill.
+	// Null items/empty notes are explicitly unfilled, never fabricated evidence
+	// of an empty call set or an independent open-question rubric.
 	var truth []quality.Truth
 	for _, q := range qs {
-		if q.Type != quality.TypeOpen {
-			truth = append(truth, quality.Truth{ID: q.ID, Notes: "oracle: fill Items independently of the graph"})
-		}
+		truth = append(truth, quality.Truth{ID: q.ID})
 	}
 	if err := writeJSON(filepath.Join(outdir, "questions.json"), qs); err != nil {
 		return err
@@ -692,7 +691,7 @@ func cmdQualityGen(repo, outdir, lang string) error {
 	if err := writeJSON(filepath.Join(outdir, "answers.json"), []quality.Answer{}); err != nil {
 		return err
 	}
-	meta := map[string]any{"repo": root, "project": project, "lang": lang, "questions": len(qs)}
+	meta := map[string]any{"repo": root, "project": project, "lang": lang, "questions": len(qs), "scorer": quality.ScorerStrict, "expected_modes": []string{"graph", "baseline"}}
 	if err := writeJSON(filepath.Join(outdir, "meta.json"), meta); err != nil {
 		return err
 	}
@@ -700,30 +699,6 @@ func cmdQualityGen(repo, outdir, lang string) error {
 	fmt.Printf("generated %d questions for %s -> %s/\n", len(qs), project, outdir)
 	fmt.Printf("  questions.json  the tasks (run the ultracode workflow to fill truth.json + answers.json)\n")
 	fmt.Printf("  then: codegraph quality score %s\n", outdir)
-	return nil
-}
-
-func cmdQualityScore(dir string) error {
-	if err := securefile.MkdirAllPrivate(dir); err != nil {
-		return fmt.Errorf("prepare private quality directory: %w", err)
-	}
-	var qs []quality.Question
-	var truth []quality.Truth
-	var answers []quality.Answer
-	if err := readJSON(filepath.Join(dir, "questions.json"), &qs); err != nil {
-		return err
-	}
-	if err := readJSON(filepath.Join(dir, "truth.json"), &truth); err != nil {
-		return err
-	}
-	if err := readJSON(filepath.Join(dir, "answers.json"), &answers); err != nil {
-		return err
-	}
-	report := quality.Report(qs, truth, answers)
-	if err := writePrivate(filepath.Join(dir, "report.md"), []byte(report)); err != nil {
-		return err
-	}
-	fmt.Print(report)
 	return nil
 }
 

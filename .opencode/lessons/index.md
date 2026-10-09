@@ -68,3 +68,7 @@
 ## Change review-perf-p5-p7 (2026-10-08)
 - [pattern] [root-identity-not-authorization](learned/root-identity-not-authorization.md)
 - [context] [noop-work-and-failed-round-metrics](learned/noop-work-and-failed-round-metrics.md)
+
+## Change review-quality-r13 (2026-10-08)
+- [pattern] [versioned-evaluation-identity](learned/versioned-evaluation-identity.md)
+- [anti-pattern] [evaluation-matrix-before-means](learned/evaluation-matrix-before-means.md)

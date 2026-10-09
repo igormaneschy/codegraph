@@ -2,6 +2,8 @@ package quality
 
 import (
 	"fmt"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/Lordymine/codegraph/internal/graph"
@@ -13,6 +15,46 @@ func mkNodes(n int) []graph.Node {
 		out[i] = graph.Node{QualifiedName: fmt.Sprintf("q%03d", i)}
 	}
 	return out
+}
+
+func TestGeneratePromptsPreserveQualifiedIdentityAndTargetContext(t *testing.T) {
+	store, err := graph.Open(filepath.Join(t.TempDir(), "quality.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	nodes := []graph.Node{
+		{Project: "test", Label: graph.LabelFunction, Name: "Target", QualifiedName: "test:src/a.go.Target", FilePath: "src/a.go", StartLine: 12, EndLine: 13},
+		{Project: "test", Label: graph.LabelMethod, Name: "Run", QualifiedName: "test:src/b.go.Owner.Run", FilePath: "src/b.go", StartLine: 20, EndLine: 22},
+	}
+	if err := store.InsertNodes(nodes); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.InsertEdges([]graph.Edge{{Project: "test", SourceQN: nodes[1].QualifiedName, TargetQN: nodes[0].QualifiedName, Type: graph.EdgeCalls}}); err != nil {
+		t.Fatal(err)
+	}
+	questions, err := Generate(store, "test", "go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[QType]bool{}
+	for _, question := range questions {
+		seen[question.Type] = true
+		if question.File == "" || question.Line <= 0 || strings.HasPrefix(question.QN, "test:") {
+			t.Errorf("ambiguous target context: %+v", question)
+		}
+		if (question.Type == TypeCallers || question.Type == TypeCallees) && !strings.Contains(question.Prompt, "qualified names") {
+			t.Errorf("bare-name prompt: %q", question.Prompt)
+		}
+		if question.Type == TypeDefinition && !strings.Contains(question.Prompt, question.QN) {
+			t.Errorf("definition ignores owner identity: %q", question.Prompt)
+		}
+	}
+	for _, typ := range []QType{TypeCallers, TypeCallees, TypeDefinition, TypeOpen} {
+		if !seen[typ] {
+			t.Errorf("type %s not exercised", typ)
+		}
+	}
 }
 
 func TestStratifiedSampleSpansDistribution(t *testing.T) {

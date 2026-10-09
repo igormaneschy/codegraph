@@ -71,7 +71,7 @@ func TestEvaluateAggregates(t *testing.T) {
 		{ID: "callers-01", Type: TypeCallers},
 		{ID: "open-01", Type: TypeOpen},
 	}
-	truths := []Truth{{ID: "callers-01", Items: []string{"a", "b"}}}
+	truths := []Truth{{ID: "callers-01", Items: []string{"a", "b"}}, {ID: "open-01", Notes: "Independent reference rubric"}}
 	j := 0.8
 	answers := []Answer{
 		{ID: "callers-01", Mode: "graph", Items: []string{"a", "b"}, Tokens: 100, Calls: 1},
@@ -79,8 +79,11 @@ func TestEvaluateAggregates(t *testing.T) {
 		{ID: "callers-01", Mode: "baseline", Items: []string{"a"}, Tokens: 2000, Calls: 6},
 		{ID: "open-01", Mode: "baseline", Text: "...", Judge: &j, Tokens: 1500, Calls: 5},
 	}
-	_, aggs := Evaluate(qs, truths, answers)
-	g, base := aggs["graph"], aggs["baseline"]
+	evaluation, err := Evaluate(qs, truths, answers, EvaluationOptions{Scorer: ScorerLegacy})
+	if err != nil {
+		t.Fatal(err)
+	}
+	g, base := evaluation.Aggregates["graph"], evaluation.Aggregates["baseline"]
 	// graph: callers F1=1, open=0.8 -> mean 0.9
 	if !approx(g.MeanQuality, 0.9) {
 		t.Fatalf("graph mean=%v want 0.9", g.MeanQuality)

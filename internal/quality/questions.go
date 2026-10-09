@@ -38,7 +38,7 @@ func Generate(st *graph.Store, project, lang string) ([]Question, error) {
 			Symbol: n.Name, QN: query.StripProjectPrefix(n.QualifiedName),
 			File: n.FilePath, Line: n.StartLine,
 			Prompt: fmt.Sprintf("List EVERY function or method in this repository that directly calls `%s` "+
-				"(the one defined in %s:%d). Answer as a list of the caller symbol names.",
+				"(the one defined in %s:%d). Answer as a list of exact repository-relative caller qualified names (file plus owner/symbol), preserving case and homonyms.",
 				n.Name, n.FilePath, n.StartLine),
 		})
 	}
@@ -56,7 +56,7 @@ func Generate(st *graph.Store, project, lang string) ([]Question, error) {
 			Prompt: fmt.Sprintf("List every function or method DEFINED IN THIS REPOSITORY that `%s` (defined "+
 				"in %s:%d) calls directly. Exclude calls into the standard library or third-party "+
 				"dependencies (e.g. fmt.*, os.*, builtins) — only intra-repo callees count. Keep "+
-				"func-value/field invocations defined here. Answer as a list of the callee symbol names.",
+				"func-value/field invocations defined here. Answer as a list of exact repository-relative callee qualified names (file plus owner/symbol), preserving case and homonyms.",
 				n.Name, n.FilePath, n.StartLine),
 		})
 	}
@@ -65,8 +65,8 @@ func Generate(st *graph.Store, project, lang string) ([]Question, error) {
 	for i, n := range defs {
 		add(Question{
 			ID: fmt.Sprintf("definition-%02d", i+1), Type: TypeDefinition,
-			Symbol: n.Name, QN: query.StripProjectPrefix(n.QualifiedName),
-			Prompt: fmt.Sprintf("Where is `%s` defined? Answer with a single `relpath:line`.", n.Name),
+			Symbol: n.Name, QN: query.StripProjectPrefix(n.QualifiedName), File: n.FilePath, Line: n.StartLine,
+			Prompt: fmt.Sprintf("Where is `%s` (%s) declared? Distinguish same-named symbols by file and owner. Answer with a single full repository-relative `relpath:line`, using the exact declaration line.", n.Name, query.StripProjectPrefix(n.QualifiedName)),
 		})
 	}
 
@@ -76,7 +76,7 @@ func Generate(st *graph.Store, project, lang string) ([]Question, error) {
 	for i, n := range firstN(inRanked, 2) {
 		add(Question{
 			ID: fmt.Sprintf("open-%02d", i+1), Type: TypeOpen,
-			Symbol: n.Name, QN: query.StripProjectPrefix(n.QualifiedName), File: n.FilePath,
+			Symbol: n.Name, QN: query.StripProjectPrefix(n.QualifiedName), File: n.FilePath, Line: n.StartLine,
 			Prompt: fmt.Sprintf("In 2-4 sentences, explain the responsibility of `%s` (%s) and how it fits "+
 				"into the surrounding module — what calls it and what it depends on.", n.Name, n.FilePath),
 		})

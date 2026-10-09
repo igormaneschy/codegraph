@@ -14,8 +14,8 @@ package quality
 type QType string
 
 const (
-	TypeCallers    QType = "callers"    // who calls X — score: F1 over caller names
-	TypeCallees    QType = "callees"    // what X calls — score: F1 over callee names
+	TypeCallers    QType = "callers"    // who calls X — score: F1 over caller identities
+	TypeCallees    QType = "callees"    // what X calls — score: F1 over callee identities
 	TypeDefinition QType = "definition" // where is X defined — score: file:line match
 	TypeOpen       QType = "open"       // free-form comprehension — score: LLM judge
 )
@@ -32,12 +32,13 @@ type Question struct {
 	Prompt string `json:"prompt"` // the natural-language task given to both agents
 }
 
-// Truth is the oracle-established correct answer for a structural question. For
-// callers/callees, Items is the set of expected symbol names; for definition,
-// Items is ["relpath:line"]. Open questions carry no precomputed truth.
+// Truth is the independent oracle's answer. Strict callers/callees use exact
+// project-stripped repository QNs; legacy runs use names. Definition Items is
+// ["relpath:line"]. Open questions carry independent rubric Notes. A nil Items
+// slice is unfilled; an explicit empty slice is a known empty call set.
 type Truth struct {
 	ID    string   `json:"id"`
-	Items []string `json:"items,omitempty"`
+	Items []string `json:"items"`
 	Notes string   `json:"notes,omitempty"`
 }
 
@@ -45,7 +46,7 @@ type Truth struct {
 type Answer struct {
 	ID     string   `json:"id"`
 	Mode   string   `json:"mode"`            // "graph" | "baseline"
-	Items  []string `json:"items,omitempty"` // structural answer set
+	Items  []string `json:"items"`           // structural answer set
 	Text   string   `json:"text,omitempty"`  // open-question answer
 	Tokens int      `json:"tokens"`          // tokens the agent spent reaching the answer
 	Calls  int      `json:"calls"`           // tool calls the agent made

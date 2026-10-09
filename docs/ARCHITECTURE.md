@@ -564,6 +564,32 @@ codegraph cli     <tool> <path> <json> run one query tool (no MCP)
 Store path: `~/.cache/codegraph/<project>.db`. Project slug derived from the
 absolute repo path (matches upstream convention).
 
+## Evaluation identity and completeness (R13)
+
+`internal/quality` admits the whole run before scoring: a nonempty unique question
+set, one independent truth per ID, and one answer per declared question×mode
+(default graph+baseline; graph-only is explicit). Missing/duplicate/unknown rows,
+null structural items, invalid open rubric/text/judge, negative/overflowing costs
+produce an error, never a partial denominator or replacement report.
+
+Default `qualified-name-v1` uses exact case-sensitive project-stripped QN sets,
+without name/path shortening, prefix guessing or graph-derived truth. Symbol
+suffixes remain opaque, including Ruby `#`/`.`/`::` and quoted TS method names.
+Definitions require full canonical relative path:exact positive declaration line
+and a single matching answer. Explicit `name-v1` retains historical normalized
+name and basename/±3-line identity; reports label it as noncomparable to strict
+results. This changes evaluation semantics only, not analysis/graph identity.
+
+The graph producer extracts TSV column 4 and only publishes after a terminal,
+progressing, generation-stable pagination walk. Page-cap exhaustion is an error,
+not an implicit subset. The deterministic producer accepts explicit call-only
+questions; the workflow handles full graph+baseline experiments and fails missing
+agent/judge/pipeline results instead of fabricating empty evidence. CLI admission
+checks actual files, not write acknowledgements; independent oracle correctness,
+source freshness and LLM self-reported costs still require external evidence.
+See QUALITY.md and VALIDATION_R13.md; pinned-Node producer tests remain separate
+from the Node-independent default Go suite.
+
 ## Package layout
 
 ```

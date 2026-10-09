@@ -6,95 +6,96 @@ import (
 	"strings"
 )
 
-// Report renders the full quality comparison as markdown — the answer-quality
-// half of the upstream table (quality% graph vs baseline) joined with the token/
-// tool-call cost each mode paid to get there.
-func Report(qs []Question, truths []Truth, answers []Answer) string {
-	scores, aggs := Evaluate(qs, truths, answers)
-
-	var b strings.Builder
-	b.WriteString("# codegraph quality harness\n\n")
-
-	// Headline: graph vs baseline.
-	b.WriteString("## Answer quality vs cost\n\n")
-	b.WriteString("| mode | mean quality | tokens | tool calls |\n")
-	b.WriteString("|---|--:|--:|--:|\n")
-	for _, mode := range modesOf(aggs) {
-		a := aggs[mode]
-		fmt.Fprintf(&b, "| **%s** | %.0f%% | %d | %d |\n",
-			mode, 100*a.MeanQuality, a.TotalTokens, a.TotalCalls)
+// Report renders a labelled complete-run comparison or no report on failure.
+// Example: Report(qs, truths, answers, EvaluationOptions{}) uses strict identity.
+func Report(qs []Question, truths []Truth, answers []Answer, options EvaluationOptions) (string, error) {
+	evaluation, err := Evaluate(qs, truths, answers, options)
+	if err != nil {
+		return "", err
 	}
+	var report strings.Builder
+	writeReportIntro(&report, evaluation, len(qs))
+	modes := modesOf(evaluation.Aggregates)
+	writeCostSummary(&report, evaluation.Aggregates, modes)
+	writeTypeSummary(&report, evaluation.Aggregates, modes)
+	writeQuestionSummary(&report, qs, evaluation.Scores, modes)
+	report.WriteString("\n> Quality = set F1 vs independent oracle truth for callers/callees, declaration location match for definition, finite LLM-judge (0–100%) for open. Strict identity is case-sensitive QN/full-path:exact-line; legacy identity is normalized name/basename:±3-lines. See docs/QUALITY.md.\n")
+	return report.String(), nil
+}
 
-	// Per-type quality.
-	b.WriteString("\n## Quality by question type\n\n")
-	types := []QType{TypeCallers, TypeCallees, TypeDefinition, TypeOpen}
-	b.WriteString("| mode |")
-	for _, t := range types {
-		b.WriteString(" " + string(t) + " |")
+func writeReportIntro(report *strings.Builder, evaluation Evaluation, questions int) {
+	report.WriteString("# codegraph quality harness\n\n")
+	fmt.Fprintf(report, "scorer=%s · questions=%d · modes=%s\n\n", evaluation.Scorer, questions, markdownCell(strings.Join(evaluation.Modes, ",")))
+	if evaluation.Scorer == ScorerLegacy {
+		report.WriteString("> Legacy identity scoring: names/basenames can collapse homonyms. Not comparable to qualified-name-v1.\n\n")
 	}
-	b.WriteString("\n|---|" + strings.Repeat("--:|", len(types)) + "\n")
-	for _, mode := range modesOf(aggs) {
-		a := aggs[mode]
-		b.WriteString("| **" + mode + "** |")
-		for _, t := range types {
-			if v, ok := a.ByType[t]; ok {
-				fmt.Fprintf(&b, " %.0f%% |", 100*v)
-			} else {
-				b.WriteString(" – |")
-			}
+}
+
+func writeCostSummary(report *strings.Builder, aggregates map[string]Agg, modes []string) {
+	report.WriteString("## Answer quality vs cost\n\n")
+	report.WriteString("| mode | mean quality | tokens | tool calls |\n|---|--:|--:|--:|\n")
+	for _, mode := range modes {
+		aggregate := aggregates[mode]
+		fmt.Fprintf(report, "| **%s** | %.0f%% | %d | %d |\n", markdownCell(mode), 100*aggregate.MeanQuality, aggregate.TotalTokens, aggregate.TotalCalls)
+	}
+}
+
+func writeTypeSummary(report *strings.Builder, aggregates map[string]Agg, modes []string) {
+	report.WriteString("\n## Quality by question type\n\n")
+	report.WriteString("| mode | callers | callees | definition | open |\n|---|--:|--:|--:|--:|\n")
+	for _, mode := range modes {
+		report.WriteString("| **" + markdownCell(mode) + "** |")
+		for _, typ := range []QType{TypeCallers, TypeCallees, TypeDefinition, TypeOpen} {
+			quality, exists := aggregates[mode].ByType[typ]
+			fmt.Fprintf(report, " %s |", pctQuality(quality, exists))
 		}
-		b.WriteString("\n")
+		report.WriteByte('\n')
 	}
+}
 
-	// Per-question detail.
-	b.WriteString("\n## Per question\n\n")
-	b.WriteString("| id | type | graph | baseline |\n|---|---|--:|--:|\n")
-	byID := map[string]map[string]Score{}
-	for _, s := range scores {
-		if byID[s.ID] == nil {
-			byID[s.ID] = map[string]Score{}
-		}
-		byID[s.ID][s.Mode] = s
+func writeQuestionSummary(report *strings.Builder, qs []Question, scores []Score, modes []string) {
+	report.WriteString("\n## Per question\n\n| id | type |")
+	for _, mode := range modes {
+		fmt.Fprintf(report, " %s |", markdownCell(mode))
+	}
+	report.WriteString("\n|---|---|" + strings.Repeat("--:|", len(modes)) + "\n")
+	byKey := map[answerKey]Score{}
+	for _, score := range scores {
+		byKey[answerKey{score.ID, score.Mode}] = score
 	}
 	for _, q := range qs {
-		m := byID[q.ID]
-		fmt.Fprintf(&b, "| `%s` | %s | %s | %s |\n",
-			q.ID, q.Type, pct(m["graph"]), pct(m["baseline"]))
+		fmt.Fprintf(report, "| `%s` | %s |", markdownCell(q.ID), q.Type)
+		for _, mode := range modes {
+			fmt.Fprintf(report, " %.0f%% |", 100*byKey[answerKey{q.ID, mode}].Quality)
+		}
+		report.WriteByte('\n')
 	}
-
-	b.WriteString("\n> Quality = F1 vs the oracle truth for callers/callees, " +
-		"file:line match for definition, LLM-judge (0–100%) for open. " +
-		"Ground truth is established independently of the graph — see docs/QUALITY.md.\n")
-	return b.String()
 }
 
-func pct(s Score) string {
-	if s.ID == "" {
+func pctQuality(quality float64, exists bool) string {
+	if !exists {
 		return "–"
 	}
-	return fmt.Sprintf("%.0f%%", 100*s.Quality)
+	return fmt.Sprintf("%.0f%%", 100*quality)
 }
 
-func modesOf(aggs map[string]Agg) []string {
-	var ms []string
-	for m := range aggs {
-		ms = append(ms, m)
+func markdownCell(text string) string {
+	return strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", "|", "&#124;", "`", "&#96;").Replace(text)
+}
+
+// modesOf keeps graph then baseline first; additional declared modes are sorted.
+func modesOf(aggregates map[string]Agg) []string {
+	var modes, other []string
+	for _, mode := range []string{"graph", "baseline"} {
+		if _, exists := aggregates[mode]; exists {
+			modes = append(modes, mode)
+		}
 	}
-	// graph first, then baseline, then any others alphabetically.
-	sort.Slice(ms, func(i, j int) bool {
-		rank := func(s string) int {
-			switch s {
-			case "graph":
-				return 0
-			case "baseline":
-				return 1
-			}
-			return 2
+	for mode := range aggregates {
+		if mode != "graph" && mode != "baseline" {
+			other = append(other, mode)
 		}
-		if rank(ms[i]) != rank(ms[j]) {
-			return rank(ms[i]) < rank(ms[j])
-		}
-		return ms[i] < ms[j]
-	})
-	return ms
+	}
+	sort.Strings(other)
+	return append(modes, other...)
 }

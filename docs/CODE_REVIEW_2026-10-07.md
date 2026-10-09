@@ -1044,4 +1044,56 @@ ocupação de disco nem bytes SQLite/SCIP. Diretórios/links/escritas falhadas n
 contam. Gates dentro de batches/resolvers fazem parte dessas fases; gates entre
 fases têm timing agregado separado. `manifest-untrusted` agrupa causas de trust
 miss (não finge provar uma edição de config); reasons de inputs não certificados
-continuam explícitos. P2 de search e os gaps R01/R04/R05/R13 continuam abertos.
+continuam explícitos. P2 de search e os gaps R01/R04/R05/R13 continuam abertos
+neste lote (R13 é avançado no follow-up abaixo).
+
+## Contrato/evidência — R13, identidade estrita e avaliação completa
+
+Contrato pré-implementação: `docs/VALIDATION_R13.md`. O padrão agora é
+`qualified-name-v1`: QNs repository-relative/project-stripped, comparação exata,
+case-sensitive, sem colapsar arquivo/owner, Ruby instance/singleton ou namespaces.
+Sufixos são opacos (TS permite métodos quoted/computed com espaços/slashes).
+Definition usa caminho relativo completo e linha exata, com uma resposta única.
+`name-v1` só por opção explícita, mantendo nomes normalizados e basename/±3 linhas
+históricos. Nenhum número histórico foi convertido ou nova rodada LLM executada.
+
+Admission valida o conjunto não vazio de questões, IDs/tipos, uma truth por ID e
+uma resposta por questão×modo declarado (padrão graph+baseline; graph-only
+explícito). Duplicatas/IDs ou modos desconhecidos, rows ausentes, items null,
+rubrica/texto/judge ausentes ou fora do intervalo, custos negativos/overflow
+falham antes de médias e publicação. `[]` explícito continua sendo conjunto de
+calls conhecido vazio. Report marca scorer/modos, escapa metadados e não substitui
+report anterior em falha; scaffolds são deliberadamente não preenchidos.
+
+O produtor determinístico lê a coluna TSV 4, guarda homônimos, cobra invocações e
+bytes UTF-8 e exige trailer terminal, cursor com progresso e geração estável.
+Cap atingido/trailer inválido/erro do executável não publica resposta parcial.
+Aceita somente experimento call-only explícito, sem subset implícito; substitui
+answers por rename privado e não segue symlink de destino. Workflow independente
+oracle/baseline deriva QNs do source, preserva limit/query na continuação e
+seleciona definição por QN, não primeiro homônimo. Falhas de agentes/judge/pipeline
+não viram []/zero nem são descartadas silenciosamente.
+
+Regressões red: homônimos recebiam 100% e ausência de baseline ainda gerava
+report (`/tmp/cg-r13/red.log`). Testes Go cobrem identidades, sets/empty, definições,
+matriz/erro/contexto/custos/judges, determinismo, geração e CLI/report privado.
+16 testes Node cobrem paginação, cap/ciclo/geração/trailers, bytes/custos, argv real,
+preservação/publicação de artefato e falhas do workflow, no job Node fixado.
+Fixture Go real independente do checkout servido: 720 tipos `OwnerN`, todos com
+método `Run` chamando `Target`; truth foi gerada do source antes da indexação.
+CLI→Node→CLI preservou **720 QNs em 2 páginas**, F1 estrito **100%**, 8.005 tokens
+estimados de output. É evidência sintética de contrato, não ganho de qualidade
+em repositório real (`/tmp/cg-r13/e2e-*.log`).
+
+Gates locais: gofmt, módulos verify/tidy-diff, build, vet, full/default/coverage,
+full race, race final dos pacotes alterados, SCIP real com race e lint (0 issues).
+`internal/quality` teve 96,9% de statement coverage. Logs `/tmp/cg-r13/`.
+Self-review código/testes: PASS após preservar CODEGRAPH_EXE, checar argv tool-first,
+proteger artefatos/row matrix e preservar símbolos TS opacos. CI remoto é gate de
+merge, não inferido a partir dos testes locais.
+
+Limites: validação não prova veracidade do oracle/modelo, source freshness,
+escrita do agente ou custo autodeclarado; CLI checa arquivos reais, não ack do
+workflow. Não muda resolvers, manifest/fingerprint, graph schema ou analysis
+identity. R01/R04/R05, benchmarks representativos, search keyset e reuso mais
+profundo de staging seguem separados.
