@@ -1111,48 +1111,47 @@ func (s *Store) countBy(q, project string) (map[string]int, error) {
 	return out, rows.Err()
 }
 
-// DeadCodeCandidates streams Function/Method nodes that no in-graph CALLS
-// edge points at, in (file_path, start_line) order, rows [offset,
-// offset+limit) — the paged, bounded-memory backing for dead-code queries.
-// Memory is proportional to the batch, never to the candidate total: callers
-// loop batches until their filtered page (plus its continuation probe) is
-// full.
+// ForEachDeadCodeCandidate streams Function/Method nodes that no in-graph
+// CALLS edge points at, in (file_path, start_line, qualified_name) order,
+// starting at absolute candidate position offset. The visitor's error stops the
+// iteration and is returned unchanged, so callers can assemble a page without
+// materializing the candidate set; exhaustion past the end yields no calls and
+// no error. Memory is proportional to the visited rows and the page, never to
+// the candidate total.
 //
 // source_id <> n.id ignores self-edges: a function reachable only by its own
 // recursion is still unreachable from the rest of the repo, so it stays dead.
 // Entry-point filtering (exported, decorated, main/init, tests) stays in the
-// query layer, which owns those semantics; because callers keep pulling
-// batches while their filtered page is short, an entry-point-heavy repo can
-// never starve a page into a false "no more candidates".
+// query layer, which owns those semantics; because callers keep streaming
+// while their filtered page is short, an entry-point-heavy repo can never
+// starve a page into a false "no more candidates".
 //
 // #nosec G202 -- ftsCols("n.") prefixes the internal nodeCols constant; values stay parameters.
-func (s *Store) DeadCodeCandidates(project string, offset, limit int) ([]Node, error) {
+func (s *Store) ForEachDeadCodeCandidate(project string, offset int, visit func(Node) error) error {
 	if offset < 0 {
-		return nil, fmt.Errorf("invalid offset %d: want a non-negative row offset", offset)
-	}
-	if limit <= 0 {
-		return nil, fmt.Errorf("invalid batch size %d: want a positive batch size", limit)
+		return fmt.Errorf("invalid offset %d: want a non-negative row offset", offset)
 	}
 	q := `SELECT ` + ftsCols("n.") + ` FROM nodes n
 		WHERE n.project=? AND n.label IN ('Function','Method')
 		AND NOT EXISTS (
 			SELECT 1 FROM edges e WHERE e.target_id = n.id AND e.source_id <> n.id AND e.type='CALLS'
 		)
-		ORDER BY n.file_path ASC, n.start_line ASC, n.qualified_name ASC LIMIT ? OFFSET ?`
-	rows, err := s.db.Query(q, project, limit, offset)
+		ORDER BY n.file_path ASC, n.start_line ASC, n.qualified_name ASC LIMIT -1 OFFSET ?`
+	rows, err := s.db.Query(q, project, offset)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer rows.Close()
-	var out []Node
 	for rows.Next() {
 		n, err := scanNode(rows)
 		if err != nil {
-			return nil, err
+			return err
 		}
-		out = append(out, n)
+		if err := visit(n); err != nil {
+			return err
+		}
 	}
-	return out, rows.Err()
+	return rows.Err()
 }
 
 // ImportSourcesOfFiles returns the distinct source file rels having IMPORTS

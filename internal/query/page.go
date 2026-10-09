@@ -1,6 +1,7 @@
 package query
 
 import (
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"strconv"
@@ -289,14 +290,13 @@ func (e *Engine) SimilarNotice() string {
 // (function value, interface dispatch, reflection), makes a live function look
 // dead. The agent must confirm each (e.g. grep the name) before acting.
 //
-// The candidate set is still materialized before paging (streaming is P5);
-// memory here depends on the total, the page only bounds the answer.
-// deadCodeRawBatch bounds one raw candidate batch pulled from the store while
-// assembling a dead-code page. The page stops at pageSize+1 filtered refs, so
-// memory depends on the batch — never on the candidate total — while an
-// entry-point-heavy repo just costs extra cheap indexed batches, never a
-// false end of results.
-const deadCodeRawBatch = 256
+// Candidates stream from one ordered query per page and stop at pageSize+1
+// filtered refs, so memory depends on the visited rows — never on the
+// candidate total — while an entry-point-heavy repo just visits more rows,
+// never a false end of results. (The previous OFFSET batch loop re-executed
+// the whole ordered query per batch: on a 3532-candidate repository that was
+// ~14 scans+sorts, 0.47–0.85 s per page; the stream pays them once.)
+var errDeadCodePageComplete = errors.New("dead-code page complete")
 
 func (e *Engine) DeadCodePage(limit int, cursor string) (RefPage, error) {
 	var out RefPage
@@ -323,44 +323,36 @@ func (e *Engine) DeadCodePage(limit int, cursor string) (RefPage, error) {
 		offset = c.Off
 		rawStart = c.RawOff
 	}
-	// Stream raw batches, skipping entry points and already-served filtered
-	// items, until the page plus its continuation probe are determined. Each
-	// batch is dropped before the next is pulled: at most one batch plus one
-	// page of refs is ever live.
+	// Stream candidates from one ordered query, skipping entry points and
+	// already-served filtered items, until the page plus its continuation
+	// probe are determined. Only accepted refs are kept: memory stays
+	// proportional to the visited rows, never to the candidate total.
 	var rows []Ref
 	skipped := 0
 	if rawStart > 0 {
 		skipped = offset
 	}
-	rawOffset := rawStart
+	rawPosition := rawStart
 	var rawPositions []int
-	for len(rows) < pageSize+1 {
-		raw, err := e.store.DeadCodeCandidates(e.project, rawOffset, deadCodeRawBatch)
-		if err != nil {
-			return out, err
+	streamErr := e.store.ForEachDeadCodeCandidate(e.project, rawStart, func(n graph.Node) error {
+		position := rawPosition
+		rawPosition++
+		if isEntryPoint(n) {
+			return nil
 		}
-		if len(raw) == 0 {
-			break
+		if skipped < offset {
+			skipped++
+			return nil
 		}
-		batchStart := rawOffset
-		rawOffset += len(raw)
-		for i, n := range raw {
-			if isEntryPoint(n) {
-				continue
-			}
-			if skipped < offset {
-				skipped++
-				continue
-			}
-			rows = append(rows, refOf(n))
-			rawPositions = append(rawPositions, batchStart+i)
-			if len(rows) == pageSize+1 {
-				break
-			}
+		rows = append(rows, refOf(n))
+		rawPositions = append(rawPositions, position)
+		if len(rows) == pageSize+1 {
+			return errDeadCodePageComplete
 		}
-		if len(raw) < deadCodeRawBatch {
-			break
-		}
+		return nil
+	})
+	if streamErr != nil && !errors.Is(streamErr, errDeadCodePageComplete) {
+		return out, streamErr
 	}
 	probe := len(rows) == pageSize+1
 	if probe {
