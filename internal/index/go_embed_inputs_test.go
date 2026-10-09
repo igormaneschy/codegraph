@@ -33,8 +33,12 @@ func TestGoEmbedInputs_HealthyCallsWithSelectedLocalAssets(t *testing.T) {
 			}
 			assertStoredCallTargets(t, db, ProjectName(root), "app/main.go.Run", []string{"app/main.go.helper"})
 			manifest, err := ReadManifest(db)
-			if err != nil || !slices.Contains(manifest.ResolverInputs.NoReuseReasons, "go-embed-inputs-unobserved") {
-				t.Fatalf("local transport must not certify complete embed coverage: %+v err=%v", manifest.ResolverInputs, err)
+			if err != nil || slices.Contains(manifest.ResolverInputs.NoReuseReasons, "go-embed-inputs-unobserved") {
+				t.Fatalf("observed local embed inputs kept the unobserved reason: %+v err=%v", manifest.ResolverInputs, err)
+			}
+			second, err := RunAtomic(db, root)
+			if err != nil || !second.Reused {
+				t.Fatalf("unchanged embed inputs were not a certified no-op: %+v err=%v", second, err)
 			}
 		})
 	}
@@ -94,5 +98,57 @@ func TestGoEmbedInputs_SelectedMutationInvalidatesAndFailsLateStaging(t *testing
 	_, _, _, err = resolverSnapshotForScan(context.Background(), before)
 	if err == nil || !strings.Contains(err.Error(), "changed") {
 		t.Fatalf("late asset mutation was accepted: %v", err)
+	}
+}
+
+func TestGoEmbedCertification_AssetChangesInvalidateNoop(t *testing.T) {
+	root := writeGoEmbedFixture(t, "assets")
+	writeSecurityFile(t, root, "app/assets/item.txt", "one\n")
+	db := filepath.Join(securityPhysicalTempDir(t), "graph.db")
+	if first, err := RunAtomic(db, root); err != nil || first.Reused || first.Status != StatusHealthy {
+		t.Fatalf("first index=%+v err=%v", first, err)
+	}
+	if second, err := RunAtomic(db, root); err != nil || !second.Reused {
+		t.Fatalf("unchanged embed inputs were not a certified no-op: %+v err=%v", second, err)
+	}
+	writeSecurityFile(t, root, "app/assets/item.txt", "two\n")
+	if edited, err := RunAtomic(db, root); err != nil || edited.Reused {
+		t.Fatalf("edited asset was reused: %+v err=%v", edited, err)
+	}
+	writeSecurityFile(t, root, "app/assets/extra.txt", "three\n")
+	if added, err := RunAtomic(db, root); err != nil || added.Reused {
+		t.Fatalf("added asset was reused: %+v err=%v", added, err)
+	}
+	if err := os.Remove(filepath.Join(root, "app/assets/extra.txt")); err != nil {
+		t.Fatal(err)
+	}
+	if removed, err := RunAtomic(db, root); err != nil || removed.Reused {
+		t.Fatalf("removed asset was reused: %+v err=%v", removed, err)
+	}
+}
+
+func TestGoEmbedCertification_UnhandledDirectivesKeepReason(t *testing.T) {
+	cases := []struct {
+		name   string
+		source string
+	}{
+		{"missing import", "package app\n\n//go:embed assets/*.txt\nvar text string\n"},
+		{"invalid pattern", "package app\n\nimport _ \"embed\"\n//go:embed \"unterminated\nvar text string\n"},
+		{"parse error", "package app\n\nimport _ \"embed\"\n//go:embed assets/*.txt\nvar text string\nfunc {\n"},
+	}
+	for _, item := range cases {
+		t.Run(item.name, func(t *testing.T) {
+			root := securityPhysicalTempDir(t)
+			writeSecurityFile(t, root, "go.mod", "module example.test/unhandled\ngo 1.26\n")
+			writeSecurityFile(t, root, "app/main.go", item.source)
+			writeSecurityFile(t, root, "app/assets/item.txt", "fixture\n")
+			scan, err := scanRepositoryContext(context.Background(), root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !slices.Contains(scan.manifest.ResolverInputs.NoReuseReasons, "go-embed-inputs-unobserved") {
+				t.Fatalf("unhandled directive lost the reason: %v", scan.manifest.ResolverInputs.NoReuseReasons)
+			}
+		})
 	}
 }
