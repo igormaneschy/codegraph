@@ -1,7 +1,6 @@
 package index
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -14,8 +13,6 @@ import (
 	"sort"
 	"strings"
 	"time"
-
-	"golang.org/x/mod/modfile"
 
 	"github.com/Lordymine/codegraph/internal/securefile"
 )
@@ -226,12 +223,8 @@ func observeGoReuseLimits(scan repositoryScan, reasons map[string]bool) error {
 		if err != nil {
 			return err
 		}
-		module, err := modfile.Parse(input.Path, content, nil)
 		if hashBytes(content) != input.SHA256 {
 			return fmt.Errorf("go metadata %q changed during observation", input.Path)
-		}
-		if err != nil || len(module.Require) > 0 || len(module.Replace) > 0 {
-			reasons["go-dependency-inputs-unobserved"] = true
 		}
 	}
 	return observeGoSourceReuseLimits(scan, reasons)
@@ -250,13 +243,11 @@ func observeGoSourceReuseLimits(scan repositoryScan, reasons map[string]bool) er
 		if hashBytes(content) != expected[file.RelPath] {
 			return fmt.Errorf("go source %q changed during observation", file.RelPath)
 		}
-		// A potential directive also disables reuse when it appears in a raw
-		// string: false negatives would certify unknown inputs; false positives
-		// merely pay for a rebuild until a complete compiler-input plan exists.
-		if bytes.Contains(content, []byte("//go:embed")) {
+		embedDirective, cgoImport := goSourceSpecialInputs(file.RelPath, content)
+		if embedDirective {
 			reasons["go-embed-inputs-unobserved"] = true
 		}
-		if bytes.Contains(content, []byte(`"C"`)) {
+		if cgoImport {
 			reasons["go-cgo-external-inputs-unobserved"] = true
 		}
 	}
