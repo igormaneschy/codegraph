@@ -2,7 +2,27 @@
 
 Milestones, smallest-useful-first. Each one ships something runnable.
 
-## Review hardening — 2026-10-07 (in progress)
+## Current priority — personal macOS workflow (2026-10-09)
+
+Governing decision: [PERSONAL_MACOS_SCOPE.md](PERSONAL_MACOS_SCOPE.md). This fork
+is currently used personally and exclusively on macOS. Preserve correctness,
+atomic publication and conservative no-reuse; complete platform/input breadth is
+not a prerequisite for personal use. Existing Linux CI stays in place.
+
+- [x] Record the operating scope in project/agent guidance and durable project memory.
+- [x] Validate existing daily edit/refresh/query/recovery and real binding fixtures
+  on macOS; contract: [VALIDATION_MACOS_WORKFLOW.md](VALIDATION_MACOS_WORKFLOW.md).
+  Default tests, focused race workflow tests, real SCIP oracles, Node harness and
+  build/vet/modules/format/lint PASS. This is fixture behavior evidence, not a
+  benchmark of personal workloads or proof of full external-input certification.
+- [ ] Choose an owner-used repository/workload, then measure it in an exclusive
+  disposable copy. Existing public pilots are not representative by default.
+- [ ] Select the next bounded fix/optimization only from demonstrated correctness
+  need or measured cost. Search keyset/staging/certification remain conditional.
+- **Outside current milestones:** Windows runtime/native tests and Linux/Windows
+  benchmark matrices. Revisit if actual usage changes, not to complete checklists.
+
+## Review hardening — 2026-10-07 (implemented and conditional backlog)
 
 See [the review](CODE_REVIEW_2026-10-07.md) for findings and validation contracts.
 
@@ -36,13 +56,15 @@ See [the review](CODE_REVIEW_2026-10-07.md) for findings and validation contract
       wrapper edits and unrelated-language edits never reuse Go CALLS; reference
       rebuilds and unchanged admitted tag-only fixtures retain their contracts.
       See VALIDATION_GO_INPUT_ADMISSION.md. No external reuse is newly enabled.
-    - [ ] Complete external/auxiliary/workspace input closure and external npm/SCIP
-      runtime closure. Local go.work loading already works; full certification
-      remains separate from the earlier merged bounded deliveries.
+    - **Conditional backlog, not a personal-use gate:** complete external/auxiliary/
+      workspace input closure and external npm/SCIP runtime closure. Local go.work
+      loading already works; full certification is not claimed. Advance bounded
+      subsets only for demonstrated need; keep conservative rebuild/no-reuse.
 - [x] Delivery 3 — R01/R07/R08/R14/R15: operational support and language fixtures.
   - [x] R01 — Windows is no longer a published release asset, and the runtime
     limitation is documented (README, CONTRIBUTING). Re-adding it requires a
-    natively tested handle/ACL implementation and a Windows smoke test.
+    natively tested handle/ACL implementation and a Windows smoke test. This is
+    outside current milestones; reconsider only if the owner needs Windows.
   - [x] R07 — generic Go methods and functions keep CALLS: the nominal receiver QN
     is `<file>.Box.Get` and SSA instantiations map to their declared origin
     (`go-vta-resolver-v5`).
@@ -129,16 +151,19 @@ See [the review](CODE_REVIEW_2026-10-07.md) for findings and validation contract
     scenario (30 healthy measured rebuilds); unchanged remains a rebuild for
     uncertified inputs. Raw artifact, allocations/self RSS/staging/phase evidence
     and low-N/macOS child-RSS limitations in BENCH_MATRIX.md. No optimization,
-    no LLM quality claim; medium/large/monorepo and Linux matrix remain open.
-  - [ ] Open — P2 for **search** (rank-ordered, keyset needs an (rank, id) tuple;
-    left on the offset cursor) and deeper P5 staging/content reuse. No cross-run
+    no LLM quality claim. Linux/Windows matrices are deferred; medium/large/monorepo
+    coverage is conditional on representing the owner's actual macOS workload.
+  - **Conditional backlog** — P2 for **search** (rank-ordered, keyset needs an
+    (rank, id) tuple; left on the offset cursor) and deeper P5 staging/content
+    reuse. Choose only after demonstrated workload cost. No cross-run
     snapshot cache or skipped integrity/hash checks are claimed. Reusing input
     bytes/observations needs demonstrated identity and its own benchmark contract.
 
 Delivery 1 retains first-wins node identity; modeling every repeated declaration
 is separate work. Windows runtime support (R01) remains unimplemented and
 unpublished; blocking the asset clears the false support promise but not the
-underlying gap.
+underlying gap. That gap is accepted outside current macOS-only milestones,
+not silently reclassified as implemented.
 
 ## M0 — Scaffold ✅ (done)
 
@@ -356,14 +381,18 @@ The sidecar manifest turns "nothing changed" from a guess into a certified no-op
   `.building`/`.manifest.building` is attempted even on failure — cleanup errors are
   reported and any leftovers are reconciled at the next start.
 
-## Current focus - Ruby and Rails
+## Language backlog — Ruby and Rails
+
+The current priority is the personal macOS workflow above. Language expansion and
+historical efficiency plans remain conditional on actual owner use, not automatic
+next milestones.
 
 Cross-cutting efficiency work is planned in
 [`EFFICIENCY_PLAN.md`](EFFICIENCY_PLAN.md): MCP refresh coordination, bounded
 responses, equivalent-answer benchmarks, and measurement-gated indexing improvements.
 This is a pending execution plan, not a completed milestone.
 
-Ruby and Rails are the next product priority. The completed M1 structural baseline,
+Ruby and Rails retain a separate development backlog. The completed M1 structural baseline,
 the staged implementation plan, evaluation gates, and non-goals are maintained in
 [`RUBY_ROADMAP.md`](RUBY_ROADMAP.md). M6 remains deferred until that roadmap reaches
 its release gate.

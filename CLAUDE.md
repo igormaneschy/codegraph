@@ -1,8 +1,11 @@
 # CLAUDE.md — codegraph
 
-> Trabalhe SEMPRE a partir desta pasta (`d:/projetos/codegraph`), abrindo a
-> sessão do Claude Code aqui dentro — não pela pasta do ajudaqui. Este projeto é
-> independente, com git próprio.
+> Trabalhe a partir do checkout ativo de codegraph, um projeto independente
+> com Git próprio. Este fork é de uso pessoal do Igor, atualmente exclusivo no
+> macOS. `docs/PERSONAL_MACOS_SCOPE.md` governa os próximos milestones: Windows e
+> benchmarks em outros sistemas ficam fora do escopo atual; o CI existente e os
+> invariantes de integridade permanecem. Os números e marcos históricos abaixo
+> não autorizam novos ports nem otimizações sem necessidade demonstrada.
 
 ## O que é
 

@@ -80,3 +80,7 @@
 ## Change go-input-admission (2026-10-09)
 - [anti-pattern] [go-flags-not-shell-fields](learned/go-flags-not-shell-fields.md)
 - [pattern] [go-env-control-probe-before-costly-observation](learned/go-env-control-probe-before-costly-observation.md)
+
+## Change personal-macos-scope (2026-10-09)
+- [process] [operating-scope-before-platform-backlog](learned/operating-scope-before-platform-backlog.md)
+- [context] [fixture-validation-not-workload-priority](learned/fixture-validation-not-workload-priority.md)

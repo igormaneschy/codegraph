@@ -4,6 +4,14 @@ Status: planejado; nenhuma mudanca de runtime implementada por este documento.
 Data: 2026-09-07.
 Origem: revisao geral de eficiencia de indexacao, consultas, storage e uso MCP.
 
+## Escopo vigente (2026-10-09)
+
+Este plano histórico deve ser priorizado sob `PERSONAL_MACOS_SCOPE.md`: uso pessoal
+exclusivo no macOS. Exigências Windows/Unix e expansão genérica de corpus/plataforma
+abaixo não são gates dos próximos milestones. Preserve o CI Linux e os invariantes;
+valide no Mac e só escolha otimizações após medir necessidade no workload do usuário.
+Resultados históricos e itens pendentes não são evidência de benefício atual.
+
 ## Objetivo e limites
 
 Reduzir o custo de uma tarefa correta do agente, nao apenas o tempo de uma query:

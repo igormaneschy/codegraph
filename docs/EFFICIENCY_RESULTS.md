@@ -4,6 +4,14 @@ Date: 2026-09-07. Status: P0 done; no runtime change in this unit.
 Plan: `docs/EFFICIENCY_PLAN.md`. All commands below were run from the repo root
 unless noted. Wall times are machine-specific observations, not CI thresholds.
 
+## Current-scope note (2026-10-09)
+
+These are historical measurements, not a new execution order or proof of benefit
+for the owner's current workload. [PERSONAL_MACOS_SCOPE.md](PERSONAL_MACOS_SCOPE.md)
+now governs prioritization: personal macOS-only usage, existing Linux CI retained,
+Windows/other-OS benchmark expansion deferred. Platform gaps recorded below remain
+honest limitations, not mandatory upcoming milestones. Historical data is unchanged.
+
 ## 1. Environment
 
 | Item | Value |

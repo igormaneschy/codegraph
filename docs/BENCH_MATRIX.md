@@ -138,7 +138,16 @@ reproducibility and expose production costs, not universal performance gains.
 
 ## Next bounded work
 
-Measure larger fixed repositories on Linux (including sampled SCIP tree RSS),
-then prioritize certified external-input closure and observed staging costs.
-Do not skip hashes, copy unobserved dependencies, or force a no-op to improve the
-chart. Search keyset and deeper staging reuse still require separate contracts.
+Per [PERSONAL_MACOS_SCOPE.md](PERSONAL_MACOS_SCOPE.md), choose an owner-used
+repository/workflow before the next measurement, use an exclusive disposable copy,
+and measure on macOS. Linux/Windows matrices are deferred; large/monorepo coverage
+is needed only when representative of actual use. Keep the existing Linux CI,
+without adding cross-platform benchmark jobs. Historical pilot data stays unchanged.
+
+Use existing wall/allocation/self-RSS/staging diagnostics to investigate a concrete
+problem first. macOS SCIP child-RSS instrumentation is conditional on observed
+memory pressure, not a reason to benchmark elsewhere. Public pilot/fixture success
+is not personal-workload or general performance evidence. Search keyset, deeper
+staging reuse and bounded external-input certification need a demonstrated benefit
+and their own contracts. Do not skip hashes, copy unobserved dependencies or force
+a no-op to improve the chart.

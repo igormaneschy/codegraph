@@ -20,6 +20,11 @@ but the **runtime is not supported**: `internal/securefile` fails closed with
 stats, and MCP cannot work there. No Windows release asset is published while
 that holds (see R01 in `docs/CODE_REVIEW_2026-10-07.md`).
 
+Current owner usage is personal and macOS-only. Follow
+[`docs/PERSONAL_MACOS_SCOPE.md`](docs/PERSONAL_MACOS_SCOPE.md) for prioritization:
+retain the Linux CI/gates, but do not add Windows work or other-OS benchmark matrices
+without an actual usage need. Existing release availability is not a roadmap mandate.
+
 ```bash
 go build -o codegraph ./cmd/codegraph    # or: make build
 make test                                 # or: go test ./...
