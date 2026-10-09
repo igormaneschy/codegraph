@@ -578,6 +578,19 @@ func scanRepositoryAtRoot(ctx context.Context, repository repositoryRoot) (repos
 		if err != nil {
 			return repositoryScan{}, err
 		}
+		// Only a run that can still certify a no-op pays for the dependency
+		// observation; an already-blocked repository keeps its reasons.
+		if len(scan.manifest.ResolverInputs.NoReuseReasons) == 0 {
+			dependencies, dependencyErr := observeGoDependencyInputs(ctx, root, scan.goEnvironment)
+			switch {
+			case dependencyErr == nil:
+				scan.manifest.ResolverInputs.GoDependencies = dependencies
+			case errors.Is(dependencyErr, context.Canceled) || errors.Is(dependencyErr, context.DeadlineExceeded):
+				return repositoryScan{}, dependencyErr
+			default:
+				scan.manifest.ResolverInputs.NoReuseReasons = []string{"go-dependency-inputs-unobserved"}
+			}
+		}
 	}
 	if len(tsconfigDirs) != 0 {
 		scan.manifest.TSEnvironment, scan.tsEnvironment, err = observeTSEnvironment(ctx)

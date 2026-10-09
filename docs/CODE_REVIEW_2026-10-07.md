@@ -1203,3 +1203,37 @@ Default/race focado/build/vet/modules/format/lint e 26 testes Node PASS; detalhe
 Escolher o workload com o usuário antes de medir; search keyset, staging profundo,
 matrizes grandes e RSS dos filhos no Mac dependem de necessidade demonstrada.
 Prioridade alterada não fecha findings nem muda algoritmo/runtime/schema/CI.
+
+## Acompanhamento — inputs de dependência Go (R04/R05)
+
+Recorte bounded motivado por medição (2026-10-09; workload escolhido pelo dono:
+este repositório, clone descartável). O refresh sem mudanças era rebuild integral
+(4,6–5,1 s; 1,4–1,7 GiB) porque `go.mod` tem `require` e os bytes das dependências
+não eram observados (`go-dependency-inputs-unobserved`); dois dos três motivos
+eram falsos positivos do heurístico `bytes.Contains` (`"C"` literal em
+`go_flags.go:86`, `//go:embed` em fixtures de teste).
+
+Implementação: `go list -deps -compiled -test` (offline, `GOPROXY=off`; `-mod`
+preservado, `-mod=readonly` quando `-mod=mod` efetivo) enumera os pacotes do
+build; os arquivos de dependência consumidos (`CompiledGoFiles` mais cgo
+`CgoFiles/CFiles/CXXFiles/HFiles/SFiles`), fora do repositório e do GOROOT, entram
+num digest canônico (`go-dependency-inputs-v1`, plano `resolver-inputs-v5`).
+Falha de enumeração/leitura mantém o motivo (fail-closed); repositórios com
+vendor pulam o probe de módulos (`go list -m all` não computa `all` contra
+vendor) e certificam pelos bytes do vendor já observados. Diretivas reais
+(`import "C"`, `//go:embed`) passam a ser detectadas por parser; literais não
+bloqueiam mais.
+
+Regressões vermelhas: no-op em repositório inalterado com dependência via
+`replace`; edição/adição/remoção de arquivo de dependência e diretório ausente →
+rebuild/fail-closed; arquivo ilegível → fail-closed; vendor editado → rebuild;
+literais vs. diretivas reais; parsing do output e derivação de `-mod`. Gates
+locais: formatting/build/vet, default completo, race dos pacotes afetados, lint;
+CI remoto é o gate de merge.
+
+Medição antes/depois (macOS/M1, n=3): no-op certificado 1,09–1,12 s e ~48 MB RSS
+(antes: rebuild 4,6–5,1 s e 1,4–1,7 GiB); rebuild com edição 5,97 s vs 4,80 s
+(+24%: enumeração 2× — scan inicial + handoff re-scan — e certificação exata do
+`freshManifestFor` agora alcançada, antes curto-circuitada pelo motivo). Limites:
+embed real, workspace/GOPATH, GOCACHEPROG, identidade do compilador C e closure
+externa completa seguem conservadores. Ver VALIDATION_GO_DEPENDENCY_INPUTS.md.

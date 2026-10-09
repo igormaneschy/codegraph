@@ -1,10 +1,19 @@
 package index
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
 
 func validateResolverInputPlan(plan ResolverInputPlan) error {
 	if plan.Version != resolverInputVersion {
 		return fmt.Errorf("unsupported resolver input plan version %q", plan.Version)
+	}
+	if dependencies := plan.GoDependencies; dependencies != nil {
+		if dependencies.Version != goDependencyInputVersion || !validSHA256(dependencies.Digest) ||
+			dependencies.Files < 0 || dependencies.Bytes < 0 {
+			return errors.New("manifest has an invalid Go dependency input identity")
+		}
 	}
 	last := ""
 	for _, file := range plan.Files {

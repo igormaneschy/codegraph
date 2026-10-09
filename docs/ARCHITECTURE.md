@@ -226,7 +226,7 @@ through repository-local `node_modules` only, never outside the repository),
 (`.gitignore`, `.cbmignore`) — a topology change can alter resolver scopes without
 touching a single source file.
 
-The `resolver-inputs-v4` plan additionally records admitted Go auxiliary files
+The `resolver-inputs-v5` plan additionally records admitted Go auxiliary files
 (C/headers/assembly and related compiler inputs) and repository-local
 `node_modules`/`vendor` trees, including below subprojects. Sorted file digests,
 directory membership, and effective confined symlink targets participate in the
@@ -234,6 +234,22 @@ identity. Staging consumes this plan, never re-walks a live dependency tree:
 changed bytes/links fail closed, and newly added, unobserved files do not enter
 that snapshot. Auxiliary/dependency inputs do not become graph source nodes.
 Private `.env` files require explicit admission and are rejected before hashing.
+
+The v5 plan also records a **Go dependency input digest**: for repositories with
+module dependencies, the observation enumerates the packages the build resolves
+(`go list -deps -compiled -test`, forced offline/read-only with `GOPROXY=off`)
+and hashes the dependency files it consumes — `CompiledGoFiles` plus cgo
+`CgoFiles`/`CFiles`/`CXXFiles`/`HFiles`/`SFiles` — excluding repository sources
+(already hashed) and `GOROOT` (toolchain identity). Generated cgo files under
+`GOCACHE` are derived from the listed cgo inputs plus the observed environment.
+Only a canonical digest (sorted path + sha256) and counts are persisted; any
+change to the file set, a module version, or a byte forces a rebuild, and any
+enumeration/read failure records `go-dependency-inputs-unobserved` instead of a
+certificate. Vendored repositories skip the module-list probe (`go list -m all`
+cannot compute `all` against a vendor directory) and resolve vendored packages
+in place, where the existing vendor-tree hashes certify the bytes. Real
+`import "C"` and `//go:embed` directives are detected from parsed imports and
+comments, so unrelated string literals no longer disable reuse.
 
 Go `//go:embed` assets also enter that plan from parsed comments in sources that
 import embed: package-relative literal/glob/directory patterns, quoted/multiple
@@ -276,12 +292,16 @@ certifies a no-op or CALLS reuse, and every explicit refresh retries the SCIP
 resolvers. When Node or `npx` is absent the resolver fails explicitly; the default
 Go suite and build still need no Node.
 
-This is **not complete program-input certification**. Go module requirements or
-replacements, workspaces/GOPATH, potential embed/cgo directives, external package
-drivers/compilers, and unavailable environments record `no_reuse_reasons` and
-cannot justify no-op or CALLS reuse, even with a healthy resolver report. Explicit
-refresh rebuilds all applicable scopes instead; local C/header snapshots can be
-healthy without certifying external native inputs. GOFLAGS follows cmd/go's whole-field quote grammar (ASCII whitespace, no shell
+This is **not complete program-input certification**. Workspaces/GOPATH,
+repositories whose own sources contain a real `//go:embed` directive or a real
+cgo import, external package drivers/compilers, and unavailable environments
+record `no_reuse_reasons` and cannot justify no-op or CALLS reuse, even with a
+healthy resolver report. Module dependency bytes consumed by the build are
+certified by the v5 dependency digest; the C compiler binary/toolchain identity
+is not separately digested — cgo files are hashed and `CC`/`PATH`/`CGO_ENABLED`
+are in the environment digest. Explicit refresh rebuilds all applicable scopes
+instead; local C/header snapshots can be healthy without certifying external
+native inputs. GOFLAGS follows cmd/go's whole-field quote grammar (ASCII whitespace, no shell
 unescaping, one/two dashes), not `strings.Fields`. Process controls are admitted
 before invoking Go; a named GOFLAGS/GOCACHEPROG probe observes effective persisted
 settings without costly cache initialization. Failed control queries abort
@@ -293,7 +313,7 @@ allowlist (tags/mod/p/trimpath/compiler=gc/pgo=off/buildvcs=false) can participa
 in the existing certificate. Other flags, nested compiler/assembler/linker args,
 profiles and package directories add `go-build-flags-inputs-unobserved`; external
 cache commands add `go-external-cache-inputs-unobserved`, and gccgo retains its
-compiler reason. This policy is versioned in `resolver-inputs-v4`, forcing one
+compiler reason. This policy is versioned in `resolver-inputs-v5`, forcing one
 rebuild of older certificates. A hash of flag text is not a hash of inputs it
 names. External-command execution is not sandboxed, and the additional control
 probe is a safety cost, not a performance improvement. External inputs, complete auxiliary

@@ -11,7 +11,7 @@ import (
 	"github.com/Lordymine/codegraph/internal/securefile"
 )
 
-const resolverInputVersion = "resolver-inputs-v4"
+const resolverInputVersion = "resolver-inputs-v5"
 
 // ResolverInputPlan describes admitted bytes and topology, not a live tree to
 // rediscover during staging. NoReuseReasons makes incomplete input coverage
@@ -21,6 +21,7 @@ type ResolverInputPlan struct {
 	Files          []InputFingerprint  `json:"files"`
 	Directories    []string            `json:"directories"`
 	Links          []ResolverInputLink `json:"links"`
+	GoDependencies *GoDependencyInputs `json:"go_dependencies,omitempty"`
 	NoReuseReasons []string            `json:"no_reuse_reasons,omitempty"`
 }
 
