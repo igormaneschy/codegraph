@@ -1237,3 +1237,35 @@ Medição antes/depois (macOS/M1, n=3): no-op certificado 1,09–1,12 s e ~48 MB
 `freshManifestFor` agora alcançada, antes curto-circuitada pelo motivo). Limites:
 embed real, workspace/GOPATH, GOCACHEPROG, identidade do compilador C e closure
 externa completa seguem conservadores. Ver VALIDATION_GO_DEPENDENCY_INPUTS.md.
+
+## Acompanhamento — certificação de embed local (R04/R05)
+
+Recorte bounded a partir da medição no workload do dono (`AutoTradersOMQS-GO`,
+1029 arquivos Go, 2 arquivos com `//go:embed` real): o refresh sem mudanças era
+sempre rebuild (19,3–19,8 s; 2,6–2,9 GiB) com `go-embed-inputs-unobserved`,
+embora as deps já estivessem certificadas (v5). O transporte local do 2c já
+observava os assets selecionados (patterns do parser, oráculo contra
+`go list -json`, leituras no-follow, rejeição de symlink/.env, mutação de
+bytes/membership, falha de staging tardio); o motivo era mantido por política
+("não prova fechamento completo do programa").
+
+Implementação: o motivo passa a ser registrado apenas quando uma diretiva
+detectada não é tratada pelo transporte (erro de parse, falta do import
+`embed`, pattern inválido); diretivas tratadas têm seus assets hasheados no
+plano e re-derivados a cada scan, então qualquer mudança de bytes/membership/
+pattern invalida o fingerprint. Nenhum outro motivo muda (workspace/cgo/TS
+runtime bloqueiam por conta própria). Descoberta durante a validação: com o
+motivo de embed destravado, a observação de deps rodou pela primeira vez neste
+repo e o probe `go list -m all` (grafo completo, offline) falhou; o probe virou
+oportunista — falha cai na enumeração autoritativa por pacote, que continua
+fail-closed.
+
+Regressões: no-op certificado em fixture com diretiva real; edição/adição/
+remoção de asset → rebuild; diretiva sem import, pattern inválido e fonte com
+erro de parse mantêm o motivo; oráculos de seleção seguem verdes; fixture com
+`require` não importado certifica via fallback. Medição antes/depois no clone:
+no-op certificado 7,04–7,13 s e 67,8–69,1 MB (antes: rebuild 19,3–19,8 s e
+2,6–2,9 GiB), grafo idêntico (files=1029 nodes=11188 edges=34896, 0 dropped).
+Limites: certifica o transporte local de embed, não o fechamento do programa;
+união de diretivas inativas segue conservadora; sem claim de performance além
+do no-op. Ver VALIDATION_GO_EMBED_CERTIFICATION.md.

@@ -258,8 +258,12 @@ module/VCS boundaries; matching uses a virtual package root, not a glob containi
 the physical root's metacharacters. Directory listing uses no-follow descriptors,
 not path validation followed by os.ReadDir. Only selected regular asset bytes are
 hashed/copied; unreferenced files are not opened. Selected symlinks and private
-.env inputs fail closed. The union conservatively includes inactive directives;
-this local transport still does not certify complete program input coverage.
+.env inputs fail closed. The union conservatively includes inactive directives
+(a superset: extra rebuilds are possible, missed inputs are not). When every
+detected directive parses with the `embed` import, the observed assets certify
+no-op; a directive the transport cannot handle (parse failure, missing import,
+invalid pattern arguments) keeps `go-embed-inputs-unobserved`. This certifies
+the local transport, not program closure beyond it.
 The Go loader requests `NeedEmbedFiles` as well as syntax: otherwise a missing
 embed asset may be omitted from diagnostics and incorrectly reported healthy.
 Patterns invalid or without matches remain compiler diagnostics; explicitly
@@ -293,15 +297,15 @@ resolvers. When Node or `npx` is absent the resolver fails explicitly; the defau
 Go suite and build still need no Node.
 
 This is **not complete program-input certification**. Workspaces/GOPATH,
-repositories whose own sources contain a real `//go:embed` directive or a real
-cgo import, external package drivers/compilers, and unavailable environments
-record `no_reuse_reasons` and cannot justify no-op or CALLS reuse, even with a
-healthy resolver report. Module dependency bytes consumed by the build are
-certified by the v5 dependency digest; the C compiler binary/toolchain identity
-is not separately digested — cgo files are hashed and `CC`/`PATH`/`CGO_ENABLED`
-are in the environment digest. Explicit refresh rebuilds all applicable scopes
-instead; local C/header snapshots can be healthy without certifying external
-native inputs. GOFLAGS follows cmd/go's whole-field quote grammar (ASCII whitespace, no shell
+repositories whose own sources contain a real cgo import or an embed directive
+the local transport cannot handle, external package drivers/compilers, and
+unavailable environments record `no_reuse_reasons` and cannot justify no-op or
+CALLS reuse, even with a healthy resolver report. Local embed assets and module
+dependency bytes consumed by the build are certified by the v5 plan; the C
+compiler binary/toolchain identity is not separately digested — cgo files are
+hashed and `CC`/`PATH`/`CGO_ENABLED` are in the environment digest. Explicit
+refresh rebuilds all applicable scopes instead; local C/header snapshots can be
+healthy without certifying external native inputs. GOFLAGS follows cmd/go's whole-field quote grammar (ASCII whitespace, no shell
 unescaping, one/two dashes), not `strings.Fields`. Process controls are admitted
 before invoking Go; a named GOFLAGS/GOCACHEPROG probe observes effective persisted
 settings without costly cache initialization. Failed control queries abort
