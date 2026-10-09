@@ -1097,3 +1097,35 @@ escrita do agente ou custo autodeclarado; CLI checa arquivos reais, não ack do
 workflow. Não muda resolvers, manifest/fingerprint, graph schema ou analysis
 identity. R01/R04/R05, benchmarks representativos, search keyset e reuso mais
 profundo de staging seguem separados.
+
+## Acompanhamento — matriz de benchmark reproduzível
+
+Contrato prévio: VALIDATION_BENCH_MATRIX.md. `bench-sample` mede o caminho real
+`RunAtomicContext` em processo novo; Node admite clones descartáveis exclusivos,
+SHA/HEAD fixados e edições explícitas, prepara cinco cenários independentes,
+restaura fontes/configs e publica um relatório privado apenas após a matriz
+completa. Sem alteração de resolver, regra de reuso ou identidade de análise.
+
+Piloto final Cobra v1.9.1 + Zustand v5.0.1, n=3/cenário: 30 rebuilds saudáveis,
+30 equivalências com rebuilds novos e CALLS do probe independente em cada edição
+de fonte. Rebuild sem edição é resultado observado, não um no-op forçado:
+inputs Go externos/cgo e runtime TS ainda não certificados. Travessias nativas:
+Cobra 132 callers/19 páginas, 18 callees/3, 310 search/45; Zustand 4/4, 4/2, 2/2.
+Minima explícitos impedem QN errado de fabricar uma resposta vazia barata.
+
+BENCH_MATRIX.md contém reprodução, tabela p50/p95 e raw artifact versionado.
+Zustand grava ~142 MB/14.576 payloads por execução; observação/handoff/staging
+são custos visíveis. Métricas são separadas: heap Go, RSS self real do worker e
+RSS da árvore SCIP amostrado (indisponível em macOS, zero não significa zero).
+Variância e n=3 não autorizam significância, ganho universal ou comparação com
+outro binário. Medium/large/monorepo e coleta Linux continuam abertos.
+
+Gates locais: módulos/gofmt/build/vet/default/full race/coverage, SCIP real,
+lint e Node; após ajustes finais, default/race dos pacotes alterados, lint,
+Node e cobertura foram repetidos. Lint inicialmente identificou permissão 0644
+num fixture; corrigida para 0600 antes do gate final. Self-review corrigiu
+restauração armada após ack, perda de backup em falha de cleanup, UTF-8 dividido
+em chunks e queries nativas vazias. Código/testes: PASS; limites de concorrência
+(shared tree não é admitida) e SIGKILL ficam explícitos. CI remoto continua gate
+de merge; merge exige autorização. R04/R05, P2 search e P5 profundo permanecem
+abertos, agora com evidência de produção para priorização.

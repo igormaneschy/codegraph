@@ -72,3 +72,7 @@
 ## Change review-quality-r13 (2026-10-08)
 - [pattern] [versioned-evaluation-identity](learned/versioned-evaluation-identity.md)
 - [anti-pattern] [evaluation-matrix-before-means](learned/evaluation-matrix-before-means.md)
+
+## Change reproducible-production-matrix
+- [pattern] [production-matrix-not-forced-noop](learned/production-matrix-not-forced-noop.md)
+- [pattern] [arm-restoration-before-edit](learned/arm-restoration-before-edit.md)

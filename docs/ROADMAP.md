@@ -114,6 +114,13 @@ See [the review](CODE_REVIEW_2026-10-07.md) for findings and validation contract
     reason codes and reused scopes, including no-op/failure/cancellation. CLI
     index/bench and MCP status report these plus sampled SCIP process-tree RSS;
     no timings or raw settings are persisted in the manifest/fingerprint.
+  - [x] Reproducible production-matrix pilot — opt-in bounded Go worker + Node
+    orchestration, five independent scenarios, full query walks, independent
+    probe CALLS and fresh-rebuild equivalence. Pinned Cobra/Zustand, n=3 per
+    scenario (30 healthy measured rebuilds); unchanged remains a rebuild for
+    uncertified inputs. Raw artifact, allocations/self RSS/staging/phase evidence
+    and low-N/macOS child-RSS limitations in BENCH_MATRIX.md. No optimization,
+    no LLM quality claim; medium/large/monorepo and Linux matrix remain open.
   - [ ] Open — P2 for **search** (rank-ordered, keyset needs an (rank, id) tuple;
     left on the offset cursor) and deeper P5 staging/content reuse. No cross-run
     snapshot cache or skipped integrity/hash checks are claimed. Reusing input

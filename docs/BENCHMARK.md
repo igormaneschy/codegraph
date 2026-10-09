@@ -7,6 +7,11 @@ efficiency) and adds our own indexing-speed number. Run it yourself:
 codegraph bench <repo>      # re-indexes, then benchmarks the top call hubs
 ```
 
+For the opt-in pinned production index/refresh matrix (raw repetitions,
+allocations, self RSS, staging, degraded recovery and rebuild equivalence), see
+[BENCH_MATRIX.md](BENCH_MATRIX.md). That method is separate from the historical
+token ratios below; wall time is observed, not an exactly deterministic number.
+
 ## What this measures — and what it deliberately does not
 
 | Metric | Measured here? | Why |

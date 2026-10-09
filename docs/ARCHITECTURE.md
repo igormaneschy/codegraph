@@ -135,6 +135,23 @@ post-build (strict path only)
   cleanup (defer)               remove .building/.manifest.building; release lock
 ```
 
+### Opt-in reproducible production matrix
+
+`bench-sample` accepts bounded strict JSON on stdin and emits a structured sample
+on stdout. It measures `RunAtomicContext` in a fresh worker (wall time, Go heap
+allocation deltas, OS self-RSS high-water), then checks integrity and complete
+query walks against store enumeration. Index clocks exclude those checks.
+`eval/perf-matrix.js` admits pinned exclusive disposable roots, prepares five
+independent scenarios, checks independent source-probe CALLS and logical equality
+with a fresh production rebuild, restores edits before cleanup, and atomically
+publishes raw repetitions/nearest-rank summaries only for a complete successful
+matrix. Cancellation waits for worker close; lost edit replies do not disarm
+restoration. SIGKILL/concurrent writers need manual recovery. Self RSS excludes
+children; sampled SCIP tree RSS is separate and unavailable on macOS. This is
+benchmark-only observability, not input certification, an atomic shared-tree
+editor, a new graph identity or a change to the existing `bench` contract.
+See BENCH_MATRIX.md and VALIDATION_BENCH_MATRIX.md for scope and evidence.
+
 ### Per-run roots and work diagnostics (P5/P7)
 
 `repositoryRoot` carries the validated physical root spelling through atomic
@@ -603,7 +620,7 @@ internal/similar/     MinHash signature + LSH banding → SIMILAR_TO near-clone 
 internal/query/       query.go (Engine → compact Refs)
 internal/mcp/         server.go (stdio JSON-RPC + auto-index readiness gate)
 internal/install/     register the MCP server into detected agents (M5)
-internal/bench/       token/tool-call/speed benchmark harness
+internal/bench/       token/tool-call/speed + production matrix worker
 internal/quality/     answer-quality harness (question gen + scoring)
 docs/                 UPSTREAM.md, ARCHITECTURE.md, ROADMAP.md, QUALITY.md, BENCHMARK.md
 _upstream/            shallow clone of the original (gitignored, reference only)
