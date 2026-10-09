@@ -1129,3 +1129,48 @@ em chunks e queries nativas vazias. Código/testes: PASS; limites de concorrênc
 (shared tree não é admitida) e SIGKILL ficam explícitos. CI remoto continua gate
 de merge; merge exige autorização. R04/R05, P2 search e P5 profundo permanecem
 abertos, agora com evidência de produção para priorização.
+
+## Acompanhamento — admissão de inputs externos Go (R04/R05)
+
+Contrato prévio: VALIDATION_GO_INPUT_ADMISSION.md. O recorte corrige admissão e
+certificação indevida, não habilita reuso de dependências externas.
+
+Regressões vermelhas: `strings.Fields` ignorava quotes envolvendo a flag e nomes
+com `--`; overlay quoted chegou ao Go resolver e gerou erro de leitura de input
+não admitido. Um wrapper `-toolexec` no mesmo caminho, com bytes alterados, ainda
+podia terminar em no-op saudável. Também não havia cobertura para GOCACHEPROG,
+flags desconhecidas, pkgdir/PGO e argumentos internos do compilador/linker.
+
+Implementação: gramática de fields igual à do Go (não shell), controles process
+checados antes da observação e probe nomeado GOFLAGS/GOCACHEPROG para defaults
+persistidos antes de `go env -json` custoso. Falha no probe é erro de admissão
+sem valores sensíveis; tool ausente mantém fallback unavailable. O probe não inicializa cache
+externo; a observação completa e o resolver mantêm execução configurada pelo
+operador, sem sandbox. Settings do probe sobrevivem à falha da observação completa.
+
+Overlay/modfile/`-C` falham em todas as grafias. Allowlist finita e validada de
+flags sem novos inputs, e `go-build-flags-inputs-unobserved` para flags restantes;
+`go-external-cache-inputs-unobserved` para cache externo; gccgo mantém motivo
+específico. O plano `resolver-inputs-v4` força rebuild de certificados anteriores,
+sem mudar schema ou algoritmo de CALLS. Digests são opacos; diagnósticos de
+admissão não incluem valores, comandos, stderr ou credentials.
+
+Fixture real Go + wrapper delegante: edição só do wrapper, refresh intacto e
+edição só Ruby exigem novas resoluções Go; CALLS esperadas e equivalência com
+rebuild novo. Preservação de grafo/manifest em rejeição, defaults persistidos,
+valores/quotes/fronteiras, JSON inválido/null, cancelamento/tool ausente,
+redação de segredos e migração v3→v4 são testados. Tags suportadas mantêm bindings
+e no-op validado. Gates locais finais PASS: módulos, formatting/build/vet,
+full default/race/coverage, integração SCIP real, lint e 26 testes Node. Funções
+novas classifier/probe com 100% statement coverage, sem inferir closure completa.
+CLI isolado confirma CALLS e quatro rebuilds equivalentes (seed, wrapper alterado,
+refresh intacto, referência nova); rejeição conserva sidecar sem valor sensível
+no erro. Evidência local em `/tmp/cg-go-admission/`.
+
+Self-review: corrigidos falha de `go env` que escondia defaults de cache, descarte
+de controles efetivos, JSON null e diagnósticos; lint exige justificativas locais
+para launchers próprios executáveis (0700) e comandos com argv fixo. Código/testes
+PASS após os ajustes. O probe acrescenta um subprocesso Go por observação — custo
+de segurança explícito, sem claim de performance. R04/R05 continuam abertos para
+program-input closure e transporte verificado externo; P2 search/P5 profundo,
+Windows e a matriz Linux/grande continuam separados. CI remoto é gate de merge.

@@ -215,7 +215,7 @@ through repository-local `node_modules` only, never outside the repository),
 (`.gitignore`, `.cbmignore`) — a topology change can alter resolver scopes without
 touching a single source file.
 
-The `resolver-inputs-v2` plan additionally records admitted Go auxiliary files
+The `resolver-inputs-v4` plan additionally records admitted Go auxiliary files
 (C/headers/assembly and related compiler inputs) and repository-local
 `node_modules`/`vendor` trees, including below subprojects. Sorted file digests,
 directory membership, and effective confined symlink targets participate in the
@@ -270,8 +270,22 @@ replacements, workspaces/GOPATH, potential embed/cgo directives, external packag
 drivers/compilers, and unavailable environments record `no_reuse_reasons` and
 cannot justify no-op or CALLS reuse, even with a healthy resolver report. Explicit
 refresh rebuilds all applicable scopes instead; local C/header snapshots can be
-healthy without certifying external native inputs. Overlay/modfile inputs are
-not admitted and fail before publication. External inputs, complete auxiliary
+healthy without certifying external native inputs. GOFLAGS follows cmd/go's whole-field quote grammar (ASCII whitespace, no shell
+unescaping, one/two dashes), not `strings.Fields`. Process controls are admitted
+before invoking Go; a named GOFLAGS/GOCACHEPROG probe observes effective persisted
+settings without costly cache initialization. Failed control queries abort
+admission with redacted diagnostics; a missing Go binary keeps the unavailable
+fallback. Full observation retains controls even when cache initialization fails.
+Overlay/modfile/directory-switch inputs are not admitted and fail before resolver
+execution/publication in every spelling. Only a finite value-validated identity
+allowlist (tags/mod/p/trimpath/compiler=gc/pgo=off/buildvcs=false) can participate
+in the existing certificate. Other flags, nested compiler/assembler/linker args,
+profiles and package directories add `go-build-flags-inputs-unobserved`; external
+cache commands add `go-external-cache-inputs-unobserved`, and gccgo retains its
+compiler reason. This policy is versioned in `resolver-inputs-v4`, forcing one
+rebuild of older certificates. A hash of flag text is not a hash of inputs it
+names. External-command execution is not sandboxed, and the additional control
+probe is a safety cost, not a performance improvement. External inputs, complete auxiliary
 coverage, and the external npm/SCIP runtime closure remain R04/R05 work;
 lockfiles alone never certify the installed local bytes.
 
