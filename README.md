@@ -172,6 +172,11 @@ are **not an operational target** yet — private cache/snapshot/manifest writes
 closed, so no Windows release asset is published (R01 in
 [`docs/CODE_REVIEW_2026-10-07.md`](docs/CODE_REVIEW_2026-10-07.md)).
 
+This fork's current development priority is **personal use on macOS**; existing
+Linux CI/releases are retained, while Windows implementation and other-OS benchmark
+matrices are outside current milestones. See
+[`docs/PERSONAL_MACOS_SCOPE.md`](docs/PERSONAL_MACOS_SCOPE.md).
+
 `make install` is the safe build + local install flow. It builds the binary
 exactly like `make build`, then installs it to `$(PREFIX)/bin/codegraph`
 (default `/usr/local/bin`):

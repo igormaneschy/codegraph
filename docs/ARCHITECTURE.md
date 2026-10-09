@@ -4,6 +4,17 @@ A small, token-efficient code knowledge graph for AI agents. Inspired by
 DeusData/codebase-memory-mcp (see `UPSTREAM.md`), but deliberately scoped down to
 **our stack** (TypeScript/JS + Go + NestJS) and a maintainable Go codebase.
 
+## Current operating scope
+
+This fork is currently a personal tool used exclusively on macOS. Priorities are
+controlled by [PERSONAL_MACOS_SCOPE.md](PERSONAL_MACOS_SCOPE.md): daily workflow
+correctness and measured owner workloads, not platform breadth or exhaustive
+external-input certification. This changes prioritization, not resolver design,
+input trust, integrity or publication. Uncertified inputs still block reuse.
+Existing Linux CI remains regression automation; Windows stays unsupported and
+outside current milestones. No runtime/analysis/input version changes follow from
+this decision.
+
 ## Design principles
 
 1. **The storage is trivial; the value is in the edges.** Two tables (`nodes`,

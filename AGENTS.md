@@ -1,5 +1,10 @@
 # Instruções do repositório
 
+## Escopo atual
+- Este fork é de uso pessoal do Igor, atualmente exclusivo no macOS. A decisão em `docs/PERSONAL_MACOS_SCOPE.md` governa a priorização; backlog histórico não autoriza expansão de plataforma.
+- Windows e benchmarks Linux/Windows ficam fora dos próximos milestones. Mantenha o CI Linux e os gates existentes, sem remover código/assets de plataformas por antecipação.
+- Valide o fluxo diário no Mac e escolha com o usuário um repositório real antes de medir/otimizar. Search keyset, staging profundo e certificação externa completa são condicionais a necessidade demonstrada; inputs não certificados continuam sem reuso.
+
 ## Contexto
 - Módulo único Go `github.com/Lordymine/codegraph`, Go 1.26. Tree-sitter usa cgo: build requer `CGO_ENABLED=1` e gcc/clang (MinGW no Windows).
 - `cmd/codegraph` hospeda CLI/MCP; `internal/index` faz descoberta e indexação; `internal/graph` mantém SQLite/FTS5; `internal/query` define consultas/paginação; `internal/mcp` implementa JSON-RPC sobre stdio.

@@ -51,7 +51,9 @@ external compilers/drivers/native inputs, workspaces, or npm/SCIP closure.
   plus real SCIP integration and Node harness suite; default Go suite remains
   Node-independent. Isolated Go end-to-end evidence, never index served checkout.
 - [x] Code/test self-review, architecture/roadmap/review records and lessons.
-- [ ] Green remote PR head; merge only after explicit authorization.
+- [x] Green remote PR head; merge only after explicit authorization. PR #23:
+  head `7ca29474b1a9e264e76fe3ff0b2ac4f686fc374f`, 13 successes/2 intentional skips,
+  merged with approval as `f4f7771`; exact-head evidence in the PR validation comment.
 
 ## References / scope boundary
 
