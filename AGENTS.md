@@ -13,7 +13,7 @@
 - Snapshot de resolvers deve consumir o plano observado de inputs, nunca redescobrir dependências no staging. Ambiente Go efetivo é injetado em `packages.Config.Env`; inputs não certificados não autorizam no-op/reuso de CALLS. Não leia `.env` sem admissão explícita.
 - Consultas expõem refs compactas; conteúdo-fonte só deve sair por `snippet`. Não execute `codegraph index <repo>` enquanto o MCP estiver servindo o mesmo repositório.
 - Node.js é necessário ao indexar TS/JS e nas integrações TS opt-in (`-tags integration`): SCIP roda via `npx` e usa o `node_modules` e os `tsconfig.json` do repositório-alvo. Não é requisito para compilar ou executar a suíte Go padrão. O CI tem um job separado com Node 26.0.0 e SCIP TypeScript 0.4.0 fixados.
-- Para invariantes de design, leia `docs/ARCHITECTURE.md`; consulte `CLAUDE.md` e `CONTRIBUTING.md` para convenções e regras de autoria. O caminho Windows no início de `CLAUDE.md` é específico da estação de trabalho; use o checkout ativo.
+- Para invariantes de design, leia `docs/ARCHITECTURE.md`; consulte `CLAUDE.md` e `CONTRIBUTING.md` para convenções e regras de autoria. Use o checkout ativo; referências históricas não substituem o escopo vigente em `docs/PERSONAL_MACOS_SCOPE.md`.
 
 ## Verificação
 O CI usa Go do `go.mod`, `CGO_ENABLED=1` e executa:
