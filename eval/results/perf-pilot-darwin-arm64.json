@@ -1,0 +1,5536 @@
+{
+  "method": "production-matrix-v1",
+  "provenance": {
+    "binary_sha256": "a2e5cb17e90f9fb0a78908a1ca23964520a332f0ba50df1c5ece4f00d185c836",
+    "build": "codegraph\n  path:    /private/tmp/cg-matrix/codegraph\n  module:  github.com/Lordymine/codegraph\n  go:      go1.27.0\n  vcs:     16cc36cdf896 (2026-10-09T07:02:57Z) dirty\n  features: ruby-static-calls, rails-routes, go-vta, scip-typescript\n",
+    "platform": "darwin",
+    "arch": "arm64",
+    "cpus": 8,
+    "cpu_model": "Apple M1",
+    "orchestrator_node": "v26.0.0",
+    "cache_policy": "cold codegraph databases; warm OS/Go/npm/dependency caches; no cache flushing",
+    "allocation_method": "Go TotalAlloc/Mallocs delta around RunAtomic only; excludes cgo/children",
+    "rss_method": "OS RUSAGE_SELF high-water includes fresh worker startup, excludes children; SCIP sampled tree RSS is separate"
+  },
+  "datasets": [
+    {
+      "id": "cobra",
+      "commit": "40b5bc1437a564fc795d388b23835e84f54cd1d1",
+      "lang": "go",
+      "source_sha256": "aae7502e789e42469bcb2fc110af87fd02451d3b509c5b0bed782ada17338c5f",
+      "config_sha256": "c6b11572b04c87aee664fdaabd91e94cd3fb8c4b69d811d598b06747bed04663"
+    },
+    {
+      "id": "zustand",
+      "commit": "c87a5d69ad2662be99a5caa34ba1b9027b6842a4",
+      "lang": "ts",
+      "source_sha256": "44e5b7509ba4a6b2093db14ef555f7c9278bdec85726783eff232bbf7babd21f",
+      "config_sha256": "802c237db05220964a4eb1f52d8945bdedad882a21991144b8c953e8f40d046d"
+    }
+  ],
+  "rows": [
+    {
+      "dataset": "cobra",
+      "commit": "40b5bc1437a564fc795d388b23835e84f54cd1d1",
+      "scenario": "cold",
+      "repetition": 1,
+      "sample": {
+        "method": "production-matrix-v1",
+        "status": "healthy",
+        "metrics": {
+          "duration_ns": 1761645083,
+          "phases": [
+            {
+              "phase": "admission",
+              "duration_ns": 7897291
+            },
+            {
+              "phase": "observation",
+              "duration_ns": 96316625
+            },
+            {
+              "phase": "freshness",
+              "duration_ns": 98334
+            },
+            {
+              "phase": "build-open",
+              "duration_ns": 2743375
+            },
+            {
+              "phase": "preflight",
+              "duration_ns": 500
+            },
+            {
+              "phase": "handoff-observation",
+              "duration_ns": 38699875
+            },
+            {
+              "phase": "staging",
+              "duration_ns": 14170583
+            },
+            {
+              "phase": "definitions",
+              "duration_ns": 55028416
+            },
+            {
+              "phase": "memory-release",
+              "duration_ns": 5775833
+            },
+            {
+              "phase": "imports",
+              "duration_ns": 7250
+            },
+            {
+              "phase": "symbols",
+              "duration_ns": 1206375
+            },
+            {
+              "phase": "ts-calls",
+              "duration_ns": 291
+            },
+            {
+              "phase": "go-calls",
+              "duration_ns": 1359992292
+            },
+            {
+              "phase": "ruby-calls",
+              "duration_ns": 917
+            },
+            {
+              "phase": "resolver-report",
+              "duration_ns": 4209
+            },
+            {
+              "phase": "call-reuse",
+              "duration_ns": 42
+            },
+            {
+              "phase": "similarity",
+              "duration_ns": 50677084
+            },
+            {
+              "phase": "result",
+              "duration_ns": 5666
+            },
+            {
+              "phase": "snapshot-cleanup",
+              "duration_ns": 2249666
+            },
+            {
+              "phase": "validation",
+              "duration_ns": 110911542
+            },
+            {
+              "phase": "publication",
+              "duration_ns": 15458583
+            },
+            {
+              "phase": "cleanup",
+              "duration_ns": 357291
+            }
+          ],
+          "staged_files": 45,
+          "staged_bytes": 510894,
+          "scip_invocations": 0,
+          "scip_peak_rss_bytes": 0,
+          "decision": "rebuild",
+          "outcome": "success",
+          "invalidation_reasons": [
+            "go-cgo-external-inputs-unobserved",
+            "go-dependency-inputs-unobserved",
+            "new-index",
+            "source-changed"
+          ]
+        },
+        "wall_ns": 1761658333,
+        "go_alloc_bytes": 889255464,
+        "go_mallocs": 12403457,
+        "self_peak_rss_bytes": 596885504,
+        "graph_digest": "6cd6bf6dc40a815af7e0df1ba0bb259e30455c315360ae659405b702fdddcca9",
+        "provenance": {
+          "go": "go1.27.0",
+          "analysis": "analysis-v3",
+          "scip_bridge": "scip-typescript-bridge-v2@0.4.0",
+          "go_resolver": "go-vta-resolver-v5",
+          "observed_inputs_digest": "74ff0eb1d005b2053ced1315ec54308b3f96b320509e3f2f2b48cf3eca386bb9",
+          "go_environment_digest": "0e04c32aee92d0ae59f56db59f5997287b47e894c43bd7bacc4a01a2313ad502",
+          "scip_rss_method": "unavailable on this platform; zero is not a measured zero"
+        },
+        "files": 36,
+        "nodes": 638,
+        "edges": 2356,
+        "queries": [
+          {
+            "tool": "callers",
+            "target": "command.go.Command.AddCommand",
+            "limit": 7,
+            "pages": 19,
+            "bytes": 18348,
+            "results": 132,
+            "wall_ns": 4927834,
+            "identity_digest": "3244347d5f7408fcf0a7782676f04cd5cd88468d2a3f5c1fd8f4794e7dd5da8f",
+            "store_equivalent": true,
+            "expected_verified": false
+          },
+          {
+            "tool": "callees",
+            "target": "command.go.Command.ExecuteC",
+            "limit": 7,
+            "pages": 3,
+            "bytes": 1691,
+            "results": 18,
+            "wall_ns": 267750,
+            "identity_digest": "f9aa6083c55099888192c5f0ded66ad0db658661141527ac266a2442e8612092",
+            "store_equivalent": true,
+            "expected_verified": false
+          },
+          {
+            "tool": "search",
+            "target": "Command",
+            "limit": 7,
+            "pages": 45,
+            "bytes": 32691,
+            "results": 310,
+            "wall_ns": 36172750,
+            "identity_digest": "a7520ec25344e8adbff87c7f9ae5dc6cd0909d51f964d8983f3743919224ab5e",
+            "store_equivalent": true,
+            "expected_verified": false
+          }
+        ]
+      },
+      "full_rebuild_equivalent": true,
+      "reference_digest": "6cd6bf6dc40a815af7e0df1ba0bb259e30455c315360ae659405b702fdddcca9"
+    },
+    {
+      "dataset": "cobra",
+      "commit": "40b5bc1437a564fc795d388b23835e84f54cd1d1",
+      "scenario": "unchanged",
+      "repetition": 1,
+      "sample": {
+        "method": "production-matrix-v1",
+        "status": "healthy",
+        "metrics": {
+          "duration_ns": 2791850666,
+          "phases": [
+            {
+              "phase": "admission",
+              "duration_ns": 5567708
+            },
+            {
+              "phase": "observation",
+              "duration_ns": 117161375
+            },
+            {
+              "phase": "freshness",
+              "duration_ns": 305334
+            },
+            {
+              "phase": "build-open",
+              "duration_ns": 3836333
+            },
+            {
+              "phase": "preflight",
+              "duration_ns": 250
+            },
+            {
+              "phase": "handoff-observation",
+              "duration_ns": 55535458
+            },
+            {
+              "phase": "staging",
+              "duration_ns": 21631750
+            },
+            {
+              "phase": "definitions",
+              "duration_ns": 94158500
+            },
+            {
+              "phase": "memory-release",
+              "duration_ns": 8798792
+            },
+            {
+              "phase": "imports",
+              "duration_ns": 8292
+            },
+            {
+              "phase": "symbols",
+              "duration_ns": 1987916
+            },
+            {
+              "phase": "ts-calls",
+              "duration_ns": 375
+            },
+            {
+              "phase": "go-calls",
+              "duration_ns": 2174570500
+            },
+            {
+              "phase": "ruby-calls",
+              "duration_ns": 1958
+            },
+            {
+              "phase": "resolver-report",
+              "duration_ns": 6667
+            },
+            {
+              "phase": "call-reuse",
+              "duration_ns": 42
+            },
+            {
+              "phase": "similarity",
+              "duration_ns": 94016500
+            },
+            {
+              "phase": "result",
+              "duration_ns": 2916
+            },
+            {
+              "phase": "snapshot-cleanup",
+              "duration_ns": 4126750
+            },
+            {
+              "phase": "validation",
+              "duration_ns": 195817167
+            },
+            {
+              "phase": "publication",
+              "duration_ns": 14178416
+            },
+            {
+              "phase": "cleanup",
+              "duration_ns": 111750
+            }
+          ],
+          "staged_files": 45,
+          "staged_bytes": 510894,
+          "scip_invocations": 0,
+          "scip_peak_rss_bytes": 0,
+          "decision": "rebuild",
+          "outcome": "success",
+          "invalidation_reasons": [
+            "go-cgo-external-inputs-unobserved",
+            "go-dependency-inputs-unobserved",
+            "manifest-untrusted"
+          ]
+        },
+        "wall_ns": 2791854000,
+        "go_alloc_bytes": 889400120,
+        "go_mallocs": 12404502,
+        "self_peak_rss_bytes": 608534528,
+        "graph_digest": "6cd6bf6dc40a815af7e0df1ba0bb259e30455c315360ae659405b702fdddcca9",
+        "provenance": {
+          "go": "go1.27.0",
+          "analysis": "analysis-v3",
+          "scip_bridge": "scip-typescript-bridge-v2@0.4.0",
+          "go_resolver": "go-vta-resolver-v5",
+          "observed_inputs_digest": "74ff0eb1d005b2053ced1315ec54308b3f96b320509e3f2f2b48cf3eca386bb9",
+          "go_environment_digest": "0e04c32aee92d0ae59f56db59f5997287b47e894c43bd7bacc4a01a2313ad502",
+          "scip_rss_method": "unavailable on this platform; zero is not a measured zero"
+        },
+        "files": 36,
+        "nodes": 638,
+        "edges": 2356,
+        "queries": [
+          {
+            "tool": "callers",
+            "target": "command.go.Command.AddCommand",
+            "limit": 7,
+            "pages": 19,
+            "bytes": 18348,
+            "results": 132,
+            "wall_ns": 9239625,
+            "identity_digest": "3244347d5f7408fcf0a7782676f04cd5cd88468d2a3f5c1fd8f4794e7dd5da8f",
+            "store_equivalent": true,
+            "expected_verified": false
+          },
+          {
+            "tool": "callees",
+            "target": "command.go.Command.ExecuteC",
+            "limit": 7,
+            "pages": 3,
+            "bytes": 1691,
+            "results": 18,
+            "wall_ns": 480000,
+            "identity_digest": "f9aa6083c55099888192c5f0ded66ad0db658661141527ac266a2442e8612092",
+            "store_equivalent": true,
+            "expected_verified": false
+          },
+          {
+            "tool": "search",
+            "target": "Command",
+            "limit": 7,
+            "pages": 45,
+            "bytes": 32691,
+            "results": 310,
+            "wall_ns": 64694792,
+            "identity_digest": "a7520ec25344e8adbff87c7f9ae5dc6cd0909d51f964d8983f3743919224ab5e",
+            "store_equivalent": true,
+            "expected_verified": false
+          }
+        ]
+      },
+      "full_rebuild_equivalent": true,
+      "reference_digest": "6cd6bf6dc40a815af7e0df1ba0bb259e30455c315360ae659405b702fdddcca9"
+    },
+    {
+      "dataset": "cobra",
+      "commit": "40b5bc1437a564fc795d388b23835e84f54cd1d1",
+      "scenario": "source-edit",
+      "repetition": 1,
+      "sample": {
+        "method": "production-matrix-v1",
+        "status": "healthy",
+        "metrics": {
+          "duration_ns": 6134119333,
+          "phases": [
+            {
+              "phase": "admission",
+              "duration_ns": 20093750
+            },
+            {
+              "phase": "observation",
+              "duration_ns": 253632167
+            },
+            {
+              "phase": "freshness",
+              "duration_ns": 570458
+            },
+            {
+              "phase": "build-open",
+              "duration_ns": 7189375
+            },
+            {
+              "phase": "preflight",
+              "duration_ns": 1208
+            },
+            {
+              "phase": "handoff-observation",
+              "duration_ns": 115056500
+            },
+            {
+              "phase": "staging",
+              "duration_ns": 160336500
+            },
+            {
+              "phase": "definitions",
+              "duration_ns": 180280167
+            },
+            {
+              "phase": "memory-release",
+              "duration_ns": 12392207
+            },
+            {
+              "phase": "imports",
+              "duration_ns": 13541
+            },
+            {
+              "phase": "symbols",
+              "duration_ns": 5224167
+            },
+            {
+              "phase": "ts-calls",
+              "duration_ns": 416
+            },
+            {
+              "phase": "go-calls",
+              "duration_ns": 5032399875
+            },
+            {
+              "phase": "ruby-calls",
+              "duration_ns": 2125
+            },
+            {
+              "phase": "resolver-report",
+              "duration_ns": 5750
+            },
+            {
+              "phase": "call-reuse",
+              "duration_ns": 84
+            },
+            {
+              "phase": "similarity",
+              "duration_ns": 110546250
+            },
+            {
+              "phase": "result",
+              "duration_ns": 4250
+            },
+            {
+              "phase": "snapshot-cleanup",
+              "duration_ns": 5046584
+            },
+            {
+              "phase": "validation",
+              "duration_ns": 216556750
+            },
+            {
+              "phase": "publication",
+              "duration_ns": 14595667
+            },
+            {
+              "phase": "cleanup",
+              "duration_ns": 113750
+            }
+          ],
+          "staged_files": 45,
+          "staged_bytes": 510983,
+          "scip_invocations": 0,
+          "scip_peak_rss_bytes": 0,
+          "decision": "rebuild",
+          "outcome": "success",
+          "invalidation_reasons": [
+            "go-cgo-external-inputs-unobserved",
+            "go-dependency-inputs-unobserved",
+            "manifest-untrusted",
+            "source-changed"
+          ]
+        },
+        "wall_ns": 6134126541,
+        "go_alloc_bytes": 889539392,
+        "go_mallocs": 12406266,
+        "self_peak_rss_bytes": 578748416,
+        "graph_digest": "5ec80defbd8e2d39aec240ac505e867d1eca8fcf324d6dcd8e993207f5229e18",
+        "provenance": {
+          "go": "go1.27.0",
+          "analysis": "analysis-v3",
+          "scip_bridge": "scip-typescript-bridge-v2@0.4.0",
+          "go_resolver": "go-vta-resolver-v5",
+          "observed_inputs_digest": "74ff0eb1d005b2053ced1315ec54308b3f96b320509e3f2f2b48cf3eca386bb9",
+          "go_environment_digest": "0e04c32aee92d0ae59f56db59f5997287b47e894c43bd7bacc4a01a2313ad502",
+          "scip_rss_method": "unavailable on this platform; zero is not a measured zero"
+        },
+        "files": 36,
+        "nodes": 640,
+        "edges": 2359,
+        "queries": [
+          {
+            "tool": "callers",
+            "target": "command.go.Command.AddCommand",
+            "limit": 7,
+            "pages": 19,
+            "bytes": 18348,
+            "results": 132,
+            "wall_ns": 10605958,
+            "identity_digest": "3244347d5f7408fcf0a7782676f04cd5cd88468d2a3f5c1fd8f4794e7dd5da8f",
+            "store_equivalent": true,
+            "expected_verified": false
+          },
+          {
+            "tool": "callees",
+            "target": "command.go.Command.ExecuteC",
+            "limit": 7,
+            "pages": 3,
+            "bytes": 1691,
+            "results": 18,
+            "wall_ns": 600000,
+            "identity_digest": "f9aa6083c55099888192c5f0ded66ad0db658661141527ac266a2442e8612092",
+            "store_equivalent": true,
+            "expected_verified": false
+          },
+          {
+            "tool": "search",
+            "target": "Command",
+            "limit": 7,
+            "pages": 45,
+            "bytes": 32691,
+            "results": 310,
+            "wall_ns": 76253791,
+            "identity_digest": "a7520ec25344e8adbff87c7f9ae5dc6cd0909d51f964d8983f3743919224ab5e",
+            "store_equivalent": true,
+            "expected_verified": false
+          },
+          {
+            "tool": "callees",
+            "target": "cobra.go.codegraphMatrixProbe",
+            "limit": 1,
+            "pages": 1,
+            "bytes": 133,
+            "results": 1,
+            "wall_ns": 187375,
+            "identity_digest": "2aee9667fc13d13a4694895703f4342829e752c96fca71d28b79294b4512f753",
+            "store_equivalent": true,
+            "expected_verified": true
+          }
+        ]
+      },
+      "evidence": {
+        "original_sha": "aae7502e789e42469bcb2fc110af87fd02451d3b509c5b0bed782ada17338c5f",
+        "edited_sha": "1306af2f03ae49d8e2521d47ff462ab82ebbb95dd883bde78a60138782d571c3"
+      },
+      "full_rebuild_equivalent": true,
+      "reference_digest": "5ec80defbd8e2d39aec240ac505e867d1eca8fcf324d6dcd8e993207f5229e18"
+    },
+    {
+      "dataset": "cobra",
+      "commit": "40b5bc1437a564fc795d388b23835e84f54cd1d1",
+      "scenario": "config-edit",
+      "repetition": 1,
+      "sample": {
+        "method": "production-matrix-v1",
+        "status": "healthy",
+        "metrics": {
+          "duration_ns": 2926817792,
+          "phases": [
+            {
+              "phase": "admission",
+              "duration_ns": 7541750
+            },
+            {
+              "phase": "observation",
+              "duration_ns": 138361417
+            },
+            {
+              "phase": "freshness",
+              "duration_ns": 401042
+            },
+            {
+              "phase": "build-open",
+              "duration_ns": 5071458
+            },
+            {
+              "phase": "preflight",
+              "duration_ns": 459
+            },
+            {
+              "phase": "handoff-observation",
+              "duration_ns": 68433583
+            },
+            {
+              "phase": "staging",
+              "duration_ns": 31515542
+            },
+            {
+              "phase": "definitions",
+              "duration_ns": 125200458
+            },
+            {
+              "phase": "memory-release",
+              "duration_ns": 9450206
+            },
+            {
+              "phase": "imports",
+              "duration_ns": 10166
+            },
+            {
+              "phase": "symbols",
+              "duration_ns": 2618875
+            },
+            {
+              "phase": "ts-calls",
+              "duration_ns": 542
+            },
+            {
+              "phase": "go-calls",
+              "duration_ns": 2241946000
+            },
+            {
+              "phase": "ruby-calls",
+              "duration_ns": 1375
+            },
+            {
+              "phase": "resolver-report",
+              "duration_ns": 4125
+            },
+            {
+              "phase": "call-reuse",
+              "duration_ns": 42
+            },
+            {
+              "phase": "similarity",
+              "duration_ns": 89727208
+            },
+            {
+              "phase": "result",
+              "duration_ns": 2375
+            },
+            {
+              "phase": "snapshot-cleanup",
+              "duration_ns": 4048000
+            },
+            {
+              "phase": "validation",
+              "duration_ns": 186257708
+            },
+            {
+              "phase": "publication",
+              "duration_ns": 16084292
+            },
+            {
+              "phase": "cleanup",
+              "duration_ns": 111625
+            }
+          ],
+          "staged_files": 45,
+          "staged_bytes": 511030,
+          "scip_invocations": 0,
+          "scip_peak_rss_bytes": 0,
+          "decision": "rebuild",
+          "outcome": "success",
+          "invalidation_reasons": [
+            "go-cgo-external-inputs-unobserved",
+            "go-dependency-inputs-unobserved",
+            "manifest-untrusted"
+          ]
+        },
+        "wall_ns": 2926822166,
+        "go_alloc_bytes": 889727272,
+        "go_mallocs": 12404057,
+        "self_peak_rss_bytes": 645120000,
+        "graph_digest": "6cd6bf6dc40a815af7e0df1ba0bb259e30455c315360ae659405b702fdddcca9",
+        "provenance": {
+          "go": "go1.27.0",
+          "analysis": "analysis-v3",
+          "scip_bridge": "scip-typescript-bridge-v2@0.4.0",
+          "go_resolver": "go-vta-resolver-v5",
+          "observed_inputs_digest": "ac68e7098619a2b3141335941e3cecca1bac305c67071c6eb11de3496968f3cc",
+          "go_environment_digest": "0e04c32aee92d0ae59f56db59f5997287b47e894c43bd7bacc4a01a2313ad502",
+          "scip_rss_method": "unavailable on this platform; zero is not a measured zero"
+        },
+        "files": 36,
+        "nodes": 638,
+        "edges": 2356,
+        "queries": [
+          {
+            "tool": "callers",
+            "target": "command.go.Command.AddCommand",
+            "limit": 7,
+            "pages": 19,
+            "bytes": 18348,
+            "results": 132,
+            "wall_ns": 8709166,
+            "identity_digest": "3244347d5f7408fcf0a7782676f04cd5cd88468d2a3f5c1fd8f4794e7dd5da8f",
+            "store_equivalent": true,
+            "expected_verified": false
+          },
+          {
+            "tool": "callees",
+            "target": "command.go.Command.ExecuteC",
+            "limit": 7,
+            "pages": 3,
+            "bytes": 1691,
+            "results": 18,
+            "wall_ns": 978458,
+            "identity_digest": "f9aa6083c55099888192c5f0ded66ad0db658661141527ac266a2442e8612092",
+            "store_equivalent": true,
+            "expected_verified": false
+          },
+          {
+            "tool": "search",
+            "target": "Command",
+            "limit": 7,
+            "pages": 45,
+            "bytes": 32691,
+            "results": 310,
+            "wall_ns": 64822834,
+            "identity_digest": "a7520ec25344e8adbff87c7f9ae5dc6cd0909d51f964d8983f3743919224ab5e",
+            "store_equivalent": true,
+            "expected_verified": false
+          }
+        ]
+      },
+      "evidence": {
+        "original_sha": "c6b11572b04c87aee664fdaabd91e94cd3fb8c4b69d811d598b06747bed04663",
+        "edited_sha": "be576bfb3061e84bc96e88f68786769254a50a00f1c2f7e894aa14e4785ab42e"
+      },
+      "full_rebuild_equivalent": true,
+      "reference_digest": "6cd6bf6dc40a815af7e0df1ba0bb259e30455c315360ae659405b702fdddcca9"
+    },
+    {
+      "dataset": "cobra",
+      "commit": "40b5bc1437a564fc795d388b23835e84f54cd1d1",
+      "scenario": "degraded-recovery",
+      "repetition": 1,
+      "sample": {
+        "method": "production-matrix-v1",
+        "status": "healthy",
+        "metrics": {
+          "duration_ns": 2693596833,
+          "phases": [
+            {
+              "phase": "admission",
+              "duration_ns": 6235375
+            },
+            {
+              "phase": "observation",
+              "duration_ns": 123396750
+            },
+            {
+              "phase": "freshness",
+              "duration_ns": 355750
+            },
+            {
+              "phase": "build-open",
+              "duration_ns": 4545000
+            },
+            {
+              "phase": "preflight",
+              "duration_ns": 291
+            },
+            {
+              "phase": "handoff-observation",
+              "duration_ns": 60158208
+            },
+            {
+              "phase": "staging",
+              "duration_ns": 23889709
+            },
+            {
+              "phase": "definitions",
+              "duration_ns": 101678292
+            },
+            {
+              "phase": "memory-release",
+              "duration_ns": 8447375
+            },
+            {
+              "phase": "imports",
+              "duration_ns": 9042
+            },
+            {
+              "phase": "symbols",
+              "duration_ns": 2167208
+            },
+            {
+              "phase": "ts-calls",
+              "duration_ns": 375
+            },
+            {
+              "phase": "go-calls",
+              "duration_ns": 2095326792
+            },
+            {
+              "phase": "ruby-calls",
+              "duration_ns": 959
+            },
+            {
+              "phase": "resolver-report",
+              "duration_ns": 4875
+            },
+            {
+              "phase": "call-reuse",
+              "duration_ns": 42
+            },
+            {
+              "phase": "similarity",
+              "duration_ns": 81326875
+            },
+            {
+              "phase": "result",
+              "duration_ns": 2500
+            },
+            {
+              "phase": "snapshot-cleanup",
+              "duration_ns": 3630750
+            },
+            {
+              "phase": "validation",
+              "duration_ns": 165960292
+            },
+            {
+              "phase": "publication",
+              "duration_ns": 16333125
+            },
+            {
+              "phase": "cleanup",
+              "duration_ns": 102375
+            }
+          ],
+          "staged_files": 45,
+          "staged_bytes": 510894,
+          "scip_invocations": 0,
+          "scip_peak_rss_bytes": 0,
+          "decision": "rebuild",
+          "outcome": "success",
+          "invalidation_reasons": [
+            "go-cgo-external-inputs-unobserved",
+            "go-dependency-inputs-unobserved",
+            "manifest-untrusted",
+            "source-changed"
+          ]
+        },
+        "wall_ns": 2693600584,
+        "go_alloc_bytes": 888624488,
+        "go_mallocs": 12404616,
+        "self_peak_rss_bytes": 605765632,
+        "graph_digest": "6cd6bf6dc40a815af7e0df1ba0bb259e30455c315360ae659405b702fdddcca9",
+        "provenance": {
+          "go": "go1.27.0",
+          "analysis": "analysis-v3",
+          "scip_bridge": "scip-typescript-bridge-v2@0.4.0",
+          "go_resolver": "go-vta-resolver-v5",
+          "observed_inputs_digest": "74ff0eb1d005b2053ced1315ec54308b3f96b320509e3f2f2b48cf3eca386bb9",
+          "go_environment_digest": "0e04c32aee92d0ae59f56db59f5997287b47e894c43bd7bacc4a01a2313ad502",
+          "scip_rss_method": "unavailable on this platform; zero is not a measured zero"
+        },
+        "files": 36,
+        "nodes": 638,
+        "edges": 2356,
+        "queries": [
+          {
+            "tool": "callers",
+            "target": "command.go.Command.AddCommand",
+            "limit": 7,
+            "pages": 19,
+            "bytes": 18348,
+            "results": 132,
+            "wall_ns": 6510250,
+            "identity_digest": "3244347d5f7408fcf0a7782676f04cd5cd88468d2a3f5c1fd8f4794e7dd5da8f",
+            "store_equivalent": true,
+            "expected_verified": false
+          },
+          {
+            "tool": "callees",
+            "target": "command.go.Command.ExecuteC",
+            "limit": 7,
+            "pages": 3,
+            "bytes": 1691,
+            "results": 18,
+            "wall_ns": 406292,
+            "identity_digest": "f9aa6083c55099888192c5f0ded66ad0db658661141527ac266a2442e8612092",
+            "store_equivalent": true,
+            "expected_verified": false
+          },
+          {
+            "tool": "search",
+            "target": "Command",
+            "limit": 7,
+            "pages": 45,
+            "bytes": 32691,
+            "results": 310,
+            "wall_ns": 55402792,
+            "identity_digest": "a7520ec25344e8adbff87c7f9ae5dc6cd0909d51f964d8983f3743919224ab5e",
+            "store_equivalent": true,
+            "expected_verified": false
+          }
+        ]
+      },
+      "full_rebuild_equivalent": true,
+      "reference_digest": "6cd6bf6dc40a815af7e0df1ba0bb259e30455c315360ae659405b702fdddcca9"
+    },
+    {
+      "dataset": "cobra",
+      "commit": "40b5bc1437a564fc795d388b23835e84f54cd1d1",
+      "scenario": "cold",
+      "repetition": 2,
+      "sample": {
+        "method": "production-matrix-v1",
+        "status": "healthy",
+        "metrics": {
+          "duration_ns": 3256214667,
+          "phases": [
+            {
+              "phase": "admission",
+              "duration_ns": 11108959
+            },
+            {
+              "phase": "observation",
+              "duration_ns": 153285791
+            },
+            {
+              "phase": "freshness",
+              "duration_ns": 283708
+            },
+            {
+              "phase": "build-open",
+              "duration_ns": 5762375
+            },
+            {
+              "phase": "preflight",
+              "duration_ns": 833
+            },
+            {
+              "phase": "handoff-observation",
+              "duration_ns": 81329958
+            },
+            {
+              "phase": "staging",
+              "duration_ns": 29053083
+            },
+            {
+              "phase": "definitions",
+              "duration_ns": 132115959
+            },
+            {
+              "phase": "memory-release",
+              "duration_ns": 10861042
+            },
+            {
+              "phase": "imports",
+              "duration_ns": 11000
+            },
+            {
+              "phase": "symbols",
+              "duration_ns": 2626541
+            },
+            {
+              "phase": "ts-calls",
+              "duration_ns": 458
+            },
+            {
+              "phase": "go-calls",
+              "duration_ns": 2496448625
+            },
+            {
+              "phase": "ruby-calls",
+              "duration_ns": 1416
+            },
+            {
+              "phase": "resolver-report",
+              "duration_ns": 4917
+            },
+            {
+              "phase": "call-reuse",
+              "duration_ns": 84
+            },
+            {
+              "phase": "similarity",
+              "duration_ns": 105979375
+            },
+            {
+              "phase": "result",
+              "duration_ns": 4875
+            },
+            {
+              "phase": "snapshot-cleanup",
+              "duration_ns": 6078500
+            },
+            {
+              "phase": "validation",
+              "duration_ns": 204308959
+            },
+            {
+              "phase": "publication",
+              "duration_ns": 16781375
+            },
+            {
+              "phase": "cleanup",
+              "duration_ns": 128709
+            }
+          ],
+          "staged_files": 45,
+          "staged_bytes": 510894,
+          "scip_invocations": 0,
+          "scip_peak_rss_bytes": 0,
+          "decision": "rebuild",
+          "outcome": "success",
+          "invalidation_reasons": [
+            "go-cgo-external-inputs-unobserved",
+            "go-dependency-inputs-unobserved",
+            "new-index",
+            "source-changed"
+          ]
+        },
+        "wall_ns": 3256218667,
+        "go_alloc_bytes": 889501520,
+        "go_mallocs": 12403359,
+        "self_peak_rss_bytes": 627572736,
+        "graph_digest": "6cd6bf6dc40a815af7e0df1ba0bb259e30455c315360ae659405b702fdddcca9",
+        "provenance": {
+          "go": "go1.27.0",
+          "analysis": "analysis-v3",
+          "scip_bridge": "scip-typescript-bridge-v2@0.4.0",
+          "go_resolver": "go-vta-resolver-v5",
+          "observed_inputs_digest": "74ff0eb1d005b2053ced1315ec54308b3f96b320509e3f2f2b48cf3eca386bb9",
+          "go_environment_digest": "0e04c32aee92d0ae59f56db59f5997287b47e894c43bd7bacc4a01a2313ad502",
+          "scip_rss_method": "unavailable on this platform; zero is not a measured zero"
+        },
+        "files": 36,
+        "nodes": 638,
+        "edges": 2356,
+        "queries": [
+          {
+            "tool": "callers",
+            "target": "command.go.Command.AddCommand",
+            "limit": 7,
+            "pages": 19,
+            "bytes": 18348,
+            "results": 132,
+            "wall_ns": 8038333,
+            "identity_digest": "3244347d5f7408fcf0a7782676f04cd5cd88468d2a3f5c1fd8f4794e7dd5da8f",
+            "store_equivalent": true,
+            "expected_verified": false
+          },
+          {
+            "tool": "callees",
+            "target": "command.go.Command.ExecuteC",
+            "limit": 7,
+            "pages": 3,
+            "bytes": 1691,
+            "results": 18,
+            "wall_ns": 658834,
+            "identity_digest": "f9aa6083c55099888192c5f0ded66ad0db658661141527ac266a2442e8612092",
+            "store_equivalent": true,
+            "expected_verified": false
+          },
+          {
+            "tool": "search",
+            "target": "Command",
+            "limit": 7,
+            "pages": 45,
+            "bytes": 32691,
+            "results": 310,
+            "wall_ns": 84725000,
+            "identity_digest": "a7520ec25344e8adbff87c7f9ae5dc6cd0909d51f964d8983f3743919224ab5e",
+            "store_equivalent": true,
+            "expected_verified": false
+          }
+        ]
+      },
+      "full_rebuild_equivalent": true,
+      "reference_digest": "6cd6bf6dc40a815af7e0df1ba0bb259e30455c315360ae659405b702fdddcca9"
+    },
+    {
+      "dataset": "cobra",
+      "commit": "40b5bc1437a564fc795d388b23835e84f54cd1d1",
+      "scenario": "unchanged",
+      "repetition": 2,
+      "sample": {
+        "method": "production-matrix-v1",
+        "status": "healthy",
+        "metrics": {
+          "duration_ns": 3725032625,
+          "phases": [
+            {
+              "phase": "admission",
+              "duration_ns": 13198833
+            },
+            {
+              "phase": "observation",
+              "duration_ns": 303225042
+            },
+            {
+              "phase": "freshness",
+              "duration_ns": 565959
+            },
+            {
+              "phase": "build-open",
+              "duration_ns": 8760792
+            },
+            {
+              "phase": "preflight",
+              "duration_ns": 791
+            },
+            {
+              "phase": "handoff-observation",
+              "duration_ns": 101607625
+            },
+            {
+              "phase": "staging",
+              "duration_ns": 46932583
+            },
+            {
+              "phase": "definitions",
+              "duration_ns": 191053792
+            },
+            {
+              "phase": "memory-release",
+              "duration_ns": 12222918
+            },
+            {
+              "phase": "imports",
+              "duration_ns": 14500
+            },
+            {
+              "phase": "symbols",
+              "duration_ns": 3520875
+            },
+            {
+              "phase": "ts-calls",
+              "duration_ns": 500
+            },
+            {
+              "phase": "go-calls",
+              "duration_ns": 2707841458
+            },
+            {
+              "phase": "ruby-calls",
+              "duration_ns": 1625
+            },
+            {
+              "phase": "resolver-report",
+              "duration_ns": 6125
+            },
+            {
+              "phase": "call-reuse",
+              "duration_ns": 42
+            },
+            {
+              "phase": "similarity",
+              "duration_ns": 106464375
+            },
+            {
+              "phase": "result",
+              "duration_ns": 3250
+            },
+            {
+              "phase": "snapshot-cleanup",
+              "duration_ns": 4804458
+            },
+            {
+              "phase": "validation",
+              "duration_ns": 207868208
+            },
+            {
+              "phase": "publication",
+              "duration_ns": 16764042
+            },
+            {
+              "phase": "cleanup",
+              "duration_ns": 127542
+            }
+          ],
+          "staged_files": 45,
+          "staged_bytes": 510894,
+          "scip_invocations": 0,
+          "scip_peak_rss_bytes": 0,
+          "decision": "rebuild",
+          "outcome": "success",
+          "invalidation_reasons": [
+            "go-cgo-external-inputs-unobserved",
+            "go-dependency-inputs-unobserved",
+            "manifest-untrusted"
+          ]
+        },
+        "wall_ns": 3725038750,
+        "go_alloc_bytes": 889414832,
+        "go_mallocs": 12404360,
+        "self_peak_rss_bytes": 608829440,
+        "graph_digest": "6cd6bf6dc40a815af7e0df1ba0bb259e30455c315360ae659405b702fdddcca9",
+        "provenance": {
+          "go": "go1.27.0",
+          "analysis": "analysis-v3",
+          "scip_bridge": "scip-typescript-bridge-v2@0.4.0",
+          "go_resolver": "go-vta-resolver-v5",
+          "observed_inputs_digest": "74ff0eb1d005b2053ced1315ec54308b3f96b320509e3f2f2b48cf3eca386bb9",
+          "go_environment_digest": "0e04c32aee92d0ae59f56db59f5997287b47e894c43bd7bacc4a01a2313ad502",
+          "scip_rss_method": "unavailable on this platform; zero is not a measured zero"
+        },
+        "files": 36,
+        "nodes": 638,
+        "edges": 2356,
+        "queries": [
+          {
+            "tool": "callers",
+            "target": "command.go.Command.AddCommand",
+            "limit": 7,
+            "pages": 19,
+            "bytes": 18348,
+            "results": 132,
+            "wall_ns": 9076375,
+            "identity_digest": "3244347d5f7408fcf0a7782676f04cd5cd88468d2a3f5c1fd8f4794e7dd5da8f",
+            "store_equivalent": true,
+            "expected_verified": false
+          },
+          {
+            "tool": "callees",
+            "target": "command.go.Command.ExecuteC",
+            "limit": 7,
+            "pages": 3,
+            "bytes": 1691,
+            "results": 18,
+            "wall_ns": 582333,
+            "identity_digest": "f9aa6083c55099888192c5f0ded66ad0db658661141527ac266a2442e8612092",
+            "store_equivalent": true,
+            "expected_verified": false
+          },
+          {
+            "tool": "search",
+            "target": "Command",
+            "limit": 7,
+            "pages": 45,
+            "bytes": 32691,
+            "results": 310,
+            "wall_ns": 63558709,
+            "identity_digest": "a7520ec25344e8adbff87c7f9ae5dc6cd0909d51f964d8983f3743919224ab5e",
+            "store_equivalent": true,
+            "expected_verified": false
+          }
+        ]
+      },
+      "full_rebuild_equivalent": true,
+      "reference_digest": "6cd6bf6dc40a815af7e0df1ba0bb259e30455c315360ae659405b702fdddcca9"
+    },
+    {
+      "dataset": "cobra",
+      "commit": "40b5bc1437a564fc795d388b23835e84f54cd1d1",
+      "scenario": "source-edit",
+      "repetition": 2,
+      "sample": {
+        "method": "production-matrix-v1",
+        "status": "healthy",
+        "metrics": {
+          "duration_ns": 2686169250,
+          "phases": [
+            {
+              "phase": "admission",
+              "duration_ns": 4895959
+            },
+            {
+              "phase": "observation",
+              "duration_ns": 102887541
+            },
+            {
+              "phase": "freshness",
+              "duration_ns": 272875
+            },
+            {
+              "phase": "build-open",
+              "duration_ns": 3136417
+            },
+            {
+              "phase": "preflight",
+              "duration_ns": 208
+            },
+            {
+              "phase": "handoff-observation",
+              "duration_ns": 49228291
+            },
+            {
+              "phase": "staging",
+              "duration_ns": 17775708
+            },
+            {
+              "phase": "definitions",
+              "duration_ns": 70547209
+            },
+            {
+              "phase": "memory-release",
+              "duration_ns": 7826000
+            },
+            {
+              "phase": "imports",
+              "duration_ns": 6417
+            },
+            {
+              "phase": "symbols",
+              "duration_ns": 1536834
+            },
+            {
+              "phase": "ts-calls",
+              "duration_ns": 334
+            },
+            {
+              "phase": "go-calls",
+              "duration_ns": 2107031459
+            },
+            {
+              "phase": "ruby-calls",
+              "duration_ns": 1208
+            },
+            {
+              "phase": "resolver-report",
+              "duration_ns": 4625
+            },
+            {
+              "phase": "call-reuse",
+              "duration_ns": 41
+            },
+            {
+              "phase": "similarity",
+              "duration_ns": 89675375
+            },
+            {
+              "phase": "result",
+              "duration_ns": 2833
+            },
+            {
+              "phase": "snapshot-cleanup",
+              "duration_ns": 4264000
+            },
+            {
+              "phase": "validation",
+              "duration_ns": 212311375
+            },
+            {
+              "phase": "publication",
+              "duration_ns": 14633958
+            },
+            {
+              "phase": "cleanup",
+              "duration_ns": 109000
+            }
+          ],
+          "staged_files": 45,
+          "staged_bytes": 510983,
+          "scip_invocations": 0,
+          "scip_peak_rss_bytes": 0,
+          "decision": "rebuild",
+          "outcome": "success",
+          "invalidation_reasons": [
+            "go-cgo-external-inputs-unobserved",
+            "go-dependency-inputs-unobserved",
+            "manifest-untrusted",
+            "source-changed"
+          ]
+        },
+        "wall_ns": 2686174333,
+        "go_alloc_bytes": 889848240,
+        "go_mallocs": 12405733,
+        "self_peak_rss_bytes": 603324416,
+        "graph_digest": "5ec80defbd8e2d39aec240ac505e867d1eca8fcf324d6dcd8e993207f5229e18",
+        "provenance": {
+          "go": "go1.27.0",
+          "analysis": "analysis-v3",
+          "scip_bridge": "scip-typescript-bridge-v2@0.4.0",
+          "go_resolver": "go-vta-resolver-v5",
+          "observed_inputs_digest": "74ff0eb1d005b2053ced1315ec54308b3f96b320509e3f2f2b48cf3eca386bb9",
+          "go_environment_digest": "0e04c32aee92d0ae59f56db59f5997287b47e894c43bd7bacc4a01a2313ad502",
+          "scip_rss_method": "unavailable on this platform; zero is not a measured zero"
+        },
+        "files": 36,
+        "nodes": 640,
+        "edges": 2359,
+        "queries": [
+          {
+            "tool": "callers",
+            "target": "command.go.Command.AddCommand",
+            "limit": 7,
+            "pages": 19,
+            "bytes": 18348,
+            "results": 132,
+            "wall_ns": 8936417,
+            "identity_digest": "3244347d5f7408fcf0a7782676f04cd5cd88468d2a3f5c1fd8f4794e7dd5da8f",
+            "store_equivalent": true,
+            "expected_verified": false
+          },
+          {
+            "tool": "callees",
+            "target": "command.go.Command.ExecuteC",
+            "limit": 7,
+            "pages": 3,
+            "bytes": 1691,
+            "results": 18,
+            "wall_ns": 538916,
+            "identity_digest": "f9aa6083c55099888192c5f0ded66ad0db658661141527ac266a2442e8612092",
+            "store_equivalent": true,
+            "expected_verified": false
+          },
+          {
+            "tool": "search",
+            "target": "Command",
+            "limit": 7,
+            "pages": 45,
+            "bytes": 32691,
+            "results": 310,
+            "wall_ns": 63520000,
+            "identity_digest": "a7520ec25344e8adbff87c7f9ae5dc6cd0909d51f964d8983f3743919224ab5e",
+            "store_equivalent": true,
+            "expected_verified": false
+          },
+          {
+            "tool": "callees",
+            "target": "cobra.go.codegraphMatrixProbe",
+            "limit": 1,
+            "pages": 1,
+            "bytes": 133,
+            "results": 1,
+            "wall_ns": 120750,
+            "identity_digest": "2aee9667fc13d13a4694895703f4342829e752c96fca71d28b79294b4512f753",
+            "store_equivalent": true,
+            "expected_verified": true
+          }
+        ]
+      },
+      "evidence": {
+        "original_sha": "aae7502e789e42469bcb2fc110af87fd02451d3b509c5b0bed782ada17338c5f",
+        "edited_sha": "1306af2f03ae49d8e2521d47ff462ab82ebbb95dd883bde78a60138782d571c3"
+      },
+      "full_rebuild_equivalent": true,
+      "reference_digest": "5ec80defbd8e2d39aec240ac505e867d1eca8fcf324d6dcd8e993207f5229e18"
+    },
+    {
+      "dataset": "cobra",
+      "commit": "40b5bc1437a564fc795d388b23835e84f54cd1d1",
+      "scenario": "config-edit",
+      "repetition": 2,
+      "sample": {
+        "method": "production-matrix-v1",
+        "status": "healthy",
+        "metrics": {
+          "duration_ns": 3111379584,
+          "phases": [
+            {
+              "phase": "admission",
+              "duration_ns": 8909042
+            },
+            {
+              "phase": "observation",
+              "duration_ns": 174311333
+            },
+            {
+              "phase": "freshness",
+              "duration_ns": 463542
+            },
+            {
+              "phase": "build-open",
+              "duration_ns": 5662334
+            },
+            {
+              "phase": "preflight",
+              "duration_ns": 708
+            },
+            {
+              "phase": "handoff-observation",
+              "duration_ns": 80230084
+            },
+            {
+              "phase": "staging",
+              "duration_ns": 31847250
+            },
+            {
+              "phase": "definitions",
+              "duration_ns": 143971292
+            },
+            {
+              "phase": "memory-release",
+              "duration_ns": 10758958
+            },
+            {
+              "phase": "imports",
+              "duration_ns": 14292
+            },
+            {
+              "phase": "symbols",
+              "duration_ns": 3154375
+            },
+            {
+              "phase": "ts-calls",
+              "duration_ns": 584
+            },
+            {
+              "phase": "go-calls",
+              "duration_ns": 2335286416
+            },
+            {
+              "phase": "ruby-calls",
+              "duration_ns": 1542
+            },
+            {
+              "phase": "resolver-report",
+              "duration_ns": 5584
+            },
+            {
+              "phase": "call-reuse",
+              "duration_ns": 41
+            },
+            {
+              "phase": "similarity",
+              "duration_ns": 97289833
+            },
+            {
+              "phase": "result",
+              "duration_ns": 2958
+            },
+            {
+              "phase": "snapshot-cleanup",
+              "duration_ns": 4744708
+            },
+            {
+              "phase": "validation",
+              "duration_ns": 198059625
+            },
+            {
+              "phase": "publication",
+              "duration_ns": 16509125
+            },
+            {
+              "phase": "cleanup",
+              "duration_ns": 121459
+            }
+          ],
+          "staged_files": 45,
+          "staged_bytes": 511030,
+          "scip_invocations": 0,
+          "scip_peak_rss_bytes": 0,
+          "decision": "rebuild",
+          "outcome": "success",
+          "invalidation_reasons": [
+            "go-cgo-external-inputs-unobserved",
+            "go-dependency-inputs-unobserved",
+            "manifest-untrusted"
+          ]
+        },
+        "wall_ns": 3111384500,
+        "go_alloc_bytes": 890002352,
+        "go_mallocs": 12404251,
+        "self_peak_rss_bytes": 610533376,
+        "graph_digest": "6cd6bf6dc40a815af7e0df1ba0bb259e30455c315360ae659405b702fdddcca9",
+        "provenance": {
+          "go": "go1.27.0",
+          "analysis": "analysis-v3",
+          "scip_bridge": "scip-typescript-bridge-v2@0.4.0",
+          "go_resolver": "go-vta-resolver-v5",
+          "observed_inputs_digest": "ac68e7098619a2b3141335941e3cecca1bac305c67071c6eb11de3496968f3cc",
+          "go_environment_digest": "0e04c32aee92d0ae59f56db59f5997287b47e894c43bd7bacc4a01a2313ad502",
+          "scip_rss_method": "unavailable on this platform; zero is not a measured zero"
+        },
+        "files": 36,
+        "nodes": 638,
+        "edges": 2356,
+        "queries": [
+          {
+            "tool": "callers",
+            "target": "command.go.Command.AddCommand",
+            "limit": 7,
+            "pages": 19,
+            "bytes": 18348,
+            "results": 132,
+            "wall_ns": 8395750,
+            "identity_digest": "3244347d5f7408fcf0a7782676f04cd5cd88468d2a3f5c1fd8f4794e7dd5da8f",
+            "store_equivalent": true,
+            "expected_verified": false
+          },
+          {
+            "tool": "callees",
+            "target": "command.go.Command.ExecuteC",
+            "limit": 7,
+            "pages": 3,
+            "bytes": 1691,
+            "results": 18,
+            "wall_ns": 543791,
+            "identity_digest": "f9aa6083c55099888192c5f0ded66ad0db658661141527ac266a2442e8612092",
+            "store_equivalent": true,
+            "expected_verified": false
+          },
+          {
+            "tool": "search",
+            "target": "Command",
+            "limit": 7,
+            "pages": 45,
+            "bytes": 32691,
+            "results": 310,
+            "wall_ns": 67522167,
+            "identity_digest": "a7520ec25344e8adbff87c7f9ae5dc6cd0909d51f964d8983f3743919224ab5e",
+            "store_equivalent": true,
+            "expected_verified": false
+          }
+        ]
+      },
+      "evidence": {
+        "original_sha": "c6b11572b04c87aee664fdaabd91e94cd3fb8c4b69d811d598b06747bed04663",
+        "edited_sha": "be576bfb3061e84bc96e88f68786769254a50a00f1c2f7e894aa14e4785ab42e"
+      },
+      "full_rebuild_equivalent": true,
+      "reference_digest": "6cd6bf6dc40a815af7e0df1ba0bb259e30455c315360ae659405b702fdddcca9"
+    },
+    {
+      "dataset": "cobra",
+      "commit": "40b5bc1437a564fc795d388b23835e84f54cd1d1",
+      "scenario": "degraded-recovery",
+      "repetition": 2,
+      "sample": {
+        "method": "production-matrix-v1",
+        "status": "healthy",
+        "metrics": {
+          "duration_ns": 2502509833,
+          "phases": [
+            {
+              "phase": "admission",
+              "duration_ns": 7427375
+            },
+            {
+              "phase": "observation",
+              "duration_ns": 126068125
+            },
+            {
+              "phase": "freshness",
+              "duration_ns": 339750
+            },
+            {
+              "phase": "build-open",
+              "duration_ns": 4400375
+            },
+            {
+              "phase": "preflight",
+              "duration_ns": 375
+            },
+            {
+              "phase": "handoff-observation",
+              "duration_ns": 61135833
+            },
+            {
+              "phase": "staging",
+              "duration_ns": 23470333
+            },
+            {
+              "phase": "definitions",
+              "duration_ns": 89268375
+            },
+            {
+              "phase": "memory-release",
+              "duration_ns": 8467834
+            },
+            {
+              "phase": "imports",
+              "duration_ns": 7875
+            },
+            {
+              "phase": "symbols",
+              "duration_ns": 1974958
+            },
+            {
+              "phase": "ts-calls",
+              "duration_ns": 375
+            },
+            {
+              "phase": "go-calls",
+              "duration_ns": 1934010667
+            },
+            {
+              "phase": "ruby-calls",
+              "duration_ns": 1375
+            },
+            {
+              "phase": "resolver-report",
+              "duration_ns": 4417
+            },
+            {
+              "phase": "call-reuse",
+              "duration_ns": 0
+            },
+            {
+              "phase": "similarity",
+              "duration_ns": 77455375
+            },
+            {
+              "phase": "result",
+              "duration_ns": 1875
+            },
+            {
+              "phase": "snapshot-cleanup",
+              "duration_ns": 3365291
+            },
+            {
+              "phase": "validation",
+              "duration_ns": 148533042
+            },
+            {
+              "phase": "publication",
+              "duration_ns": 16458917
+            },
+            {
+              "phase": "cleanup",
+              "duration_ns": 91750
+            }
+          ],
+          "staged_files": 45,
+          "staged_bytes": 510894,
+          "scip_invocations": 0,
+          "scip_peak_rss_bytes": 0,
+          "decision": "rebuild",
+          "outcome": "success",
+          "invalidation_reasons": [
+            "go-cgo-external-inputs-unobserved",
+            "go-dependency-inputs-unobserved",
+            "manifest-untrusted",
+            "source-changed"
+          ]
+        },
+        "wall_ns": 2502513875,
+        "go_alloc_bytes": 890083800,
+        "go_mallocs": 12404899,
+        "self_peak_rss_bytes": 638238720,
+        "graph_digest": "6cd6bf6dc40a815af7e0df1ba0bb259e30455c315360ae659405b702fdddcca9",
+        "provenance": {
+          "go": "go1.27.0",
+          "analysis": "analysis-v3",
+          "scip_bridge": "scip-typescript-bridge-v2@0.4.0",
+          "go_resolver": "go-vta-resolver-v5",
+          "observed_inputs_digest": "74ff0eb1d005b2053ced1315ec54308b3f96b320509e3f2f2b48cf3eca386bb9",
+          "go_environment_digest": "0e04c32aee92d0ae59f56db59f5997287b47e894c43bd7bacc4a01a2313ad502",
+          "scip_rss_method": "unavailable on this platform; zero is not a measured zero"
+        },
+        "files": 36,
+        "nodes": 638,
+        "edges": 2356,
+        "queries": [
+          {
+            "tool": "callers",
+            "target": "command.go.Command.AddCommand",
+            "limit": 7,
+            "pages": 19,
+            "bytes": 18348,
+            "results": 132,
+            "wall_ns": 4873292,
+            "identity_digest": "3244347d5f7408fcf0a7782676f04cd5cd88468d2a3f5c1fd8f4794e7dd5da8f",
+            "store_equivalent": true,
+            "expected_verified": false
+          },
+          {
+            "tool": "callees",
+            "target": "command.go.Command.ExecuteC",
+            "limit": 7,
+            "pages": 3,
+            "bytes": 1691,
+            "results": 18,
+            "wall_ns": 516917,
+            "identity_digest": "f9aa6083c55099888192c5f0ded66ad0db658661141527ac266a2442e8612092",
+            "store_equivalent": true,
+            "expected_verified": false
+          },
+          {
+            "tool": "search",
+            "target": "Command",
+            "limit": 7,
+            "pages": 45,
+            "bytes": 32691,
+            "results": 310,
+            "wall_ns": 40926417,
+            "identity_digest": "a7520ec25344e8adbff87c7f9ae5dc6cd0909d51f964d8983f3743919224ab5e",
+            "store_equivalent": true,
+            "expected_verified": false
+          }
+        ]
+      },
+      "full_rebuild_equivalent": true,
+      "reference_digest": "6cd6bf6dc40a815af7e0df1ba0bb259e30455c315360ae659405b702fdddcca9"
+    },
+    {
+      "dataset": "cobra",
+      "commit": "40b5bc1437a564fc795d388b23835e84f54cd1d1",
+      "scenario": "cold",
+      "repetition": 3,
+      "sample": {
+        "method": "production-matrix-v1",
+        "status": "healthy",
+        "metrics": {
+          "duration_ns": 3091817583,
+          "phases": [
+            {
+              "phase": "admission",
+              "duration_ns": 7426458
+            },
+            {
+              "phase": "observation",
+              "duration_ns": 103858000
+            },
+            {
+              "phase": "freshness",
+              "duration_ns": 119542
+            },
+            {
+              "phase": "build-open",
+              "duration_ns": 3396916
+            },
+            {
+              "phase": "preflight",
+              "duration_ns": 375
+            },
+            {
+              "phase": "handoff-observation",
+              "duration_ns": 50687250
+            },
+            {
+              "phase": "staging",
+              "duration_ns": 19686500
+            },
+            {
+              "phase": "definitions",
+              "duration_ns": 73196291
+            },
+            {
+              "phase": "memory-release",
+              "duration_ns": 11404832
+            },
+            {
+              "phase": "imports",
+              "duration_ns": 7125
+            },
+            {
+              "phase": "symbols",
+              "duration_ns": 1679041
+            },
+            {
+              "phase": "ts-calls",
+              "duration_ns": 375
+            },
+            {
+              "phase": "go-calls",
+              "duration_ns": 2457569500
+            },
+            {
+              "phase": "ruby-calls",
+              "duration_ns": 2541
+            },
+            {
+              "phase": "resolver-report",
+              "duration_ns": 7750
+            },
+            {
+              "phase": "call-reuse",
+              "duration_ns": 125
+            },
+            {
+              "phase": "similarity",
+              "duration_ns": 130096083
+            },
+            {
+              "phase": "result",
+              "duration_ns": 4375
+            },
+            {
+              "phase": "snapshot-cleanup",
+              "duration_ns": 6179917
+            },
+            {
+              "phase": "validation",
+              "duration_ns": 208304125
+            },
+            {
+              "phase": "publication",
+              "duration_ns": 18006416
+            },
+            {
+              "phase": "cleanup",
+              "duration_ns": 157958
+            }
+          ],
+          "staged_files": 45,
+          "staged_bytes": 510894,
+          "scip_invocations": 0,
+          "scip_peak_rss_bytes": 0,
+          "decision": "rebuild",
+          "outcome": "success",
+          "invalidation_reasons": [
+            "go-cgo-external-inputs-unobserved",
+            "go-dependency-inputs-unobserved",
+            "new-index",
+            "source-changed"
+          ]
+        },
+        "wall_ns": 3091822125,
+        "go_alloc_bytes": 888932376,
+        "go_mallocs": 12403176,
+        "self_peak_rss_bytes": 552648704,
+        "graph_digest": "6cd6bf6dc40a815af7e0df1ba0bb259e30455c315360ae659405b702fdddcca9",
+        "provenance": {
+          "go": "go1.27.0",
+          "analysis": "analysis-v3",
+          "scip_bridge": "scip-typescript-bridge-v2@0.4.0",
+          "go_resolver": "go-vta-resolver-v5",
+          "observed_inputs_digest": "74ff0eb1d005b2053ced1315ec54308b3f96b320509e3f2f2b48cf3eca386bb9",
+          "go_environment_digest": "0e04c32aee92d0ae59f56db59f5997287b47e894c43bd7bacc4a01a2313ad502",
+          "scip_rss_method": "unavailable on this platform; zero is not a measured zero"
+        },
+        "files": 36,
+        "nodes": 638,
+        "edges": 2356,
+        "queries": [
+          {
+            "tool": "callers",
+            "target": "command.go.Command.AddCommand",
+            "limit": 7,
+            "pages": 19,
+            "bytes": 18348,
+            "results": 132,
+            "wall_ns": 13148250,
+            "identity_digest": "3244347d5f7408fcf0a7782676f04cd5cd88468d2a3f5c1fd8f4794e7dd5da8f",
+            "store_equivalent": true,
+            "expected_verified": false
+          },
+          {
+            "tool": "callees",
+            "target": "command.go.Command.ExecuteC",
+            "limit": 7,
+            "pages": 3,
+            "bytes": 1691,
+            "results": 18,
+            "wall_ns": 787667,
+            "identity_digest": "f9aa6083c55099888192c5f0ded66ad0db658661141527ac266a2442e8612092",
+            "store_equivalent": true,
+            "expected_verified": false
+          },
+          {
+            "tool": "search",
+            "target": "Command",
+            "limit": 7,
+            "pages": 45,
+            "bytes": 32691,
+            "results": 310,
+            "wall_ns": 101002125,
+            "identity_digest": "a7520ec25344e8adbff87c7f9ae5dc6cd0909d51f964d8983f3743919224ab5e",
+            "store_equivalent": true,
+            "expected_verified": false
+          }
+        ]
+      },
+      "full_rebuild_equivalent": true,
+      "reference_digest": "6cd6bf6dc40a815af7e0df1ba0bb259e30455c315360ae659405b702fdddcca9"
+    },
+    {
+      "dataset": "cobra",
+      "commit": "40b5bc1437a564fc795d388b23835e84f54cd1d1",
+      "scenario": "unchanged",
+      "repetition": 3,
+      "sample": {
+        "method": "production-matrix-v1",
+        "status": "healthy",
+        "metrics": {
+          "duration_ns": 2383460917,
+          "phases": [
+            {
+              "phase": "admission",
+              "duration_ns": 4500000
+            },
+            {
+              "phase": "observation",
+              "duration_ns": 93460833
+            },
+            {
+              "phase": "freshness",
+              "duration_ns": 500167
+            },
+            {
+              "phase": "build-open",
+              "duration_ns": 3255625
+            },
+            {
+              "phase": "preflight",
+              "duration_ns": 208
+            },
+            {
+              "phase": "handoff-observation",
+              "duration_ns": 45221375
+            },
+            {
+              "phase": "staging",
+              "duration_ns": 18211292
+            },
+            {
+              "phase": "definitions",
+              "duration_ns": 72976375
+            },
+            {
+              "phase": "memory-release",
+              "duration_ns": 7306249
+            },
+            {
+              "phase": "imports",
+              "duration_ns": 7125
+            },
+            {
+              "phase": "symbols",
+              "duration_ns": 1701625
+            },
+            {
+              "phase": "ts-calls",
+              "duration_ns": 334
+            },
+            {
+              "phase": "go-calls",
+              "duration_ns": 1866640167
+            },
+            {
+              "phase": "ruby-calls",
+              "duration_ns": 1125
+            },
+            {
+              "phase": "resolver-report",
+              "duration_ns": 4375
+            },
+            {
+              "phase": "call-reuse",
+              "duration_ns": 83
+            },
+            {
+              "phase": "similarity",
+              "duration_ns": 77726125
+            },
+            {
+              "phase": "result",
+              "duration_ns": 2042
+            },
+            {
+              "phase": "snapshot-cleanup",
+              "duration_ns": 4419166
+            },
+            {
+              "phase": "validation",
+              "duration_ns": 164193000
+            },
+            {
+              "phase": "publication",
+              "duration_ns": 23196042
+            },
+            {
+              "phase": "cleanup",
+              "duration_ns": 117375
+            }
+          ],
+          "staged_files": 45,
+          "staged_bytes": 510894,
+          "scip_invocations": 0,
+          "scip_peak_rss_bytes": 0,
+          "decision": "rebuild",
+          "outcome": "success",
+          "invalidation_reasons": [
+            "go-cgo-external-inputs-unobserved",
+            "go-dependency-inputs-unobserved",
+            "manifest-untrusted"
+          ]
+        },
+        "wall_ns": 2383464500,
+        "go_alloc_bytes": 889102752,
+        "go_mallocs": 12404215,
+        "self_peak_rss_bytes": 607043584,
+        "graph_digest": "6cd6bf6dc40a815af7e0df1ba0bb259e30455c315360ae659405b702fdddcca9",
+        "provenance": {
+          "go": "go1.27.0",
+          "analysis": "analysis-v3",
+          "scip_bridge": "scip-typescript-bridge-v2@0.4.0",
+          "go_resolver": "go-vta-resolver-v5",
+          "observed_inputs_digest": "74ff0eb1d005b2053ced1315ec54308b3f96b320509e3f2f2b48cf3eca386bb9",
+          "go_environment_digest": "0e04c32aee92d0ae59f56db59f5997287b47e894c43bd7bacc4a01a2313ad502",
+          "scip_rss_method": "unavailable on this platform; zero is not a measured zero"
+        },
+        "files": 36,
+        "nodes": 638,
+        "edges": 2356,
+        "queries": [
+          {
+            "tool": "callers",
+            "target": "command.go.Command.AddCommand",
+            "limit": 7,
+            "pages": 19,
+            "bytes": 18348,
+            "results": 132,
+            "wall_ns": 6182625,
+            "identity_digest": "3244347d5f7408fcf0a7782676f04cd5cd88468d2a3f5c1fd8f4794e7dd5da8f",
+            "store_equivalent": true,
+            "expected_verified": false
+          },
+          {
+            "tool": "callees",
+            "target": "command.go.Command.ExecuteC",
+            "limit": 7,
+            "pages": 3,
+            "bytes": 1691,
+            "results": 18,
+            "wall_ns": 397000,
+            "identity_digest": "f9aa6083c55099888192c5f0ded66ad0db658661141527ac266a2442e8612092",
+            "store_equivalent": true,
+            "expected_verified": false
+          },
+          {
+            "tool": "search",
+            "target": "Command",
+            "limit": 7,
+            "pages": 45,
+            "bytes": 32691,
+            "results": 310,
+            "wall_ns": 52149083,
+            "identity_digest": "a7520ec25344e8adbff87c7f9ae5dc6cd0909d51f964d8983f3743919224ab5e",
+            "store_equivalent": true,
+            "expected_verified": false
+          }
+        ]
+      },
+      "full_rebuild_equivalent": true,
+      "reference_digest": "6cd6bf6dc40a815af7e0df1ba0bb259e30455c315360ae659405b702fdddcca9"
+    },
+    {
+      "dataset": "cobra",
+      "commit": "40b5bc1437a564fc795d388b23835e84f54cd1d1",
+      "scenario": "source-edit",
+      "repetition": 3,
+      "sample": {
+        "method": "production-matrix-v1",
+        "status": "healthy",
+        "metrics": {
+          "duration_ns": 2689643792,
+          "phases": [
+            {
+              "phase": "admission",
+              "duration_ns": 6255958
+            },
+            {
+              "phase": "observation",
+              "duration_ns": 127498292
+            },
+            {
+              "phase": "freshness",
+              "duration_ns": 360875
+            },
+            {
+              "phase": "build-open",
+              "duration_ns": 4157583
+            },
+            {
+              "phase": "preflight",
+              "duration_ns": 333
+            },
+            {
+              "phase": "handoff-observation",
+              "duration_ns": 59842375
+            },
+            {
+              "phase": "staging",
+              "duration_ns": 23376791
+            },
+            {
+              "phase": "definitions",
+              "duration_ns": 102541208
+            },
+            {
+              "phase": "memory-release",
+              "duration_ns": 9428751
+            },
+            {
+              "phase": "imports",
+              "duration_ns": 10000
+            },
+            {
+              "phase": "symbols",
+              "duration_ns": 2217625
+            },
+            {
+              "phase": "ts-calls",
+              "duration_ns": 416
+            },
+            {
+              "phase": "go-calls",
+              "duration_ns": 2057781500
+            },
+            {
+              "phase": "ruby-calls",
+              "duration_ns": 1417
+            },
+            {
+              "phase": "resolver-report",
+              "duration_ns": 5125
+            },
+            {
+              "phase": "call-reuse",
+              "duration_ns": 42
+            },
+            {
+              "phase": "similarity",
+              "duration_ns": 87886291
+            },
+            {
+              "phase": "result",
+              "duration_ns": 2917
+            },
+            {
+              "phase": "snapshot-cleanup",
+              "duration_ns": 4096625
+            },
+            {
+              "phase": "validation",
+              "duration_ns": 188110875
+            },
+            {
+              "phase": "publication",
+              "duration_ns": 15930083
+            },
+            {
+              "phase": "cleanup",
+              "duration_ns": 109875
+            }
+          ],
+          "staged_files": 45,
+          "staged_bytes": 510983,
+          "scip_invocations": 0,
+          "scip_peak_rss_bytes": 0,
+          "decision": "rebuild",
+          "outcome": "success",
+          "invalidation_reasons": [
+            "go-cgo-external-inputs-unobserved",
+            "go-dependency-inputs-unobserved",
+            "manifest-untrusted",
+            "source-changed"
+          ]
+        },
+        "wall_ns": 2689647875,
+        "go_alloc_bytes": 889486752,
+        "go_mallocs": 12405260,
+        "self_peak_rss_bytes": 632684544,
+        "graph_digest": "5ec80defbd8e2d39aec240ac505e867d1eca8fcf324d6dcd8e993207f5229e18",
+        "provenance": {
+          "go": "go1.27.0",
+          "analysis": "analysis-v3",
+          "scip_bridge": "scip-typescript-bridge-v2@0.4.0",
+          "go_resolver": "go-vta-resolver-v5",
+          "observed_inputs_digest": "74ff0eb1d005b2053ced1315ec54308b3f96b320509e3f2f2b48cf3eca386bb9",
+          "go_environment_digest": "0e04c32aee92d0ae59f56db59f5997287b47e894c43bd7bacc4a01a2313ad502",
+          "scip_rss_method": "unavailable on this platform; zero is not a measured zero"
+        },
+        "files": 36,
+        "nodes": 640,
+        "edges": 2359,
+        "queries": [
+          {
+            "tool": "callers",
+            "target": "command.go.Command.AddCommand",
+            "limit": 7,
+            "pages": 19,
+            "bytes": 18348,
+            "results": 132,
+            "wall_ns": 7138875,
+            "identity_digest": "3244347d5f7408fcf0a7782676f04cd5cd88468d2a3f5c1fd8f4794e7dd5da8f",
+            "store_equivalent": true,
+            "expected_verified": false
+          },
+          {
+            "tool": "callees",
+            "target": "command.go.Command.ExecuteC",
+            "limit": 7,
+            "pages": 3,
+            "bytes": 1691,
+            "results": 18,
+            "wall_ns": 457584,
+            "identity_digest": "f9aa6083c55099888192c5f0ded66ad0db658661141527ac266a2442e8612092",
+            "store_equivalent": true,
+            "expected_verified": false
+          },
+          {
+            "tool": "search",
+            "target": "Command",
+            "limit": 7,
+            "pages": 45,
+            "bytes": 32691,
+            "results": 310,
+            "wall_ns": 53204417,
+            "identity_digest": "a7520ec25344e8adbff87c7f9ae5dc6cd0909d51f964d8983f3743919224ab5e",
+            "store_equivalent": true,
+            "expected_verified": false
+          },
+          {
+            "tool": "callees",
+            "target": "cobra.go.codegraphMatrixProbe",
+            "limit": 1,
+            "pages": 1,
+            "bytes": 133,
+            "results": 1,
+            "wall_ns": 100250,
+            "identity_digest": "2aee9667fc13d13a4694895703f4342829e752c96fca71d28b79294b4512f753",
+            "store_equivalent": true,
+            "expected_verified": true
+          }
+        ]
+      },
+      "evidence": {
+        "original_sha": "aae7502e789e42469bcb2fc110af87fd02451d3b509c5b0bed782ada17338c5f",
+        "edited_sha": "1306af2f03ae49d8e2521d47ff462ab82ebbb95dd883bde78a60138782d571c3"
+      },
+      "full_rebuild_equivalent": true,
+      "reference_digest": "5ec80defbd8e2d39aec240ac505e867d1eca8fcf324d6dcd8e993207f5229e18"
+    },
+    {
+      "dataset": "cobra",
+      "commit": "40b5bc1437a564fc795d388b23835e84f54cd1d1",
+      "scenario": "config-edit",
+      "repetition": 3,
+      "sample": {
+        "method": "production-matrix-v1",
+        "status": "healthy",
+        "metrics": {
+          "duration_ns": 2079922666,
+          "phases": [
+            {
+              "phase": "admission",
+              "duration_ns": 4742167
+            },
+            {
+              "phase": "observation",
+              "duration_ns": 95305083
+            },
+            {
+              "phase": "freshness",
+              "duration_ns": 293958
+            },
+            {
+              "phase": "build-open",
+              "duration_ns": 2897917
+            },
+            {
+              "phase": "preflight",
+              "duration_ns": 291
+            },
+            {
+              "phase": "handoff-observation",
+              "duration_ns": 44716500
+            },
+            {
+              "phase": "staging",
+              "duration_ns": 16893417
+            },
+            {
+              "phase": "definitions",
+              "duration_ns": 64667834
+            },
+            {
+              "phase": "memory-release",
+              "duration_ns": 6424208
+            },
+            {
+              "phase": "imports",
+              "duration_ns": 6750
+            },
+            {
+              "phase": "symbols",
+              "duration_ns": 1601042
+            },
+            {
+              "phase": "ts-calls",
+              "duration_ns": 250
+            },
+            {
+              "phase": "go-calls",
+              "duration_ns": 1635181500
+            },
+            {
+              "phase": "ruby-calls",
+              "duration_ns": 1000
+            },
+            {
+              "phase": "resolver-report",
+              "duration_ns": 3083
+            },
+            {
+              "phase": "call-reuse",
+              "duration_ns": 42
+            },
+            {
+              "phase": "similarity",
+              "duration_ns": 60909417
+            },
+            {
+              "phase": "result",
+              "duration_ns": 2167
+            },
+            {
+              "phase": "snapshot-cleanup",
+              "duration_ns": 2740958
+            },
+            {
+              "phase": "validation",
+              "duration_ns": 127549334
+            },
+            {
+              "phase": "publication",
+              "duration_ns": 15900042
+            },
+            {
+              "phase": "cleanup",
+              "duration_ns": 66958
+            }
+          ],
+          "staged_files": 45,
+          "staged_bytes": 511030,
+          "scip_invocations": 0,
+          "scip_peak_rss_bytes": 0,
+          "decision": "rebuild",
+          "outcome": "success",
+          "invalidation_reasons": [
+            "go-cgo-external-inputs-unobserved",
+            "go-dependency-inputs-unobserved",
+            "manifest-untrusted"
+          ]
+        },
+        "wall_ns": 2079926000,
+        "go_alloc_bytes": 890322392,
+        "go_mallocs": 12404039,
+        "self_peak_rss_bytes": 606109696,
+        "graph_digest": "6cd6bf6dc40a815af7e0df1ba0bb259e30455c315360ae659405b702fdddcca9",
+        "provenance": {
+          "go": "go1.27.0",
+          "analysis": "analysis-v3",
+          "scip_bridge": "scip-typescript-bridge-v2@0.4.0",
+          "go_resolver": "go-vta-resolver-v5",
+          "observed_inputs_digest": "ac68e7098619a2b3141335941e3cecca1bac305c67071c6eb11de3496968f3cc",
+          "go_environment_digest": "0e04c32aee92d0ae59f56db59f5997287b47e894c43bd7bacc4a01a2313ad502",
+          "scip_rss_method": "unavailable on this platform; zero is not a measured zero"
+        },
+        "files": 36,
+        "nodes": 638,
+        "edges": 2356,
+        "queries": [
+          {
+            "tool": "callers",
+            "target": "command.go.Command.AddCommand",
+            "limit": 7,
+            "pages": 19,
+            "bytes": 18348,
+            "results": 132,
+            "wall_ns": 4475750,
+            "identity_digest": "3244347d5f7408fcf0a7782676f04cd5cd88468d2a3f5c1fd8f4794e7dd5da8f",
+            "store_equivalent": true,
+            "expected_verified": false
+          },
+          {
+            "tool": "callees",
+            "target": "command.go.Command.ExecuteC",
+            "limit": 7,
+            "pages": 3,
+            "bytes": 1691,
+            "results": 18,
+            "wall_ns": 358250,
+            "identity_digest": "f9aa6083c55099888192c5f0ded66ad0db658661141527ac266a2442e8612092",
+            "store_equivalent": true,
+            "expected_verified": false
+          },
+          {
+            "tool": "search",
+            "target": "Command",
+            "limit": 7,
+            "pages": 45,
+            "bytes": 32691,
+            "results": 310,
+            "wall_ns": 38331958,
+            "identity_digest": "a7520ec25344e8adbff87c7f9ae5dc6cd0909d51f964d8983f3743919224ab5e",
+            "store_equivalent": true,
+            "expected_verified": false
+          }
+        ]
+      },
+      "evidence": {
+        "original_sha": "c6b11572b04c87aee664fdaabd91e94cd3fb8c4b69d811d598b06747bed04663",
+        "edited_sha": "be576bfb3061e84bc96e88f68786769254a50a00f1c2f7e894aa14e4785ab42e"
+      },
+      "full_rebuild_equivalent": true,
+      "reference_digest": "6cd6bf6dc40a815af7e0df1ba0bb259e30455c315360ae659405b702fdddcca9"
+    },
+    {
+      "dataset": "cobra",
+      "commit": "40b5bc1437a564fc795d388b23835e84f54cd1d1",
+      "scenario": "degraded-recovery",
+      "repetition": 3,
+      "sample": {
+        "method": "production-matrix-v1",
+        "status": "healthy",
+        "metrics": {
+          "duration_ns": 2201237292,
+          "phases": [
+            {
+              "phase": "admission",
+              "duration_ns": 6178333
+            },
+            {
+              "phase": "observation",
+              "duration_ns": 123718708
+            },
+            {
+              "phase": "freshness",
+              "duration_ns": 300125
+            },
+            {
+              "phase": "build-open",
+              "duration_ns": 3732542
+            },
+            {
+              "phase": "preflight",
+              "duration_ns": 583
+            },
+            {
+              "phase": "handoff-observation",
+              "duration_ns": 53759875
+            },
+            {
+              "phase": "staging",
+              "duration_ns": 20444708
+            },
+            {
+              "phase": "definitions",
+              "duration_ns": 82816834
+            },
+            {
+              "phase": "memory-release",
+              "duration_ns": 7116376
+            },
+            {
+              "phase": "imports",
+              "duration_ns": 9500
+            },
+            {
+              "phase": "symbols",
+              "duration_ns": 2028458
+            },
+            {
+              "phase": "ts-calls",
+              "duration_ns": 375
+            },
+            {
+              "phase": "go-calls",
+              "duration_ns": 1691189125
+            },
+            {
+              "phase": "ruby-calls",
+              "duration_ns": 1042
+            },
+            {
+              "phase": "resolver-report",
+              "duration_ns": 3209
+            },
+            {
+              "phase": "call-reuse",
+              "duration_ns": 42
+            },
+            {
+              "phase": "similarity",
+              "duration_ns": 64658750
+            },
+            {
+              "phase": "result",
+              "duration_ns": 1791
+            },
+            {
+              "phase": "snapshot-cleanup",
+              "duration_ns": 2674875
+            },
+            {
+              "phase": "validation",
+              "duration_ns": 128034000
+            },
+            {
+              "phase": "publication",
+              "duration_ns": 14462958
+            },
+            {
+              "phase": "cleanup",
+              "duration_ns": 82917
+            }
+          ],
+          "staged_files": 45,
+          "staged_bytes": 510894,
+          "scip_invocations": 0,
+          "scip_peak_rss_bytes": 0,
+          "decision": "rebuild",
+          "outcome": "success",
+          "invalidation_reasons": [
+            "go-cgo-external-inputs-unobserved",
+            "go-dependency-inputs-unobserved",
+            "manifest-untrusted",
+            "source-changed"
+          ]
+        },
+        "wall_ns": 2201241041,
+        "go_alloc_bytes": 889919576,
+        "go_mallocs": 12403137,
+        "self_peak_rss_bytes": 614842368,
+        "graph_digest": "6cd6bf6dc40a815af7e0df1ba0bb259e30455c315360ae659405b702fdddcca9",
+        "provenance": {
+          "go": "go1.27.0",
+          "analysis": "analysis-v3",
+          "scip_bridge": "scip-typescript-bridge-v2@0.4.0",
+          "go_resolver": "go-vta-resolver-v5",
+          "observed_inputs_digest": "74ff0eb1d005b2053ced1315ec54308b3f96b320509e3f2f2b48cf3eca386bb9",
+          "go_environment_digest": "0e04c32aee92d0ae59f56db59f5997287b47e894c43bd7bacc4a01a2313ad502",
+          "scip_rss_method": "unavailable on this platform; zero is not a measured zero"
+        },
+        "files": 36,
+        "nodes": 638,
+        "edges": 2356,
+        "queries": [
+          {
+            "tool": "callers",
+            "target": "command.go.Command.AddCommand",
+            "limit": 7,
+            "pages": 19,
+            "bytes": 18348,
+            "results": 132,
+            "wall_ns": 5046709,
+            "identity_digest": "3244347d5f7408fcf0a7782676f04cd5cd88468d2a3f5c1fd8f4794e7dd5da8f",
+            "store_equivalent": true,
+            "expected_verified": false
+          },
+          {
+            "tool": "callees",
+            "target": "command.go.Command.ExecuteC",
+            "limit": 7,
+            "pages": 3,
+            "bytes": 1691,
+            "results": 18,
+            "wall_ns": 334125,
+            "identity_digest": "f9aa6083c55099888192c5f0ded66ad0db658661141527ac266a2442e8612092",
+            "store_equivalent": true,
+            "expected_verified": false
+          },
+          {
+            "tool": "search",
+            "target": "Command",
+            "limit": 7,
+            "pages": 45,
+            "bytes": 32691,
+            "results": 310,
+            "wall_ns": 38827583,
+            "identity_digest": "a7520ec25344e8adbff87c7f9ae5dc6cd0909d51f964d8983f3743919224ab5e",
+            "store_equivalent": true,
+            "expected_verified": false
+          }
+        ]
+      },
+      "full_rebuild_equivalent": true,
+      "reference_digest": "6cd6bf6dc40a815af7e0df1ba0bb259e30455c315360ae659405b702fdddcca9"
+    },
+    {
+      "dataset": "zustand",
+      "commit": "c87a5d69ad2662be99a5caa34ba1b9027b6842a4",
+      "scenario": "cold",
+      "repetition": 1,
+      "sample": {
+        "method": "production-matrix-v1",
+        "status": "healthy",
+        "metrics": {
+          "duration_ns": 49841925666,
+          "phases": [
+            {
+              "phase": "admission",
+              "duration_ns": 6935250
+            },
+            {
+              "phase": "observation",
+              "duration_ns": 20795003625
+            },
+            {
+              "phase": "freshness",
+              "duration_ns": 133875
+            },
+            {
+              "phase": "build-open",
+              "duration_ns": 3764958
+            },
+            {
+              "phase": "preflight",
+              "duration_ns": 334
+            },
+            {
+              "phase": "handoff-observation",
+              "duration_ns": 5277136667
+            },
+            {
+              "phase": "staging",
+              "duration_ns": 16880206875
+            },
+            {
+              "phase": "definitions",
+              "duration_ns": 37780292
+            },
+            {
+              "phase": "memory-release",
+              "duration_ns": 7572126
+            },
+            {
+              "phase": "imports",
+              "duration_ns": 54969041
+            },
+            {
+              "phase": "symbols",
+              "duration_ns": 275334
+            },
+            {
+              "phase": "ts-calls",
+              "duration_ns": 4959159750
+            },
+            {
+              "phase": "go-calls",
+              "duration_ns": 28500
+            },
+            {
+              "phase": "ruby-calls",
+              "duration_ns": 1125
+            },
+            {
+              "phase": "resolver-report",
+              "duration_ns": 4750
+            },
+            {
+              "phase": "call-reuse",
+              "duration_ns": 0
+            },
+            {
+              "phase": "similarity",
+              "duration_ns": 11199000
+            },
+            {
+              "phase": "result",
+              "duration_ns": 3000
+            },
+            {
+              "phase": "snapshot-cleanup",
+              "duration_ns": 1687411083
+            },
+            {
+              "phase": "validation",
+              "duration_ns": 33910542
+            },
+            {
+              "phase": "publication",
+              "duration_ns": 86272042
+            },
+            {
+              "phase": "cleanup",
+              "duration_ns": 138250
+            }
+          ],
+          "staged_files": 14576,
+          "staged_bytes": 142328293,
+          "scip_invocations": 1,
+          "scip_peak_rss_bytes": 0,
+          "decision": "rebuild",
+          "outcome": "success",
+          "invalidation_reasons": [
+            "new-index",
+            "source-changed",
+            "ts-runtime-inputs-unobserved"
+          ]
+        },
+        "wall_ns": 49841931125,
+        "go_alloc_bytes": 3271295592,
+        "go_mallocs": 5997509,
+        "self_peak_rss_bytes": 78839808,
+        "graph_digest": "3ae9672e37344e9321729e9c64967ff4eb6f1cbaa69caab081457c265fae25f3",
+        "provenance": {
+          "go": "go1.27.0",
+          "analysis": "analysis-v3",
+          "scip_bridge": "scip-typescript-bridge-v2@0.4.0",
+          "go_resolver": "go-vta-resolver-v5",
+          "observed_inputs_digest": "1287af311588ae0f771cfed7acde0b1f068833f98fbf4ec20609e5d0ad009994",
+          "ts_environment_digest": "92b8001c430bb21a911b06f60a0b5219d5479a0146acf1bd5a4b2e0f649e2375",
+          "scip_rss_method": "unavailable on this platform; zero is not a measured zero"
+        },
+        "files": 44,
+        "nodes": 208,
+        "edges": 218,
+        "queries": [
+          {
+            "tool": "callers",
+            "target": "tests/devtools.test.tsx.assertAllAreDefined",
+            "limit": 1,
+            "pages": 4,
+            "bytes": 1287,
+            "results": 4,
+            "wall_ns": 453167,
+            "identity_digest": "d7402af25f39f1369e6af0d3c7125ccb49d92b71241bf314ca1165276afc6045",
+            "store_equivalent": true,
+            "expected_verified": false
+          },
+          {
+            "tool": "callees",
+            "target": "src/vanilla/shallow.ts.shallow",
+            "limit": 2,
+            "pages": 2,
+            "bytes": 654,
+            "results": 4,
+            "wall_ns": 189542,
+            "identity_digest": "d5c2fcbef6cf59022272b2f1006590af437985528b8663f1a8e01b5ffa395725",
+            "store_equivalent": true,
+            "expected_verified": false
+          },
+          {
+            "tool": "search",
+            "target": "State",
+            "limit": 1,
+            "pages": 2,
+            "bytes": 348,
+            "results": 2,
+            "wall_ns": 201167,
+            "identity_digest": "e0279cefe4007538acf0da78dbd97fa2096ab003025997b9ce4490be3506742f",
+            "store_equivalent": true,
+            "expected_verified": false
+          }
+        ]
+      },
+      "full_rebuild_equivalent": true,
+      "reference_digest": "3ae9672e37344e9321729e9c64967ff4eb6f1cbaa69caab081457c265fae25f3"
+    },
+    {
+      "dataset": "zustand",
+      "commit": "c87a5d69ad2662be99a5caa34ba1b9027b6842a4",
+      "scenario": "unchanged",
+      "repetition": 1,
+      "sample": {
+        "method": "production-matrix-v1",
+        "status": "healthy",
+        "metrics": {
+          "duration_ns": 37008556375,
+          "phases": [
+            {
+              "phase": "admission",
+              "duration_ns": 4186584
+            },
+            {
+              "phase": "observation",
+              "duration_ns": 12096773542
+            },
+            {
+              "phase": "freshness",
+              "duration_ns": 18454792
+            },
+            {
+              "phase": "build-open",
+              "duration_ns": 3561458
+            },
+            {
+              "phase": "preflight",
+              "duration_ns": 250
+            },
+            {
+              "phase": "handoff-observation",
+              "duration_ns": 5221098042
+            },
+            {
+              "phase": "staging",
+              "duration_ns": 13083632042
+            },
+            {
+              "phase": "definitions",
+              "duration_ns": 41362042
+            },
+            {
+              "phase": "memory-release",
+              "duration_ns": 7932583
+            },
+            {
+              "phase": "imports",
+              "duration_ns": 61130250
+            },
+            {
+              "phase": "symbols",
+              "duration_ns": 328042
+            },
+            {
+              "phase": "ts-calls",
+              "duration_ns": 4780288375
+            },
+            {
+              "phase": "go-calls",
+              "duration_ns": 16917
+            },
+            {
+              "phase": "ruby-calls",
+              "duration_ns": 958
+            },
+            {
+              "phase": "resolver-report",
+              "duration_ns": 4416
+            },
+            {
+              "phase": "call-reuse",
+              "duration_ns": 42
+            },
+            {
+              "phase": "similarity",
+              "duration_ns": 11042917
+            },
+            {
+              "phase": "result",
+              "duration_ns": 1833
+            },
+            {
+              "phase": "snapshot-cleanup",
+              "duration_ns": 1584761417
+            },
+            {
+              "phase": "validation",
+              "duration_ns": 33778500
+            },
+            {
+              "phase": "publication",
+              "duration_ns": 59780375
+            },
+            {
+              "phase": "cleanup",
+              "duration_ns": 397334
+            }
+          ],
+          "staged_files": 14576,
+          "staged_bytes": 142328293,
+          "scip_invocations": 1,
+          "scip_peak_rss_bytes": 0,
+          "decision": "rebuild",
+          "outcome": "success",
+          "invalidation_reasons": [
+            "manifest-untrusted",
+            "ts-runtime-inputs-unobserved"
+          ]
+        },
+        "wall_ns": 37008569458,
+        "go_alloc_bytes": 3306437688,
+        "go_mallocs": 6052426,
+        "self_peak_rss_bytes": 76775424,
+        "graph_digest": "3ae9672e37344e9321729e9c64967ff4eb6f1cbaa69caab081457c265fae25f3",
+        "provenance": {
+          "go": "go1.27.0",
+          "analysis": "analysis-v3",
+          "scip_bridge": "scip-typescript-bridge-v2@0.4.0",
+          "go_resolver": "go-vta-resolver-v5",
+          "observed_inputs_digest": "1287af311588ae0f771cfed7acde0b1f068833f98fbf4ec20609e5d0ad009994",
+          "ts_environment_digest": "92b8001c430bb21a911b06f60a0b5219d5479a0146acf1bd5a4b2e0f649e2375",
+          "scip_rss_method": "unavailable on this platform; zero is not a measured zero"
+        },
+        "files": 44,
+        "nodes": 208,
+        "edges": 218,
+        "queries": [
+          {
+            "tool": "callers",
+            "target": "tests/devtools.test.tsx.assertAllAreDefined",
+            "limit": 1,
+            "pages": 4,
+            "bytes": 1287,
+            "results": 4,
+            "wall_ns": 417875,
+            "identity_digest": "d7402af25f39f1369e6af0d3c7125ccb49d92b71241bf314ca1165276afc6045",
+            "store_equivalent": true,
+            "expected_verified": false
+          },
+          {
+            "tool": "callees",
+            "target": "src/vanilla/shallow.ts.shallow",
+            "limit": 2,
+            "pages": 2,
+            "bytes": 654,
+            "results": 4,
+            "wall_ns": 172708,
+            "identity_digest": "d5c2fcbef6cf59022272b2f1006590af437985528b8663f1a8e01b5ffa395725",
+            "store_equivalent": true,
+            "expected_verified": false
+          },
+          {
+            "tool": "search",
+            "target": "State",
+            "limit": 1,
+            "pages": 2,
+            "bytes": 348,
+            "results": 2,
+            "wall_ns": 180458,
+            "identity_digest": "e0279cefe4007538acf0da78dbd97fa2096ab003025997b9ce4490be3506742f",
+            "store_equivalent": true,
+            "expected_verified": false
+          }
+        ]
+      },
+      "full_rebuild_equivalent": true,
+      "reference_digest": "3ae9672e37344e9321729e9c64967ff4eb6f1cbaa69caab081457c265fae25f3"
+    },
+    {
+      "dataset": "zustand",
+      "commit": "c87a5d69ad2662be99a5caa34ba1b9027b6842a4",
+      "scenario": "source-edit",
+      "repetition": 1,
+      "sample": {
+        "method": "production-matrix-v1",
+        "status": "healthy",
+        "metrics": {
+          "duration_ns": 42749888959,
+          "phases": [
+            {
+              "phase": "admission",
+              "duration_ns": 8546125
+            },
+            {
+              "phase": "observation",
+              "duration_ns": 16243215916
+            },
+            {
+              "phase": "freshness",
+              "duration_ns": 23638208
+            },
+            {
+              "phase": "build-open",
+              "duration_ns": 4041958
+            },
+            {
+              "phase": "preflight",
+              "duration_ns": 625
+            },
+            {
+              "phase": "handoff-observation",
+              "duration_ns": 5707155334
+            },
+            {
+              "phase": "staging",
+              "duration_ns": 13892295458
+            },
+            {
+              "phase": "definitions",
+              "duration_ns": 44720041
+            },
+            {
+              "phase": "memory-release",
+              "duration_ns": 9094166
+            },
+            {
+              "phase": "imports",
+              "duration_ns": 77662125
+            },
+            {
+              "phase": "symbols",
+              "duration_ns": 382416
+            },
+            {
+              "phase": "ts-calls",
+              "duration_ns": 4986228417
+            },
+            {
+              "phase": "go-calls",
+              "duration_ns": 19750
+            },
+            {
+              "phase": "ruby-calls",
+              "duration_ns": 2791
+            },
+            {
+              "phase": "resolver-report",
+              "duration_ns": 7500
+            },
+            {
+              "phase": "call-reuse",
+              "duration_ns": 41
+            },
+            {
+              "phase": "similarity",
+              "duration_ns": 11453000
+            },
+            {
+              "phase": "result",
+              "duration_ns": 2542
+            },
+            {
+              "phase": "snapshot-cleanup",
+              "duration_ns": 1649797417
+            },
+            {
+              "phase": "validation",
+              "duration_ns": 35000875
+            },
+            {
+              "phase": "publication",
+              "duration_ns": 56070042
+            },
+            {
+              "phase": "cleanup",
+              "duration_ns": 526041
+            }
+          ],
+          "staged_files": 14576,
+          "staged_bytes": 142328390,
+          "scip_invocations": 1,
+          "scip_peak_rss_bytes": 0,
+          "decision": "rebuild",
+          "outcome": "success",
+          "invalidation_reasons": [
+            "manifest-untrusted",
+            "source-changed",
+            "ts-runtime-inputs-unobserved"
+          ]
+        },
+        "wall_ns": 42749902459,
+        "go_alloc_bytes": 3284900144,
+        "go_mallocs": 6053187,
+        "self_peak_rss_bytes": 74153984,
+        "graph_digest": "0fc3b3e7412c3afdb2d868750df3a45e5af2fc7f9687b1e82099bc9acc7b4327",
+        "provenance": {
+          "go": "go1.27.0",
+          "analysis": "analysis-v3",
+          "scip_bridge": "scip-typescript-bridge-v2@0.4.0",
+          "go_resolver": "go-vta-resolver-v5",
+          "observed_inputs_digest": "1287af311588ae0f771cfed7acde0b1f068833f98fbf4ec20609e5d0ad009994",
+          "ts_environment_digest": "92b8001c430bb21a911b06f60a0b5219d5479a0146acf1bd5a4b2e0f649e2375",
+          "scip_rss_method": "unavailable on this platform; zero is not a measured zero"
+        },
+        "files": 44,
+        "nodes": 210,
+        "edges": 221,
+        "queries": [
+          {
+            "tool": "callers",
+            "target": "tests/devtools.test.tsx.assertAllAreDefined",
+            "limit": 1,
+            "pages": 4,
+            "bytes": 1287,
+            "results": 4,
+            "wall_ns": 438875,
+            "identity_digest": "d7402af25f39f1369e6af0d3c7125ccb49d92b71241bf314ca1165276afc6045",
+            "store_equivalent": true,
+            "expected_verified": false
+          },
+          {
+            "tool": "callees",
+            "target": "src/vanilla/shallow.ts.shallow",
+            "limit": 2,
+            "pages": 2,
+            "bytes": 654,
+            "results": 4,
+            "wall_ns": 178458,
+            "identity_digest": "d5c2fcbef6cf59022272b2f1006590af437985528b8663f1a8e01b5ffa395725",
+            "store_equivalent": true,
+            "expected_verified": false
+          },
+          {
+            "tool": "search",
+            "target": "State",
+            "limit": 1,
+            "pages": 2,
+            "bytes": 348,
+            "results": 2,
+            "wall_ns": 188500,
+            "identity_digest": "e0279cefe4007538acf0da78dbd97fa2096ab003025997b9ce4490be3506742f",
+            "store_equivalent": true,
+            "expected_verified": false
+          },
+          {
+            "tool": "callees",
+            "target": "src/vanilla.ts.codegraphMatrixProbe",
+            "limit": 1,
+            "pages": 1,
+            "bytes": 145,
+            "results": 1,
+            "wall_ns": 76041,
+            "identity_digest": "f279fc266cadd0bcace3d1cdc0017c676609af1c60f6f216893285138cb84a04",
+            "store_equivalent": true,
+            "expected_verified": true
+          }
+        ]
+      },
+      "evidence": {
+        "original_sha": "44e5b7509ba4a6b2093db14ef555f7c9278bdec85726783eff232bbf7babd21f",
+        "edited_sha": "06295578c2de784fe8b66839686bae1ca6e307d07c3b033674820fb5ac6d2732"
+      },
+      "full_rebuild_equivalent": true,
+      "reference_digest": "0fc3b3e7412c3afdb2d868750df3a45e5af2fc7f9687b1e82099bc9acc7b4327"
+    },
+    {
+      "dataset": "zustand",
+      "commit": "c87a5d69ad2662be99a5caa34ba1b9027b6842a4",
+      "scenario": "config-edit",
+      "repetition": 1,
+      "sample": {
+        "method": "production-matrix-v1",
+        "status": "healthy",
+        "metrics": {
+          "duration_ns": 37463103750,
+          "phases": [
+            {
+              "phase": "admission",
+              "duration_ns": 4572333
+            },
+            {
+              "phase": "observation",
+              "duration_ns": 12829365292
+            },
+            {
+              "phase": "freshness",
+              "duration_ns": 18986250
+            },
+            {
+              "phase": "build-open",
+              "duration_ns": 3593125
+            },
+            {
+              "phase": "preflight",
+              "duration_ns": 542
+            },
+            {
+              "phase": "handoff-observation",
+              "duration_ns": 5108197208
+            },
+            {
+              "phase": "staging",
+              "duration_ns": 12769921042
+            },
+            {
+              "phase": "definitions",
+              "duration_ns": 55347334
+            },
+            {
+              "phase": "memory-release",
+              "duration_ns": 8148750
+            },
+            {
+              "phase": "imports",
+              "duration_ns": 88692584
+            },
+            {
+              "phase": "symbols",
+              "duration_ns": 422125
+            },
+            {
+              "phase": "ts-calls",
+              "duration_ns": 5082749833
+            },
+            {
+              "phase": "go-calls",
+              "duration_ns": 13917
+            },
+            {
+              "phase": "ruby-calls",
+              "duration_ns": 833
+            },
+            {
+              "phase": "resolver-report",
+              "duration_ns": 3250
+            },
+            {
+              "phase": "call-reuse",
+              "duration_ns": 42
+            },
+            {
+              "phase": "similarity",
+              "duration_ns": 8793334
+            },
+            {
+              "phase": "result",
+              "duration_ns": 1875
+            },
+            {
+              "phase": "snapshot-cleanup",
+              "duration_ns": 1393368083
+            },
+            {
+              "phase": "validation",
+              "duration_ns": 30823042
+            },
+            {
+              "phase": "publication",
+              "duration_ns": 59622500
+            },
+            {
+              "phase": "cleanup",
+              "duration_ns": 457416
+            }
+          ],
+          "staged_files": 14576,
+          "staged_bytes": 142328327,
+          "scip_invocations": 1,
+          "scip_peak_rss_bytes": 0,
+          "decision": "rebuild",
+          "outcome": "success",
+          "invalidation_reasons": [
+            "manifest-untrusted",
+            "ts-runtime-inputs-unobserved"
+          ]
+        },
+        "wall_ns": 37463116042,
+        "go_alloc_bytes": 3284966816,
+        "go_mallocs": 6052376,
+        "self_peak_rss_bytes": 82198528,
+        "graph_digest": "3ae9672e37344e9321729e9c64967ff4eb6f1cbaa69caab081457c265fae25f3",
+        "provenance": {
+          "go": "go1.27.0",
+          "analysis": "analysis-v3",
+          "scip_bridge": "scip-typescript-bridge-v2@0.4.0",
+          "go_resolver": "go-vta-resolver-v5",
+          "observed_inputs_digest": "aea7bccdd1538b016d7fc90576d7cfdb359ae5724f2d45d7b22b04d38868f675",
+          "ts_environment_digest": "92b8001c430bb21a911b06f60a0b5219d5479a0146acf1bd5a4b2e0f649e2375",
+          "scip_rss_method": "unavailable on this platform; zero is not a measured zero"
+        },
+        "files": 44,
+        "nodes": 208,
+        "edges": 218,
+        "queries": [
+          {
+            "tool": "callers",
+            "target": "tests/devtools.test.tsx.assertAllAreDefined",
+            "limit": 1,
+            "pages": 4,
+            "bytes": 1287,
+            "results": 4,
+            "wall_ns": 384250,
+            "identity_digest": "d7402af25f39f1369e6af0d3c7125ccb49d92b71241bf314ca1165276afc6045",
+            "store_equivalent": true,
+            "expected_verified": false
+          },
+          {
+            "tool": "callees",
+            "target": "src/vanilla/shallow.ts.shallow",
+            "limit": 2,
+            "pages": 2,
+            "bytes": 654,
+            "results": 4,
+            "wall_ns": 161333,
+            "identity_digest": "d5c2fcbef6cf59022272b2f1006590af437985528b8663f1a8e01b5ffa395725",
+            "store_equivalent": true,
+            "expected_verified": false
+          },
+          {
+            "tool": "search",
+            "target": "State",
+            "limit": 1,
+            "pages": 2,
+            "bytes": 348,
+            "results": 2,
+            "wall_ns": 167041,
+            "identity_digest": "e0279cefe4007538acf0da78dbd97fa2096ab003025997b9ce4490be3506742f",
+            "store_equivalent": true,
+            "expected_verified": false
+          }
+        ]
+      },
+      "evidence": {
+        "original_sha": "802c237db05220964a4eb1f52d8945bdedad882a21991144b8c953e8f40d046d",
+        "edited_sha": "a97b3e730cbb815a17a7ee93c202b5eaca0af3916145a674a0227d24dece20dc"
+      },
+      "full_rebuild_equivalent": true,
+      "reference_digest": "3ae9672e37344e9321729e9c64967ff4eb6f1cbaa69caab081457c265fae25f3"
+    },
+    {
+      "dataset": "zustand",
+      "commit": "c87a5d69ad2662be99a5caa34ba1b9027b6842a4",
+      "scenario": "degraded-recovery",
+      "repetition": 1,
+      "sample": {
+        "method": "production-matrix-v1",
+        "status": "healthy",
+        "metrics": {
+          "duration_ns": 31467428209,
+          "phases": [
+            {
+              "phase": "admission",
+              "duration_ns": 3923250
+            },
+            {
+              "phase": "observation",
+              "duration_ns": 9786288291
+            },
+            {
+              "phase": "freshness",
+              "duration_ns": 17182750
+            },
+            {
+              "phase": "build-open",
+              "duration_ns": 3495750
+            },
+            {
+              "phase": "preflight",
+              "duration_ns": 167
+            },
+            {
+              "phase": "handoff-observation",
+              "duration_ns": 4823159584
+            },
+            {
+              "phase": "staging",
+              "duration_ns": 11686232000
+            },
+            {
+              "phase": "definitions",
+              "duration_ns": 28184375
+            },
+            {
+              "phase": "memory-release",
+              "duration_ns": 6132375
+            },
+            {
+              "phase": "imports",
+              "duration_ns": 47488125
+            },
+            {
+              "phase": "symbols",
+              "duration_ns": 256792
+            },
+            {
+              "phase": "ts-calls",
+              "duration_ns": 3646910291
+            },
+            {
+              "phase": "go-calls",
+              "duration_ns": 13417
+            },
+            {
+              "phase": "ruby-calls",
+              "duration_ns": 625
+            },
+            {
+              "phase": "resolver-report",
+              "duration_ns": 3459
+            },
+            {
+              "phase": "call-reuse",
+              "duration_ns": 0
+            },
+            {
+              "phase": "similarity",
+              "duration_ns": 8034459
+            },
+            {
+              "phase": "result",
+              "duration_ns": 2125
+            },
+            {
+              "phase": "snapshot-cleanup",
+              "duration_ns": 1326592417
+            },
+            {
+              "phase": "validation",
+              "duration_ns": 30137041
+            },
+            {
+              "phase": "publication",
+              "duration_ns": 53264583
+            },
+            {
+              "phase": "cleanup",
+              "duration_ns": 108916
+            }
+          ],
+          "staged_files": 14576,
+          "staged_bytes": 142328293,
+          "scip_invocations": 1,
+          "scip_peak_rss_bytes": 0,
+          "decision": "rebuild",
+          "outcome": "success",
+          "invalidation_reasons": [
+            "manifest-untrusted",
+            "ts-runtime-inputs-unobserved"
+          ]
+        },
+        "wall_ns": 31467430958,
+        "go_alloc_bytes": 3305629328,
+        "go_mallocs": 6052433,
+        "self_peak_rss_bytes": 77742080,
+        "graph_digest": "3ae9672e37344e9321729e9c64967ff4eb6f1cbaa69caab081457c265fae25f3",
+        "provenance": {
+          "go": "go1.27.0",
+          "analysis": "analysis-v3",
+          "scip_bridge": "scip-typescript-bridge-v2@0.4.0",
+          "go_resolver": "go-vta-resolver-v5",
+          "observed_inputs_digest": "1287af311588ae0f771cfed7acde0b1f068833f98fbf4ec20609e5d0ad009994",
+          "ts_environment_digest": "92b8001c430bb21a911b06f60a0b5219d5479a0146acf1bd5a4b2e0f649e2375",
+          "scip_rss_method": "unavailable on this platform; zero is not a measured zero"
+        },
+        "files": 44,
+        "nodes": 208,
+        "edges": 218,
+        "queries": [
+          {
+            "tool": "callers",
+            "target": "tests/devtools.test.tsx.assertAllAreDefined",
+            "limit": 1,
+            "pages": 4,
+            "bytes": 1287,
+            "results": 4,
+            "wall_ns": 368250,
+            "identity_digest": "d7402af25f39f1369e6af0d3c7125ccb49d92b71241bf314ca1165276afc6045",
+            "store_equivalent": true,
+            "expected_verified": false
+          },
+          {
+            "tool": "callees",
+            "target": "src/vanilla/shallow.ts.shallow",
+            "limit": 2,
+            "pages": 2,
+            "bytes": 654,
+            "results": 4,
+            "wall_ns": 149250,
+            "identity_digest": "d5c2fcbef6cf59022272b2f1006590af437985528b8663f1a8e01b5ffa395725",
+            "store_equivalent": true,
+            "expected_verified": false
+          },
+          {
+            "tool": "search",
+            "target": "State",
+            "limit": 1,
+            "pages": 2,
+            "bytes": 348,
+            "results": 2,
+            "wall_ns": 157541,
+            "identity_digest": "e0279cefe4007538acf0da78dbd97fa2096ab003025997b9ce4490be3506742f",
+            "store_equivalent": true,
+            "expected_verified": false
+          }
+        ]
+      },
+      "full_rebuild_equivalent": true,
+      "reference_digest": "3ae9672e37344e9321729e9c64967ff4eb6f1cbaa69caab081457c265fae25f3"
+    },
+    {
+      "dataset": "zustand",
+      "commit": "c87a5d69ad2662be99a5caa34ba1b9027b6842a4",
+      "scenario": "cold",
+      "repetition": 2,
+      "sample": {
+        "method": "production-matrix-v1",
+        "status": "healthy",
+        "metrics": {
+          "duration_ns": 31134424666,
+          "phases": [
+            {
+              "phase": "admission",
+              "duration_ns": 5884000
+            },
+            {
+              "phase": "observation",
+              "duration_ns": 10640059208
+            },
+            {
+              "phase": "freshness",
+              "duration_ns": 152000
+            },
+            {
+              "phase": "build-open",
+              "duration_ns": 3269334
+            },
+            {
+              "phase": "preflight",
+              "duration_ns": 167
+            },
+            {
+              "phase": "handoff-observation",
+              "duration_ns": 4670582250
+            },
+            {
+              "phase": "staging",
+              "duration_ns": 11094370833
+            },
+            {
+              "phase": "definitions",
+              "duration_ns": 25451250
+            },
+            {
+              "phase": "memory-release",
+              "duration_ns": 6112833
+            },
+            {
+              "phase": "imports",
+              "duration_ns": 50325000
+            },
+            {
+              "phase": "symbols",
+              "duration_ns": 256958
+            },
+            {
+              "phase": "ts-calls",
+              "duration_ns": 3256349417
+            },
+            {
+              "phase": "go-calls",
+              "duration_ns": 19208
+            },
+            {
+              "phase": "ruby-calls",
+              "duration_ns": 917
+            },
+            {
+              "phase": "resolver-report",
+              "duration_ns": 3458
+            },
+            {
+              "phase": "call-reuse",
+              "duration_ns": 42
+            },
+            {
+              "phase": "similarity",
+              "duration_ns": 8162000
+            },
+            {
+              "phase": "result",
+              "duration_ns": 1708
+            },
+            {
+              "phase": "snapshot-cleanup",
+              "duration_ns": 1289680792
+            },
+            {
+              "phase": "validation",
+              "duration_ns": 29326709
+            },
+            {
+              "phase": "publication",
+              "duration_ns": 53618000
+            },
+            {
+              "phase": "cleanup",
+              "duration_ns": 780875
+            }
+          ],
+          "staged_files": 14576,
+          "staged_bytes": 142328293,
+          "scip_invocations": 1,
+          "scip_peak_rss_bytes": 0,
+          "decision": "rebuild",
+          "outcome": "success",
+          "invalidation_reasons": [
+            "new-index",
+            "source-changed",
+            "ts-runtime-inputs-unobserved"
+          ]
+        },
+        "wall_ns": 31134439583,
+        "go_alloc_bytes": 3271462984,
+        "go_mallocs": 5997519,
+        "self_peak_rss_bytes": 79314944,
+        "graph_digest": "3ae9672e37344e9321729e9c64967ff4eb6f1cbaa69caab081457c265fae25f3",
+        "provenance": {
+          "go": "go1.27.0",
+          "analysis": "analysis-v3",
+          "scip_bridge": "scip-typescript-bridge-v2@0.4.0",
+          "go_resolver": "go-vta-resolver-v5",
+          "observed_inputs_digest": "1287af311588ae0f771cfed7acde0b1f068833f98fbf4ec20609e5d0ad009994",
+          "ts_environment_digest": "92b8001c430bb21a911b06f60a0b5219d5479a0146acf1bd5a4b2e0f649e2375",
+          "scip_rss_method": "unavailable on this platform; zero is not a measured zero"
+        },
+        "files": 44,
+        "nodes": 208,
+        "edges": 218,
+        "queries": [
+          {
+            "tool": "callers",
+            "target": "tests/devtools.test.tsx.assertAllAreDefined",
+            "limit": 1,
+            "pages": 4,
+            "bytes": 1287,
+            "results": 4,
+            "wall_ns": 360792,
+            "identity_digest": "d7402af25f39f1369e6af0d3c7125ccb49d92b71241bf314ca1165276afc6045",
+            "store_equivalent": true,
+            "expected_verified": false
+          },
+          {
+            "tool": "callees",
+            "target": "src/vanilla/shallow.ts.shallow",
+            "limit": 2,
+            "pages": 2,
+            "bytes": 654,
+            "results": 4,
+            "wall_ns": 149250,
+            "identity_digest": "d5c2fcbef6cf59022272b2f1006590af437985528b8663f1a8e01b5ffa395725",
+            "store_equivalent": true,
+            "expected_verified": false
+          },
+          {
+            "tool": "search",
+            "target": "State",
+            "limit": 1,
+            "pages": 2,
+            "bytes": 348,
+            "results": 2,
+            "wall_ns": 158042,
+            "identity_digest": "e0279cefe4007538acf0da78dbd97fa2096ab003025997b9ce4490be3506742f",
+            "store_equivalent": true,
+            "expected_verified": false
+          }
+        ]
+      },
+      "full_rebuild_equivalent": true,
+      "reference_digest": "3ae9672e37344e9321729e9c64967ff4eb6f1cbaa69caab081457c265fae25f3"
+    },
+    {
+      "dataset": "zustand",
+      "commit": "c87a5d69ad2662be99a5caa34ba1b9027b6842a4",
+      "scenario": "unchanged",
+      "repetition": 2,
+      "sample": {
+        "method": "production-matrix-v1",
+        "status": "healthy",
+        "metrics": {
+          "duration_ns": 34710262584,
+          "phases": [
+            {
+              "phase": "admission",
+              "duration_ns": 4202000
+            },
+            {
+              "phase": "observation",
+              "duration_ns": 12756185250
+            },
+            {
+              "phase": "freshness",
+              "duration_ns": 16835333
+            },
+            {
+              "phase": "build-open",
+              "duration_ns": 3871916
+            },
+            {
+              "phase": "preflight",
+              "duration_ns": 208
+            },
+            {
+              "phase": "handoff-observation",
+              "duration_ns": 4701937833
+            },
+            {
+              "phase": "staging",
+              "duration_ns": 11668485917
+            },
+            {
+              "phase": "definitions",
+              "duration_ns": 30089292
+            },
+            {
+              "phase": "memory-release",
+              "duration_ns": 6180250
+            },
+            {
+              "phase": "imports",
+              "duration_ns": 51447375
+            },
+            {
+              "phase": "symbols",
+              "duration_ns": 283875
+            },
+            {
+              "phase": "ts-calls",
+              "duration_ns": 3927125750
+            },
+            {
+              "phase": "go-calls",
+              "duration_ns": 12583
+            },
+            {
+              "phase": "ruby-calls",
+              "duration_ns": 750
+            },
+            {
+              "phase": "resolver-report",
+              "duration_ns": 2834
+            },
+            {
+              "phase": "call-reuse",
+              "duration_ns": 42
+            },
+            {
+              "phase": "similarity",
+              "duration_ns": 8236000
+            },
+            {
+              "phase": "result",
+              "duration_ns": 2083
+            },
+            {
+              "phase": "snapshot-cleanup",
+              "duration_ns": 1442470875
+            },
+            {
+              "phase": "validation",
+              "duration_ns": 33294709
+            },
+            {
+              "phase": "publication",
+              "duration_ns": 59410375
+            },
+            {
+              "phase": "cleanup",
+              "duration_ns": 166625
+            }
+          ],
+          "staged_files": 14576,
+          "staged_bytes": 142328293,
+          "scip_invocations": 1,
+          "scip_peak_rss_bytes": 0,
+          "decision": "rebuild",
+          "outcome": "success",
+          "invalidation_reasons": [
+            "manifest-untrusted",
+            "ts-runtime-inputs-unobserved"
+          ]
+        },
+        "wall_ns": 34710273250,
+        "go_alloc_bytes": 3284797144,
+        "go_mallocs": 6052396,
+        "self_peak_rss_bytes": 81068032,
+        "graph_digest": "3ae9672e37344e9321729e9c64967ff4eb6f1cbaa69caab081457c265fae25f3",
+        "provenance": {
+          "go": "go1.27.0",
+          "analysis": "analysis-v3",
+          "scip_bridge": "scip-typescript-bridge-v2@0.4.0",
+          "go_resolver": "go-vta-resolver-v5",
+          "observed_inputs_digest": "1287af311588ae0f771cfed7acde0b1f068833f98fbf4ec20609e5d0ad009994",
+          "ts_environment_digest": "92b8001c430bb21a911b06f60a0b5219d5479a0146acf1bd5a4b2e0f649e2375",
+          "scip_rss_method": "unavailable on this platform; zero is not a measured zero"
+        },
+        "files": 44,
+        "nodes": 208,
+        "edges": 218,
+        "queries": [
+          {
+            "tool": "callers",
+            "target": "tests/devtools.test.tsx.assertAllAreDefined",
+            "limit": 1,
+            "pages": 4,
+            "bytes": 1287,
+            "results": 4,
+            "wall_ns": 403833,
+            "identity_digest": "d7402af25f39f1369e6af0d3c7125ccb49d92b71241bf314ca1165276afc6045",
+            "store_equivalent": true,
+            "expected_verified": false
+          },
+          {
+            "tool": "callees",
+            "target": "src/vanilla/shallow.ts.shallow",
+            "limit": 2,
+            "pages": 2,
+            "bytes": 654,
+            "results": 4,
+            "wall_ns": 207042,
+            "identity_digest": "d5c2fcbef6cf59022272b2f1006590af437985528b8663f1a8e01b5ffa395725",
+            "store_equivalent": true,
+            "expected_verified": false
+          },
+          {
+            "tool": "search",
+            "target": "State",
+            "limit": 1,
+            "pages": 2,
+            "bytes": 348,
+            "results": 2,
+            "wall_ns": 180416,
+            "identity_digest": "e0279cefe4007538acf0da78dbd97fa2096ab003025997b9ce4490be3506742f",
+            "store_equivalent": true,
+            "expected_verified": false
+          }
+        ]
+      },
+      "full_rebuild_equivalent": true,
+      "reference_digest": "3ae9672e37344e9321729e9c64967ff4eb6f1cbaa69caab081457c265fae25f3"
+    },
+    {
+      "dataset": "zustand",
+      "commit": "c87a5d69ad2662be99a5caa34ba1b9027b6842a4",
+      "scenario": "source-edit",
+      "repetition": 2,
+      "sample": {
+        "method": "production-matrix-v1",
+        "status": "healthy",
+        "metrics": {
+          "duration_ns": 31201998834,
+          "phases": [
+            {
+              "phase": "admission",
+              "duration_ns": 5014917
+            },
+            {
+              "phase": "observation",
+              "duration_ns": 10003286875
+            },
+            {
+              "phase": "freshness",
+              "duration_ns": 17060125
+            },
+            {
+              "phase": "build-open",
+              "duration_ns": 3649834
+            },
+            {
+              "phase": "preflight",
+              "duration_ns": 209
+            },
+            {
+              "phase": "handoff-observation",
+              "duration_ns": 4739242583
+            },
+            {
+              "phase": "staging",
+              "duration_ns": 11125939291
+            },
+            {
+              "phase": "definitions",
+              "duration_ns": 24837542
+            },
+            {
+              "phase": "memory-release",
+              "duration_ns": 7226126
+            },
+            {
+              "phase": "imports",
+              "duration_ns": 50983625
+            },
+            {
+              "phase": "symbols",
+              "duration_ns": 268125
+            },
+            {
+              "phase": "ts-calls",
+              "duration_ns": 3784971125
+            },
+            {
+              "phase": "go-calls",
+              "duration_ns": 13292
+            },
+            {
+              "phase": "ruby-calls",
+              "duration_ns": 958
+            },
+            {
+              "phase": "resolver-report",
+              "duration_ns": 3667
+            },
+            {
+              "phase": "call-reuse",
+              "duration_ns": 42
+            },
+            {
+              "phase": "similarity",
+              "duration_ns": 9976208
+            },
+            {
+              "phase": "result",
+              "duration_ns": 1750
+            },
+            {
+              "phase": "snapshot-cleanup",
+              "duration_ns": 1345967041
+            },
+            {
+              "phase": "validation",
+              "duration_ns": 31019291
+            },
+            {
+              "phase": "publication",
+              "duration_ns": 52379875
+            },
+            {
+              "phase": "cleanup",
+              "duration_ns": 132542
+            }
+          ],
+          "staged_files": 14576,
+          "staged_bytes": 142328390,
+          "scip_invocations": 1,
+          "scip_peak_rss_bytes": 0,
+          "decision": "rebuild",
+          "outcome": "success",
+          "invalidation_reasons": [
+            "manifest-untrusted",
+            "source-changed",
+            "ts-runtime-inputs-unobserved"
+          ]
+        },
+        "wall_ns": 31202001500,
+        "go_alloc_bytes": 3284489896,
+        "go_mallocs": 6053184,
+        "self_peak_rss_bytes": 82542592,
+        "graph_digest": "0fc3b3e7412c3afdb2d868750df3a45e5af2fc7f9687b1e82099bc9acc7b4327",
+        "provenance": {
+          "go": "go1.27.0",
+          "analysis": "analysis-v3",
+          "scip_bridge": "scip-typescript-bridge-v2@0.4.0",
+          "go_resolver": "go-vta-resolver-v5",
+          "observed_inputs_digest": "1287af311588ae0f771cfed7acde0b1f068833f98fbf4ec20609e5d0ad009994",
+          "ts_environment_digest": "92b8001c430bb21a911b06f60a0b5219d5479a0146acf1bd5a4b2e0f649e2375",
+          "scip_rss_method": "unavailable on this platform; zero is not a measured zero"
+        },
+        "files": 44,
+        "nodes": 210,
+        "edges": 221,
+        "queries": [
+          {
+            "tool": "callers",
+            "target": "tests/devtools.test.tsx.assertAllAreDefined",
+            "limit": 1,
+            "pages": 4,
+            "bytes": 1287,
+            "results": 4,
+            "wall_ns": 362125,
+            "identity_digest": "d7402af25f39f1369e6af0d3c7125ccb49d92b71241bf314ca1165276afc6045",
+            "store_equivalent": true,
+            "expected_verified": false
+          },
+          {
+            "tool": "callees",
+            "target": "src/vanilla/shallow.ts.shallow",
+            "limit": 2,
+            "pages": 2,
+            "bytes": 654,
+            "results": 4,
+            "wall_ns": 155500,
+            "identity_digest": "d5c2fcbef6cf59022272b2f1006590af437985528b8663f1a8e01b5ffa395725",
+            "store_equivalent": true,
+            "expected_verified": false
+          },
+          {
+            "tool": "search",
+            "target": "State",
+            "limit": 1,
+            "pages": 2,
+            "bytes": 348,
+            "results": 2,
+            "wall_ns": 164084,
+            "identity_digest": "e0279cefe4007538acf0da78dbd97fa2096ab003025997b9ce4490be3506742f",
+            "store_equivalent": true,
+            "expected_verified": false
+          },
+          {
+            "tool": "callees",
+            "target": "src/vanilla.ts.codegraphMatrixProbe",
+            "limit": 1,
+            "pages": 1,
+            "bytes": 145,
+            "results": 1,
+            "wall_ns": 64625,
+            "identity_digest": "f279fc266cadd0bcace3d1cdc0017c676609af1c60f6f216893285138cb84a04",
+            "store_equivalent": true,
+            "expected_verified": true
+          }
+        ]
+      },
+      "evidence": {
+        "original_sha": "44e5b7509ba4a6b2093db14ef555f7c9278bdec85726783eff232bbf7babd21f",
+        "edited_sha": "06295578c2de784fe8b66839686bae1ca6e307d07c3b033674820fb5ac6d2732"
+      },
+      "full_rebuild_equivalent": true,
+      "reference_digest": "0fc3b3e7412c3afdb2d868750df3a45e5af2fc7f9687b1e82099bc9acc7b4327"
+    },
+    {
+      "dataset": "zustand",
+      "commit": "c87a5d69ad2662be99a5caa34ba1b9027b6842a4",
+      "scenario": "config-edit",
+      "repetition": 2,
+      "sample": {
+        "method": "production-matrix-v1",
+        "status": "healthy",
+        "metrics": {
+          "duration_ns": 35631810917,
+          "phases": [
+            {
+              "phase": "admission",
+              "duration_ns": 5932583
+            },
+            {
+              "phase": "observation",
+              "duration_ns": 12553860750
+            },
+            {
+              "phase": "freshness",
+              "duration_ns": 19674000
+            },
+            {
+              "phase": "build-open",
+              "duration_ns": 3771917
+            },
+            {
+              "phase": "preflight",
+              "duration_ns": 1000
+            },
+            {
+              "phase": "handoff-observation",
+              "duration_ns": 6285379084
+            },
+            {
+              "phase": "staging",
+              "duration_ns": 11360890917
+            },
+            {
+              "phase": "definitions",
+              "duration_ns": 26496125
+            },
+            {
+              "phase": "memory-release",
+              "duration_ns": 5920874
+            },
+            {
+              "phase": "imports",
+              "duration_ns": 50503958
+            },
+            {
+              "phase": "symbols",
+              "duration_ns": 255625
+            },
+            {
+              "phase": "ts-calls",
+              "duration_ns": 3847701791
+            },
+            {
+              "phase": "go-calls",
+              "duration_ns": 14417
+            },
+            {
+              "phase": "ruby-calls",
+              "duration_ns": 750
+            },
+            {
+              "phase": "resolver-report",
+              "duration_ns": 3000
+            },
+            {
+              "phase": "call-reuse",
+              "duration_ns": 83
+            },
+            {
+              "phase": "similarity",
+              "duration_ns": 7999209
+            },
+            {
+              "phase": "result",
+              "duration_ns": 1708
+            },
+            {
+              "phase": "snapshot-cleanup",
+              "duration_ns": 1369689542
+            },
+            {
+              "phase": "validation",
+              "duration_ns": 33045167
+            },
+            {
+              "phase": "publication",
+              "duration_ns": 59813708
+            },
+            {
+              "phase": "cleanup",
+              "duration_ns": 834958
+            }
+          ],
+          "staged_files": 14576,
+          "staged_bytes": 142328327,
+          "scip_invocations": 1,
+          "scip_peak_rss_bytes": 0,
+          "decision": "rebuild",
+          "outcome": "success",
+          "invalidation_reasons": [
+            "manifest-untrusted",
+            "ts-runtime-inputs-unobserved"
+          ]
+        },
+        "wall_ns": 35631822459,
+        "go_alloc_bytes": 3284917168,
+        "go_mallocs": 6052384,
+        "self_peak_rss_bytes": 81690624,
+        "graph_digest": "3ae9672e37344e9321729e9c64967ff4eb6f1cbaa69caab081457c265fae25f3",
+        "provenance": {
+          "go": "go1.27.0",
+          "analysis": "analysis-v3",
+          "scip_bridge": "scip-typescript-bridge-v2@0.4.0",
+          "go_resolver": "go-vta-resolver-v5",
+          "observed_inputs_digest": "aea7bccdd1538b016d7fc90576d7cfdb359ae5724f2d45d7b22b04d38868f675",
+          "ts_environment_digest": "92b8001c430bb21a911b06f60a0b5219d5479a0146acf1bd5a4b2e0f649e2375",
+          "scip_rss_method": "unavailable on this platform; zero is not a measured zero"
+        },
+        "files": 44,
+        "nodes": 208,
+        "edges": 218,
+        "queries": [
+          {
+            "tool": "callers",
+            "target": "tests/devtools.test.tsx.assertAllAreDefined",
+            "limit": 1,
+            "pages": 4,
+            "bytes": 1287,
+            "results": 4,
+            "wall_ns": 575042,
+            "identity_digest": "d7402af25f39f1369e6af0d3c7125ccb49d92b71241bf314ca1165276afc6045",
+            "store_equivalent": true,
+            "expected_verified": false
+          },
+          {
+            "tool": "callees",
+            "target": "src/vanilla/shallow.ts.shallow",
+            "limit": 2,
+            "pages": 2,
+            "bytes": 654,
+            "results": 4,
+            "wall_ns": 162125,
+            "identity_digest": "d5c2fcbef6cf59022272b2f1006590af437985528b8663f1a8e01b5ffa395725",
+            "store_equivalent": true,
+            "expected_verified": false
+          },
+          {
+            "tool": "search",
+            "target": "State",
+            "limit": 1,
+            "pages": 2,
+            "bytes": 348,
+            "results": 2,
+            "wall_ns": 174958,
+            "identity_digest": "e0279cefe4007538acf0da78dbd97fa2096ab003025997b9ce4490be3506742f",
+            "store_equivalent": true,
+            "expected_verified": false
+          }
+        ]
+      },
+      "evidence": {
+        "original_sha": "802c237db05220964a4eb1f52d8945bdedad882a21991144b8c953e8f40d046d",
+        "edited_sha": "a97b3e730cbb815a17a7ee93c202b5eaca0af3916145a674a0227d24dece20dc"
+      },
+      "full_rebuild_equivalent": true,
+      "reference_digest": "3ae9672e37344e9321729e9c64967ff4eb6f1cbaa69caab081457c265fae25f3"
+    },
+    {
+      "dataset": "zustand",
+      "commit": "c87a5d69ad2662be99a5caa34ba1b9027b6842a4",
+      "scenario": "degraded-recovery",
+      "repetition": 2,
+      "sample": {
+        "method": "production-matrix-v1",
+        "status": "healthy",
+        "metrics": {
+          "duration_ns": 34305121750,
+          "phases": [
+            {
+              "phase": "admission",
+              "duration_ns": 4197750
+            },
+            {
+              "phase": "observation",
+              "duration_ns": 9952744584
+            },
+            {
+              "phase": "freshness",
+              "duration_ns": 16975167
+            },
+            {
+              "phase": "build-open",
+              "duration_ns": 2932958
+            },
+            {
+              "phase": "preflight",
+              "duration_ns": 167
+            },
+            {
+              "phase": "handoff-observation",
+              "duration_ns": 4905115375
+            },
+            {
+              "phase": "staging",
+              "duration_ns": 14001292458
+            },
+            {
+              "phase": "definitions",
+              "duration_ns": 23867416
+            },
+            {
+              "phase": "memory-release",
+              "duration_ns": 5757876
+            },
+            {
+              "phase": "imports",
+              "duration_ns": 44696500
+            },
+            {
+              "phase": "symbols",
+              "duration_ns": 225666
+            },
+            {
+              "phase": "ts-calls",
+              "duration_ns": 3949912500
+            },
+            {
+              "phase": "go-calls",
+              "duration_ns": 15750
+            },
+            {
+              "phase": "ruby-calls",
+              "duration_ns": 2125
+            },
+            {
+              "phase": "resolver-report",
+              "duration_ns": 2666
+            },
+            {
+              "phase": "call-reuse",
+              "duration_ns": 0
+            },
+            {
+              "phase": "similarity",
+              "duration_ns": 7874625
+            },
+            {
+              "phase": "result",
+              "duration_ns": 1292
+            },
+            {
+              "phase": "snapshot-cleanup",
+              "duration_ns": 1305325292
+            },
+            {
+              "phase": "validation",
+              "duration_ns": 28955708
+            },
+            {
+              "phase": "publication",
+              "duration_ns": 54470916
+            },
+            {
+              "phase": "cleanup",
+              "duration_ns": 735542
+            }
+          ],
+          "staged_files": 14576,
+          "staged_bytes": 142328293,
+          "scip_invocations": 1,
+          "scip_peak_rss_bytes": 0,
+          "decision": "rebuild",
+          "outcome": "success",
+          "invalidation_reasons": [
+            "manifest-untrusted",
+            "ts-runtime-inputs-unobserved"
+          ]
+        },
+        "wall_ns": 34305135833,
+        "go_alloc_bytes": 3284573016,
+        "go_mallocs": 6052350,
+        "self_peak_rss_bytes": 81215488,
+        "graph_digest": "3ae9672e37344e9321729e9c64967ff4eb6f1cbaa69caab081457c265fae25f3",
+        "provenance": {
+          "go": "go1.27.0",
+          "analysis": "analysis-v3",
+          "scip_bridge": "scip-typescript-bridge-v2@0.4.0",
+          "go_resolver": "go-vta-resolver-v5",
+          "observed_inputs_digest": "1287af311588ae0f771cfed7acde0b1f068833f98fbf4ec20609e5d0ad009994",
+          "ts_environment_digest": "92b8001c430bb21a911b06f60a0b5219d5479a0146acf1bd5a4b2e0f649e2375",
+          "scip_rss_method": "unavailable on this platform; zero is not a measured zero"
+        },
+        "files": 44,
+        "nodes": 208,
+        "edges": 218,
+        "queries": [
+          {
+            "tool": "callers",
+            "target": "tests/devtools.test.tsx.assertAllAreDefined",
+            "limit": 1,
+            "pages": 4,
+            "bytes": 1287,
+            "results": 4,
+            "wall_ns": 566458,
+            "identity_digest": "d7402af25f39f1369e6af0d3c7125ccb49d92b71241bf314ca1165276afc6045",
+            "store_equivalent": true,
+            "expected_verified": false
+          },
+          {
+            "tool": "callees",
+            "target": "src/vanilla/shallow.ts.shallow",
+            "limit": 2,
+            "pages": 2,
+            "bytes": 654,
+            "results": 4,
+            "wall_ns": 146833,
+            "identity_digest": "d5c2fcbef6cf59022272b2f1006590af437985528b8663f1a8e01b5ffa395725",
+            "store_equivalent": true,
+            "expected_verified": false
+          },
+          {
+            "tool": "search",
+            "target": "State",
+            "limit": 1,
+            "pages": 2,
+            "bytes": 348,
+            "results": 2,
+            "wall_ns": 160916,
+            "identity_digest": "e0279cefe4007538acf0da78dbd97fa2096ab003025997b9ce4490be3506742f",
+            "store_equivalent": true,
+            "expected_verified": false
+          }
+        ]
+      },
+      "full_rebuild_equivalent": true,
+      "reference_digest": "3ae9672e37344e9321729e9c64967ff4eb6f1cbaa69caab081457c265fae25f3"
+    },
+    {
+      "dataset": "zustand",
+      "commit": "c87a5d69ad2662be99a5caa34ba1b9027b6842a4",
+      "scenario": "cold",
+      "repetition": 3,
+      "sample": {
+        "method": "production-matrix-v1",
+        "status": "healthy",
+        "metrics": {
+          "duration_ns": 35875441708,
+          "phases": [
+            {
+              "phase": "admission",
+              "duration_ns": 6002792
+            },
+            {
+              "phase": "observation",
+              "duration_ns": 11508205584
+            },
+            {
+              "phase": "freshness",
+              "duration_ns": 132792
+            },
+            {
+              "phase": "build-open",
+              "duration_ns": 3338292
+            },
+            {
+              "phase": "preflight",
+              "duration_ns": 208
+            },
+            {
+              "phase": "handoff-observation",
+              "duration_ns": 4687908042
+            },
+            {
+              "phase": "staging",
+              "duration_ns": 14525098750
+            },
+            {
+              "phase": "definitions",
+              "duration_ns": 26879125
+            },
+            {
+              "phase": "memory-release",
+              "duration_ns": 6125627
+            },
+            {
+              "phase": "imports",
+              "duration_ns": 48206625
+            },
+            {
+              "phase": "symbols",
+              "duration_ns": 272917
+            },
+            {
+              "phase": "ts-calls",
+              "duration_ns": 3631357833
+            },
+            {
+              "phase": "go-calls",
+              "duration_ns": 14791
+            },
+            {
+              "phase": "ruby-calls",
+              "duration_ns": 750
+            },
+            {
+              "phase": "resolver-report",
+              "duration_ns": 6958
+            },
+            {
+              "phase": "call-reuse",
+              "duration_ns": 42
+            },
+            {
+              "phase": "similarity",
+              "duration_ns": 8155292
+            },
+            {
+              "phase": "result",
+              "duration_ns": 1834
+            },
+            {
+              "phase": "snapshot-cleanup",
+              "duration_ns": 1338717500
+            },
+            {
+              "phase": "validation",
+              "duration_ns": 28822167
+            },
+            {
+              "phase": "publication",
+              "duration_ns": 56048292
+            },
+            {
+              "phase": "cleanup",
+              "duration_ns": 128750
+            }
+          ],
+          "staged_files": 14576,
+          "staged_bytes": 142328293,
+          "scip_invocations": 1,
+          "scip_peak_rss_bytes": 0,
+          "decision": "rebuild",
+          "outcome": "success",
+          "invalidation_reasons": [
+            "new-index",
+            "source-changed",
+            "ts-runtime-inputs-unobserved"
+          ]
+        },
+        "wall_ns": 35875454917,
+        "go_alloc_bytes": 3271408032,
+        "go_mallocs": 5997572,
+        "self_peak_rss_bytes": 75497472,
+        "graph_digest": "3ae9672e37344e9321729e9c64967ff4eb6f1cbaa69caab081457c265fae25f3",
+        "provenance": {
+          "go": "go1.27.0",
+          "analysis": "analysis-v3",
+          "scip_bridge": "scip-typescript-bridge-v2@0.4.0",
+          "go_resolver": "go-vta-resolver-v5",
+          "observed_inputs_digest": "1287af311588ae0f771cfed7acde0b1f068833f98fbf4ec20609e5d0ad009994",
+          "ts_environment_digest": "92b8001c430bb21a911b06f60a0b5219d5479a0146acf1bd5a4b2e0f649e2375",
+          "scip_rss_method": "unavailable on this platform; zero is not a measured zero"
+        },
+        "files": 44,
+        "nodes": 208,
+        "edges": 218,
+        "queries": [
+          {
+            "tool": "callers",
+            "target": "tests/devtools.test.tsx.assertAllAreDefined",
+            "limit": 1,
+            "pages": 4,
+            "bytes": 1287,
+            "results": 4,
+            "wall_ns": 345292,
+            "identity_digest": "d7402af25f39f1369e6af0d3c7125ccb49d92b71241bf314ca1165276afc6045",
+            "store_equivalent": true,
+            "expected_verified": false
+          },
+          {
+            "tool": "callees",
+            "target": "src/vanilla/shallow.ts.shallow",
+            "limit": 2,
+            "pages": 2,
+            "bytes": 654,
+            "results": 4,
+            "wall_ns": 151625,
+            "identity_digest": "d5c2fcbef6cf59022272b2f1006590af437985528b8663f1a8e01b5ffa395725",
+            "store_equivalent": true,
+            "expected_verified": false
+          },
+          {
+            "tool": "search",
+            "target": "State",
+            "limit": 1,
+            "pages": 2,
+            "bytes": 348,
+            "results": 2,
+            "wall_ns": 155292,
+            "identity_digest": "e0279cefe4007538acf0da78dbd97fa2096ab003025997b9ce4490be3506742f",
+            "store_equivalent": true,
+            "expected_verified": false
+          }
+        ]
+      },
+      "full_rebuild_equivalent": true,
+      "reference_digest": "3ae9672e37344e9321729e9c64967ff4eb6f1cbaa69caab081457c265fae25f3"
+    },
+    {
+      "dataset": "zustand",
+      "commit": "c87a5d69ad2662be99a5caa34ba1b9027b6842a4",
+      "scenario": "unchanged",
+      "repetition": 3,
+      "sample": {
+        "method": "production-matrix-v1",
+        "status": "healthy",
+        "metrics": {
+          "duration_ns": 29972333833,
+          "phases": [
+            {
+              "phase": "admission",
+              "duration_ns": 3907500
+            },
+            {
+              "phase": "observation",
+              "duration_ns": 9625316084
+            },
+            {
+              "phase": "freshness",
+              "duration_ns": 16675958
+            },
+            {
+              "phase": "build-open",
+              "duration_ns": 3654459
+            },
+            {
+              "phase": "preflight",
+              "duration_ns": 250
+            },
+            {
+              "phase": "handoff-observation",
+              "duration_ns": 4507818125
+            },
+            {
+              "phase": "staging",
+              "duration_ns": 10900384542
+            },
+            {
+              "phase": "definitions",
+              "duration_ns": 28928209
+            },
+            {
+              "phase": "memory-release",
+              "duration_ns": 5949751
+            },
+            {
+              "phase": "imports",
+              "duration_ns": 49099583
+            },
+            {
+              "phase": "symbols",
+              "duration_ns": 251209
+            },
+            {
+              "phase": "ts-calls",
+              "duration_ns": 3448757125
+            },
+            {
+              "phase": "go-calls",
+              "duration_ns": 14333
+            },
+            {
+              "phase": "ruby-calls",
+              "duration_ns": 2042
+            },
+            {
+              "phase": "resolver-report",
+              "duration_ns": 3209
+            },
+            {
+              "phase": "call-reuse",
+              "duration_ns": 42
+            },
+            {
+              "phase": "similarity",
+              "duration_ns": 8046916
+            },
+            {
+              "phase": "result",
+              "duration_ns": 1833
+            },
+            {
+              "phase": "snapshot-cleanup",
+              "duration_ns": 1292747875
+            },
+            {
+              "phase": "validation",
+              "duration_ns": 27932709
+            },
+            {
+              "phase": "publication",
+              "duration_ns": 52695750
+            },
+            {
+              "phase": "cleanup",
+              "duration_ns": 130167
+            }
+          ],
+          "staged_files": 14576,
+          "staged_bytes": 142328293,
+          "scip_invocations": 1,
+          "scip_peak_rss_bytes": 0,
+          "decision": "rebuild",
+          "outcome": "success",
+          "invalidation_reasons": [
+            "manifest-untrusted",
+            "ts-runtime-inputs-unobserved"
+          ]
+        },
+        "wall_ns": 29972348833,
+        "go_alloc_bytes": 3284642584,
+        "go_mallocs": 6052473,
+        "self_peak_rss_bytes": 82280448,
+        "graph_digest": "3ae9672e37344e9321729e9c64967ff4eb6f1cbaa69caab081457c265fae25f3",
+        "provenance": {
+          "go": "go1.27.0",
+          "analysis": "analysis-v3",
+          "scip_bridge": "scip-typescript-bridge-v2@0.4.0",
+          "go_resolver": "go-vta-resolver-v5",
+          "observed_inputs_digest": "1287af311588ae0f771cfed7acde0b1f068833f98fbf4ec20609e5d0ad009994",
+          "ts_environment_digest": "92b8001c430bb21a911b06f60a0b5219d5479a0146acf1bd5a4b2e0f649e2375",
+          "scip_rss_method": "unavailable on this platform; zero is not a measured zero"
+        },
+        "files": 44,
+        "nodes": 208,
+        "edges": 218,
+        "queries": [
+          {
+            "tool": "callers",
+            "target": "tests/devtools.test.tsx.assertAllAreDefined",
+            "limit": 1,
+            "pages": 4,
+            "bytes": 1287,
+            "results": 4,
+            "wall_ns": 324417,
+            "identity_digest": "d7402af25f39f1369e6af0d3c7125ccb49d92b71241bf314ca1165276afc6045",
+            "store_equivalent": true,
+            "expected_verified": false
+          },
+          {
+            "tool": "callees",
+            "target": "src/vanilla/shallow.ts.shallow",
+            "limit": 2,
+            "pages": 2,
+            "bytes": 654,
+            "results": 4,
+            "wall_ns": 135792,
+            "identity_digest": "d5c2fcbef6cf59022272b2f1006590af437985528b8663f1a8e01b5ffa395725",
+            "store_equivalent": true,
+            "expected_verified": false
+          },
+          {
+            "tool": "search",
+            "target": "State",
+            "limit": 1,
+            "pages": 2,
+            "bytes": 348,
+            "results": 2,
+            "wall_ns": 144167,
+            "identity_digest": "e0279cefe4007538acf0da78dbd97fa2096ab003025997b9ce4490be3506742f",
+            "store_equivalent": true,
+            "expected_verified": false
+          }
+        ]
+      },
+      "full_rebuild_equivalent": true,
+      "reference_digest": "3ae9672e37344e9321729e9c64967ff4eb6f1cbaa69caab081457c265fae25f3"
+    },
+    {
+      "dataset": "zustand",
+      "commit": "c87a5d69ad2662be99a5caa34ba1b9027b6842a4",
+      "scenario": "source-edit",
+      "repetition": 3,
+      "sample": {
+        "method": "production-matrix-v1",
+        "status": "healthy",
+        "metrics": {
+          "duration_ns": 30506258250,
+          "phases": [
+            {
+              "phase": "admission",
+              "duration_ns": 3903334
+            },
+            {
+              "phase": "observation",
+              "duration_ns": 9820349625
+            },
+            {
+              "phase": "freshness",
+              "duration_ns": 17403917
+            },
+            {
+              "phase": "build-open",
+              "duration_ns": 3637750
+            },
+            {
+              "phase": "preflight",
+              "duration_ns": 542
+            },
+            {
+              "phase": "handoff-observation",
+              "duration_ns": 4486485417
+            },
+            {
+              "phase": "staging",
+              "duration_ns": 11120037916
+            },
+            {
+              "phase": "definitions",
+              "duration_ns": 25596000
+            },
+            {
+              "phase": "memory-release",
+              "duration_ns": 6164834
+            },
+            {
+              "phase": "imports",
+              "duration_ns": 49956042
+            },
+            {
+              "phase": "symbols",
+              "duration_ns": 264833
+            },
+            {
+              "phase": "ts-calls",
+              "duration_ns": 3530916167
+            },
+            {
+              "phase": "go-calls",
+              "duration_ns": 17875
+            },
+            {
+              "phase": "ruby-calls",
+              "duration_ns": 792
+            },
+            {
+              "phase": "resolver-report",
+              "duration_ns": 3709
+            },
+            {
+              "phase": "call-reuse",
+              "duration_ns": 42
+            },
+            {
+              "phase": "similarity",
+              "duration_ns": 7970667
+            },
+            {
+              "phase": "result",
+              "duration_ns": 1625
+            },
+            {
+              "phase": "snapshot-cleanup",
+              "duration_ns": 1341761625
+            },
+            {
+              "phase": "validation",
+              "duration_ns": 30792083
+            },
+            {
+              "phase": "publication",
+              "duration_ns": 60857333
+            },
+            {
+              "phase": "cleanup",
+              "duration_ns": 116875
+            }
+          ],
+          "staged_files": 14576,
+          "staged_bytes": 142328390,
+          "scip_invocations": 1,
+          "scip_peak_rss_bytes": 0,
+          "decision": "rebuild",
+          "outcome": "success",
+          "invalidation_reasons": [
+            "manifest-untrusted",
+            "source-changed",
+            "ts-runtime-inputs-unobserved"
+          ]
+        },
+        "wall_ns": 30506260917,
+        "go_alloc_bytes": 3284780304,
+        "go_mallocs": 6053270,
+        "self_peak_rss_bytes": 84197376,
+        "graph_digest": "0fc3b3e7412c3afdb2d868750df3a45e5af2fc7f9687b1e82099bc9acc7b4327",
+        "provenance": {
+          "go": "go1.27.0",
+          "analysis": "analysis-v3",
+          "scip_bridge": "scip-typescript-bridge-v2@0.4.0",
+          "go_resolver": "go-vta-resolver-v5",
+          "observed_inputs_digest": "1287af311588ae0f771cfed7acde0b1f068833f98fbf4ec20609e5d0ad009994",
+          "ts_environment_digest": "92b8001c430bb21a911b06f60a0b5219d5479a0146acf1bd5a4b2e0f649e2375",
+          "scip_rss_method": "unavailable on this platform; zero is not a measured zero"
+        },
+        "files": 44,
+        "nodes": 210,
+        "edges": 221,
+        "queries": [
+          {
+            "tool": "callers",
+            "target": "tests/devtools.test.tsx.assertAllAreDefined",
+            "limit": 1,
+            "pages": 4,
+            "bytes": 1287,
+            "results": 4,
+            "wall_ns": 343834,
+            "identity_digest": "d7402af25f39f1369e6af0d3c7125ccb49d92b71241bf314ca1165276afc6045",
+            "store_equivalent": true,
+            "expected_verified": false
+          },
+          {
+            "tool": "callees",
+            "target": "src/vanilla/shallow.ts.shallow",
+            "limit": 2,
+            "pages": 2,
+            "bytes": 654,
+            "results": 4,
+            "wall_ns": 170208,
+            "identity_digest": "d5c2fcbef6cf59022272b2f1006590af437985528b8663f1a8e01b5ffa395725",
+            "store_equivalent": true,
+            "expected_verified": false
+          },
+          {
+            "tool": "search",
+            "target": "State",
+            "limit": 1,
+            "pages": 2,
+            "bytes": 348,
+            "results": 2,
+            "wall_ns": 165292,
+            "identity_digest": "e0279cefe4007538acf0da78dbd97fa2096ab003025997b9ce4490be3506742f",
+            "store_equivalent": true,
+            "expected_verified": false
+          },
+          {
+            "tool": "callees",
+            "target": "src/vanilla.ts.codegraphMatrixProbe",
+            "limit": 1,
+            "pages": 1,
+            "bytes": 145,
+            "results": 1,
+            "wall_ns": 64542,
+            "identity_digest": "f279fc266cadd0bcace3d1cdc0017c676609af1c60f6f216893285138cb84a04",
+            "store_equivalent": true,
+            "expected_verified": true
+          }
+        ]
+      },
+      "evidence": {
+        "original_sha": "44e5b7509ba4a6b2093db14ef555f7c9278bdec85726783eff232bbf7babd21f",
+        "edited_sha": "06295578c2de784fe8b66839686bae1ca6e307d07c3b033674820fb5ac6d2732"
+      },
+      "full_rebuild_equivalent": true,
+      "reference_digest": "0fc3b3e7412c3afdb2d868750df3a45e5af2fc7f9687b1e82099bc9acc7b4327"
+    },
+    {
+      "dataset": "zustand",
+      "commit": "c87a5d69ad2662be99a5caa34ba1b9027b6842a4",
+      "scenario": "config-edit",
+      "repetition": 3,
+      "sample": {
+        "method": "production-matrix-v1",
+        "status": "healthy",
+        "metrics": {
+          "duration_ns": 30273927166,
+          "phases": [
+            {
+              "phase": "admission",
+              "duration_ns": 3694209
+            },
+            {
+              "phase": "observation",
+              "duration_ns": 9931945541
+            },
+            {
+              "phase": "freshness",
+              "duration_ns": 16810333
+            },
+            {
+              "phase": "build-open",
+              "duration_ns": 3660417
+            },
+            {
+              "phase": "preflight",
+              "duration_ns": 166
+            },
+            {
+              "phase": "handoff-observation",
+              "duration_ns": 4479459667
+            },
+            {
+              "phase": "staging",
+              "duration_ns": 10761421500
+            },
+            {
+              "phase": "definitions",
+              "duration_ns": 26035709
+            },
+            {
+              "phase": "memory-release",
+              "duration_ns": 6084751
+            },
+            {
+              "phase": "imports",
+              "duration_ns": 49908166
+            },
+            {
+              "phase": "symbols",
+              "duration_ns": 259250
+            },
+            {
+              "phase": "ts-calls",
+              "duration_ns": 3596810458
+            },
+            {
+              "phase": "go-calls",
+              "duration_ns": 10625
+            },
+            {
+              "phase": "ruby-calls",
+              "duration_ns": 792
+            },
+            {
+              "phase": "resolver-report",
+              "duration_ns": 3042
+            },
+            {
+              "phase": "call-reuse",
+              "duration_ns": 0
+            },
+            {
+              "phase": "similarity",
+              "duration_ns": 7960500
+            },
+            {
+              "phase": "result",
+              "duration_ns": 1917
+            },
+            {
+              "phase": "snapshot-cleanup",
+              "duration_ns": 1300996334
+            },
+            {
+              "phase": "validation",
+              "duration_ns": 30336250
+            },
+            {
+              "phase": "publication",
+              "duration_ns": 57832000
+            },
+            {
+              "phase": "cleanup",
+              "duration_ns": 677208
+            }
+          ],
+          "staged_files": 14576,
+          "staged_bytes": 142328327,
+          "scip_invocations": 1,
+          "scip_peak_rss_bytes": 0,
+          "decision": "rebuild",
+          "outcome": "success",
+          "invalidation_reasons": [
+            "manifest-untrusted",
+            "ts-runtime-inputs-unobserved"
+          ]
+        },
+        "wall_ns": 30273940500,
+        "go_alloc_bytes": 3306149248,
+        "go_mallocs": 6052533,
+        "self_peak_rss_bytes": 82214912,
+        "graph_digest": "3ae9672e37344e9321729e9c64967ff4eb6f1cbaa69caab081457c265fae25f3",
+        "provenance": {
+          "go": "go1.27.0",
+          "analysis": "analysis-v3",
+          "scip_bridge": "scip-typescript-bridge-v2@0.4.0",
+          "go_resolver": "go-vta-resolver-v5",
+          "observed_inputs_digest": "aea7bccdd1538b016d7fc90576d7cfdb359ae5724f2d45d7b22b04d38868f675",
+          "ts_environment_digest": "92b8001c430bb21a911b06f60a0b5219d5479a0146acf1bd5a4b2e0f649e2375",
+          "scip_rss_method": "unavailable on this platform; zero is not a measured zero"
+        },
+        "files": 44,
+        "nodes": 208,
+        "edges": 218,
+        "queries": [
+          {
+            "tool": "callers",
+            "target": "tests/devtools.test.tsx.assertAllAreDefined",
+            "limit": 1,
+            "pages": 4,
+            "bytes": 1287,
+            "results": 4,
+            "wall_ns": 377292,
+            "identity_digest": "d7402af25f39f1369e6af0d3c7125ccb49d92b71241bf314ca1165276afc6045",
+            "store_equivalent": true,
+            "expected_verified": false
+          },
+          {
+            "tool": "callees",
+            "target": "src/vanilla/shallow.ts.shallow",
+            "limit": 2,
+            "pages": 2,
+            "bytes": 654,
+            "results": 4,
+            "wall_ns": 159000,
+            "identity_digest": "d5c2fcbef6cf59022272b2f1006590af437985528b8663f1a8e01b5ffa395725",
+            "store_equivalent": true,
+            "expected_verified": false
+          },
+          {
+            "tool": "search",
+            "target": "State",
+            "limit": 1,
+            "pages": 2,
+            "bytes": 348,
+            "results": 2,
+            "wall_ns": 165625,
+            "identity_digest": "e0279cefe4007538acf0da78dbd97fa2096ab003025997b9ce4490be3506742f",
+            "store_equivalent": true,
+            "expected_verified": false
+          }
+        ]
+      },
+      "evidence": {
+        "original_sha": "802c237db05220964a4eb1f52d8945bdedad882a21991144b8c953e8f40d046d",
+        "edited_sha": "a97b3e730cbb815a17a7ee93c202b5eaca0af3916145a674a0227d24dece20dc"
+      },
+      "full_rebuild_equivalent": true,
+      "reference_digest": "3ae9672e37344e9321729e9c64967ff4eb6f1cbaa69caab081457c265fae25f3"
+    },
+    {
+      "dataset": "zustand",
+      "commit": "c87a5d69ad2662be99a5caa34ba1b9027b6842a4",
+      "scenario": "degraded-recovery",
+      "repetition": 3,
+      "sample": {
+        "method": "production-matrix-v1",
+        "status": "healthy",
+        "metrics": {
+          "duration_ns": 29834593875,
+          "phases": [
+            {
+              "phase": "admission",
+              "duration_ns": 3999292
+            },
+            {
+              "phase": "observation",
+              "duration_ns": 9173380292
+            },
+            {
+              "phase": "freshness",
+              "duration_ns": 16743375
+            },
+            {
+              "phase": "build-open",
+              "duration_ns": 3452583
+            },
+            {
+              "phase": "preflight",
+              "duration_ns": 250
+            },
+            {
+              "phase": "handoff-observation",
+              "duration_ns": 4461160833
+            },
+            {
+              "phase": "staging",
+              "duration_ns": 11258276625
+            },
+            {
+              "phase": "definitions",
+              "duration_ns": 24785791
+            },
+            {
+              "phase": "memory-release",
+              "duration_ns": 5853499
+            },
+            {
+              "phase": "imports",
+              "duration_ns": 46729542
+            },
+            {
+              "phase": "symbols",
+              "duration_ns": 236250
+            },
+            {
+              "phase": "ts-calls",
+              "duration_ns": 3481185083
+            },
+            {
+              "phase": "go-calls",
+              "duration_ns": 13458
+            },
+            {
+              "phase": "ruby-calls",
+              "duration_ns": 708
+            },
+            {
+              "phase": "resolver-report",
+              "duration_ns": 3708
+            },
+            {
+              "phase": "call-reuse",
+              "duration_ns": 42
+            },
+            {
+              "phase": "similarity",
+              "duration_ns": 7860208
+            },
+            {
+              "phase": "result",
+              "duration_ns": 1917
+            },
+            {
+              "phase": "snapshot-cleanup",
+              "duration_ns": 1266946292
+            },
+            {
+              "phase": "validation",
+              "duration_ns": 29225417
+            },
+            {
+              "phase": "publication",
+              "duration_ns": 54134417
+            },
+            {
+              "phase": "cleanup",
+              "duration_ns": 587750
+            }
+          ],
+          "staged_files": 14576,
+          "staged_bytes": 142328293,
+          "scip_invocations": 1,
+          "scip_peak_rss_bytes": 0,
+          "decision": "rebuild",
+          "outcome": "success",
+          "invalidation_reasons": [
+            "manifest-untrusted",
+            "ts-runtime-inputs-unobserved"
+          ]
+        },
+        "wall_ns": 29834604833,
+        "go_alloc_bytes": 3284577832,
+        "go_mallocs": 6052414,
+        "self_peak_rss_bytes": 80035840,
+        "graph_digest": "3ae9672e37344e9321729e9c64967ff4eb6f1cbaa69caab081457c265fae25f3",
+        "provenance": {
+          "go": "go1.27.0",
+          "analysis": "analysis-v3",
+          "scip_bridge": "scip-typescript-bridge-v2@0.4.0",
+          "go_resolver": "go-vta-resolver-v5",
+          "observed_inputs_digest": "1287af311588ae0f771cfed7acde0b1f068833f98fbf4ec20609e5d0ad009994",
+          "ts_environment_digest": "92b8001c430bb21a911b06f60a0b5219d5479a0146acf1bd5a4b2e0f649e2375",
+          "scip_rss_method": "unavailable on this platform; zero is not a measured zero"
+        },
+        "files": 44,
+        "nodes": 208,
+        "edges": 218,
+        "queries": [
+          {
+            "tool": "callers",
+            "target": "tests/devtools.test.tsx.assertAllAreDefined",
+            "limit": 1,
+            "pages": 4,
+            "bytes": 1287,
+            "results": 4,
+            "wall_ns": 349916,
+            "identity_digest": "d7402af25f39f1369e6af0d3c7125ccb49d92b71241bf314ca1165276afc6045",
+            "store_equivalent": true,
+            "expected_verified": false
+          },
+          {
+            "tool": "callees",
+            "target": "src/vanilla/shallow.ts.shallow",
+            "limit": 2,
+            "pages": 2,
+            "bytes": 654,
+            "results": 4,
+            "wall_ns": 149958,
+            "identity_digest": "d5c2fcbef6cf59022272b2f1006590af437985528b8663f1a8e01b5ffa395725",
+            "store_equivalent": true,
+            "expected_verified": false
+          },
+          {
+            "tool": "search",
+            "target": "State",
+            "limit": 1,
+            "pages": 2,
+            "bytes": 348,
+            "results": 2,
+            "wall_ns": 156084,
+            "identity_digest": "e0279cefe4007538acf0da78dbd97fa2096ab003025997b9ce4490be3506742f",
+            "store_equivalent": true,
+            "expected_verified": false
+          }
+        ]
+      },
+      "full_rebuild_equivalent": true,
+      "reference_digest": "3ae9672e37344e9321729e9c64967ff4eb6f1cbaa69caab081457c265fae25f3"
+    }
+  ],
+  "summary": [
+    {
+      "group": "cobra/cold",
+      "n": 3,
+      "wall_ns": {
+        "p50": 3091822125,
+        "p95": 3256218667
+      },
+      "go_alloc_bytes": {
+        "p50": 889255464,
+        "p95": 889501520
+      },
+      "self_peak_rss_bytes": {
+        "p50": 596885504,
+        "p95": 627572736
+      },
+      "staged_bytes": {
+        "p50": 510894,
+        "p95": 510894
+      },
+      "decisions": [
+        "rebuild",
+        "rebuild",
+        "rebuild"
+      ]
+    },
+    {
+      "group": "cobra/unchanged",
+      "n": 3,
+      "wall_ns": {
+        "p50": 2791854000,
+        "p95": 3725038750
+      },
+      "go_alloc_bytes": {
+        "p50": 889400120,
+        "p95": 889414832
+      },
+      "self_peak_rss_bytes": {
+        "p50": 608534528,
+        "p95": 608829440
+      },
+      "staged_bytes": {
+        "p50": 510894,
+        "p95": 510894
+      },
+      "decisions": [
+        "rebuild",
+        "rebuild",
+        "rebuild"
+      ]
+    },
+    {
+      "group": "cobra/source-edit",
+      "n": 3,
+      "wall_ns": {
+        "p50": 2689647875,
+        "p95": 6134126541
+      },
+      "go_alloc_bytes": {
+        "p50": 889539392,
+        "p95": 889848240
+      },
+      "self_peak_rss_bytes": {
+        "p50": 603324416,
+        "p95": 632684544
+      },
+      "staged_bytes": {
+        "p50": 510983,
+        "p95": 510983
+      },
+      "decisions": [
+        "rebuild",
+        "rebuild",
+        "rebuild"
+      ]
+    },
+    {
+      "group": "cobra/config-edit",
+      "n": 3,
+      "wall_ns": {
+        "p50": 2926822166,
+        "p95": 3111384500
+      },
+      "go_alloc_bytes": {
+        "p50": 890002352,
+        "p95": 890322392
+      },
+      "self_peak_rss_bytes": {
+        "p50": 610533376,
+        "p95": 645120000
+      },
+      "staged_bytes": {
+        "p50": 511030,
+        "p95": 511030
+      },
+      "decisions": [
+        "rebuild",
+        "rebuild",
+        "rebuild"
+      ]
+    },
+    {
+      "group": "cobra/degraded-recovery",
+      "n": 3,
+      "wall_ns": {
+        "p50": 2502513875,
+        "p95": 2693600584
+      },
+      "go_alloc_bytes": {
+        "p50": 889919576,
+        "p95": 890083800
+      },
+      "self_peak_rss_bytes": {
+        "p50": 614842368,
+        "p95": 638238720
+      },
+      "staged_bytes": {
+        "p50": 510894,
+        "p95": 510894
+      },
+      "decisions": [
+        "rebuild",
+        "rebuild",
+        "rebuild"
+      ]
+    },
+    {
+      "group": "zustand/cold",
+      "n": 3,
+      "wall_ns": {
+        "p50": 35875454917,
+        "p95": 49841931125
+      },
+      "go_alloc_bytes": {
+        "p50": 3271408032,
+        "p95": 3271462984
+      },
+      "self_peak_rss_bytes": {
+        "p50": 78839808,
+        "p95": 79314944
+      },
+      "staged_bytes": {
+        "p50": 142328293,
+        "p95": 142328293
+      },
+      "decisions": [
+        "rebuild",
+        "rebuild",
+        "rebuild"
+      ]
+    },
+    {
+      "group": "zustand/unchanged",
+      "n": 3,
+      "wall_ns": {
+        "p50": 34710273250,
+        "p95": 37008569458
+      },
+      "go_alloc_bytes": {
+        "p50": 3284797144,
+        "p95": 3306437688
+      },
+      "self_peak_rss_bytes": {
+        "p50": 81068032,
+        "p95": 82280448
+      },
+      "staged_bytes": {
+        "p50": 142328293,
+        "p95": 142328293
+      },
+      "decisions": [
+        "rebuild",
+        "rebuild",
+        "rebuild"
+      ]
+    },
+    {
+      "group": "zustand/source-edit",
+      "n": 3,
+      "wall_ns": {
+        "p50": 31202001500,
+        "p95": 42749902459
+      },
+      "go_alloc_bytes": {
+        "p50": 3284780304,
+        "p95": 3284900144
+      },
+      "self_peak_rss_bytes": {
+        "p50": 82542592,
+        "p95": 84197376
+      },
+      "staged_bytes": {
+        "p50": 142328390,
+        "p95": 142328390
+      },
+      "decisions": [
+        "rebuild",
+        "rebuild",
+        "rebuild"
+      ]
+    },
+    {
+      "group": "zustand/config-edit",
+      "n": 3,
+      "wall_ns": {
+        "p50": 35631822459,
+        "p95": 37463116042
+      },
+      "go_alloc_bytes": {
+        "p50": 3284966816,
+        "p95": 3306149248
+      },
+      "self_peak_rss_bytes": {
+        "p50": 82198528,
+        "p95": 82214912
+      },
+      "staged_bytes": {
+        "p50": 142328327,
+        "p95": 142328327
+      },
+      "decisions": [
+        "rebuild",
+        "rebuild",
+        "rebuild"
+      ]
+    },
+    {
+      "group": "zustand/degraded-recovery",
+      "n": 3,
+      "wall_ns": {
+        "p50": 31467430958,
+        "p95": 34305135833
+      },
+      "go_alloc_bytes": {
+        "p50": 3284577832,
+        "p95": 3305629328
+      },
+      "self_peak_rss_bytes": {
+        "p50": 80035840,
+        "p95": 81215488
+      },
+      "staged_bytes": {
+        "p50": 142328293,
+        "p95": 142328293
+      },
+      "decisions": [
+        "rebuild",
+        "rebuild",
+        "rebuild"
+      ]
+    }
+  ],
+  "limitations": "two small pilot datasets; low-N p95 descriptive; query equivalence is not independent full-repo recall; no answer-quality or universal gain claim"
+}

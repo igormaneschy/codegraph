@@ -1,0 +1,32 @@
+{
+  "method": "production-matrix-v1",
+  "repetitions": 3,
+  "datasets": [
+    {
+      "id": "cobra", "lang": "go", "root": "/tmp/codegraph-perf/cobra", "disposable": true,
+      "commit": "40b5bc1437a564fc795d388b23835e84f54cd1d1",
+      "source": {"path": "cobra.go", "sha256": "aae7502e789e42469bcb2fc110af87fd02451d3b509c5b0bed782ada17338c5f", "suffix": "\nfunc codegraphMatrixTarget() {}\nfunc codegraphMatrixProbe() { codegraphMatrixTarget() }\n"},
+      "config": {"path": "go.mod", "sha256": "c6b11572b04c87aee664fdaabd91e94cd3fb8c4b69d811d598b06747bed04663", "suffix": "\n// codegraph matrix config probe\n"},
+      "degradedSuffix": "\nfunc codegraphMatrixBroken() { codegraphMatrixUndefined() }\n",
+      "queries": [
+        {"tool": "callers", "target": "command.go.Command.AddCommand", "limit": 7, "min_results": 1},
+        {"tool": "callees", "target": "command.go.Command.ExecuteC", "limit": 7, "min_results": 1},
+        {"tool": "search", "target": "Command", "limit": 7, "min_results": 1}
+      ],
+      "probe": {"tool": "callees", "target": "cobra.go.codegraphMatrixProbe", "limit": 1, "expected": ["cobra.go.codegraphMatrixTarget"]}
+    },
+    {
+      "id": "zustand", "lang": "ts", "root": "/tmp/codegraph-perf/zustand", "disposable": true,
+      "commit": "c87a5d69ad2662be99a5caa34ba1b9027b6842a4",
+      "source": {"path": "src/vanilla.ts", "sha256": "44e5b7509ba4a6b2093db14ef555f7c9278bdec85726783eff232bbf7babd21f", "suffix": "\nfunction codegraphMatrixTarget() {}\nfunction codegraphMatrixProbe() { codegraphMatrixTarget() }\n"},
+      "config": {"path": "tsconfig.json", "sha256": "802c237db05220964a4eb1f52d8945bdedad882a21991144b8c953e8f40d046d", "suffix": "\n// codegraph matrix config probe\n"},
+      "degradedSuffix": "unused: TS degraded seed hides Node via PATH",
+      "queries": [
+        {"tool": "callers", "target": "tests/devtools.test.tsx.assertAllAreDefined", "limit": 1, "min_results": 1},
+        {"tool": "callees", "target": "src/vanilla/shallow.ts.shallow", "limit": 2, "min_results": 1},
+        {"tool": "search", "target": "State", "limit": 1, "min_results": 1}
+      ],
+      "probe": {"tool": "callees", "target": "src/vanilla.ts.codegraphMatrixProbe", "limit": 1, "expected": ["src/vanilla.ts.codegraphMatrixTarget"]}
+    }
+  ]
+}

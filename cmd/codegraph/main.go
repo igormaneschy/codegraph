@@ -46,6 +46,8 @@ func main() {
 		err = cmdMCP(arg(2, "."))
 	case "bench":
 		err = cmdBench(arg(2, "."))
+	case "bench-sample":
+		err = cmdBenchSample(os.Stdin, os.Stdout)
 	case "quality":
 		err = cmdQuality(os.Args[2:])
 	case "cli":
@@ -81,6 +83,7 @@ Usage:
   codegraph install               Register codegraph as an MCP server in detected agents
   codegraph mcp   [path]          Serve the graph over MCP (stdio); default = cwd / $CLAUDE_PROJECT_DIR
   codegraph bench <path>          Re-index + measure token/tool-call/speed efficiency
+  codegraph bench-sample          Read opt-in matrix request from stdin; emit measured JSON
   codegraph quality gen <repo> [outdir] [lang]   Generate the answer-quality question set
   codegraph quality score <dir> [--scorer qualified-name-v1|name-v1] [--modes graph,baseline]
   codegraph cli   <tool> <path> <json>   Run one query tool (search|callers|callees|neighbors|similar|dead_code|get_architecture|snippet)
