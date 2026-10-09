@@ -37,7 +37,17 @@ func observeGoEnvironment(ctx context.Context, root string, inputs []InputFinger
 	cmd := exec.CommandContext(ctx, "go", "env", "-json")
 	cmd.Dir = private.Path()
 	cmd.Env = goEnvironmentForRoot(nil, root, private.Path())
+	if err := validateProcessGoFlags(cmd.Env); err != nil {
+		return identity, nil, err
+	}
 	cmd.WaitDelay = 2 * time.Second
+	controlInputs, err := observeGoControlInputs(ctx, cmd)
+	if err != nil {
+		return identity, nil, err
+	}
+	if _, err := goFlagReuseReasons(controlInputs["GOFLAGS"]); err != nil {
+		return identity, nil, err
+	}
 	output, commandErr := cmd.Output()
 	if err := ctx.Err(); err != nil {
 		return identity, nil, err
@@ -46,10 +56,10 @@ func observeGoEnvironment(ctx context.Context, root string, inputs []InputFinger
 		return identity, nil, err
 	}
 	identity.Version = "go-env-v1"
-	values = make(map[string]string)
+	values = controlInputs
 	if commandErr == nil {
-		if err := json.Unmarshal(output, &values); err != nil {
-			return identity, nil, errors.New("go env returned invalid environment JSON")
+		if err := json.Unmarshal(output, &values); err != nil || values == nil {
+			return identity, nil, errors.New("go env returned invalid environment JSON; expected a settings object")
 		}
 		identity.Available = values["GOVERSION"] != "" && values["GOOS"] != "" && values["GOARCH"] != ""
 	}
@@ -62,6 +72,32 @@ func observeGoEnvironment(ctx context.Context, root string, inputs []InputFinger
 	normalizeGoEnvironmentPaths(values, private.Path(), root)
 	identity.Digest, err = goEnvironmentDigest(values)
 	return identity, values, err
+}
+
+// Named control observation avoids NewBuilder's external cache initialization.
+// Keep the settings even when costly full observation fails to initialize that
+// cache; an unavailable environment is never a reuse certificate.
+func observeGoControlInputs(ctx context.Context, command *exec.Cmd) (map[string]string, error) {
+	// #nosec G204 -- same Go executable already resolved by exec.CommandContext;
+	// arguments are fixed environment queries, never a shell or operator command.
+	probe := exec.CommandContext(ctx, command.Path, "env", "-json", "GOFLAGS", "GOCACHEPROG")
+	probe.Dir, probe.Env, probe.WaitDelay = command.Dir, command.Env, command.WaitDelay
+	output, err := probe.Output()
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	values := make(map[string]string)
+	if err != nil {
+		var failed *exec.ExitError
+		if errors.As(err, &failed) {
+			return nil, errors.New("effective Go control inputs could not be observed and are not admitted; inspect GOFLAGS/GOENV/toolchain settings")
+		}
+		return values, nil
+	}
+	if err := json.Unmarshal(output, &values); err != nil || values == nil {
+		return nil, errors.New("go env returned invalid control input JSON; expected a settings object")
+	}
+	return values, nil
 }
 
 func goEnvironmentView(ctx context.Context, root string, inputs []InputFingerprint) (private *securefile.PrivateDirectory, retErr error) {
@@ -159,13 +195,15 @@ func goInputReuseReasons(scan repositoryScan) ([]string, error) {
 	if driver := scan.goEnvironment["GOPACKAGESDRIVER"]; driver != "" && driver != "off" {
 		reasons["go-external-driver-inputs-unobserved"] = true
 	}
-	for _, flag := range strings.Fields(scan.goEnvironment["GOFLAGS"]) {
-		if flag == "-compiler=gccgo" {
-			reasons["go-external-compiler-inputs-unobserved"] = true
-		}
-		if strings.HasPrefix(flag, "-overlay=") || strings.HasPrefix(flag, "-modfile=") {
-			return nil, errors.New("go overlay/modfile inputs are not admitted to the resolver snapshot")
-		}
+	flagReasons, err := goFlagReuseReasons(scan.goEnvironment["GOFLAGS"])
+	if err != nil {
+		return nil, err
+	}
+	for reason := range flagReasons {
+		reasons[reason] = true
+	}
+	if scan.goEnvironment["GOCACHEPROG"] != "" {
+		reasons["go-external-cache-inputs-unobserved"] = true
 	}
 	if err := observeGoReuseLimits(scan, reasons); err != nil {
 		return nil, err
