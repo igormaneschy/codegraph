@@ -92,6 +92,28 @@ func TestGoDependencyInputs_UnreadableDependencyFailsClosed(t *testing.T) {
 	}
 }
 
+func TestGoDependencyInputs_ProbeFailureFallsBackToEnumeration(t *testing.T) {
+	root := securityPhysicalTempDir(t)
+	writeSecurityFile(t, root, "go.mod", "module example.test/probe\n\ngo 1.26\n\nrequire example.test/ghost v1.0.0\n")
+	writeSecurityFile(t, root, "main.go", "package probe\n\nfunc Run() int { return 1 }\n")
+	db := filepath.Join(securityPhysicalTempDir(t), "graph.db")
+	first, err := RunAtomic(db, root)
+	if err != nil || first.Reused || first.Status != StatusHealthy {
+		t.Fatalf("first index=%+v err=%v", first, err)
+	}
+	manifest, err := ReadManifest(db)
+	if err != nil || manifest.ResolverInputs.GoDependencies == nil {
+		t.Fatalf("probe failure did not fall back to enumeration: %+v err=%v", manifest.ResolverInputs, err)
+	}
+	if slices.Contains(manifest.ResolverInputs.NoReuseReasons, "go-dependency-inputs-unobserved") {
+		t.Fatal("unimported require blocked certification")
+	}
+	second, err := RunAtomic(db, root)
+	if err != nil || !second.Reused {
+		t.Fatalf("unchanged probe fixture was not a certified no-op: %+v err=%v", second, err)
+	}
+}
+
 func TestGoDependencyInputs_VendorBytesCertifyAndInvalidate(t *testing.T) {
 	root, _ := writeGoDependencyFixture(t)
 	command := exec.Command("go", "mod", "vendor")
