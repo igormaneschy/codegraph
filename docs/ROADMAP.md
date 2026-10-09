@@ -28,6 +28,10 @@ not a prerequisite for personal use. Existing Linux CI stays in place.
   candidate query per OFFSET batch — 0.47–0.85 s → 0.07 s for the 47-ref page
   with an identical answer; full 5-page walk 1.99 s → 1.08 s. See
   VALIDATION_DEADCODE_STREAM.md.
+- [x] Third measured fix (owner workload `AutoTradersOMQS-GO`): local Go embed
+  inputs are certified — unchanged refresh 19.3–19.8 s / ~2.7 GiB → 7.0–7.1 s /
+  ~68 MB no-op with an identical graph; the dependency module-list probe no
+  longer blocks offline repositories. See VALIDATION_GO_EMBED_CERTIFICATION.md.
 - **Outside current milestones:** Windows runtime/native tests and Linux/Windows
   benchmark matrices. Revisit if actual usage changes, not to complete checklists.
 
@@ -50,7 +54,13 @@ See [the review](CODE_REVIEW_2026-10-07.md) for findings and validation contract
       Go inputs disable no-op/CALLS reuse instead of trusting dependency intent.
     - [x] 2c — local Go embed asset transport (literal/glob/directory/quoted/all),
       driver-oracle equality, no-follow directory reads, and missing-asset diagnostics.
-      Full embed certification/reuse remains conservative.
+    - [x] Local embed certification (2026-10-09) — when every detected directive
+      parses with the embed import, the transport-observed assets certify no-op;
+      unhandled directives (parse failure, missing import, invalid pattern) stay
+      conservative. Measured on AutoTradersOMQS-GO: unchanged refresh
+      19.3–19.8 s / ~2.7 GiB → 7.0–7.1 s / ~68 MB certified no-op. The module-list
+      probe became opportunistic (a probe failure falls through to the offline
+      enumeration). See VALIDATION_GO_EMBED_CERTIFICATION.md.
     - [x] 2d — R04 TS/JS runtime identity (`ts-env-v1`, `scip-typescript-bridge-v2`):
       sorted settings plus Node/`npx` path and digest observed without launching
       Node, opaque digest persisted, captured environment/launcher injected into

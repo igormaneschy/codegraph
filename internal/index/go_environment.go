@@ -244,7 +244,13 @@ func observeGoSourceReuseLimits(scan repositoryScan, reasons map[string]bool) er
 			return fmt.Errorf("go source %q changed during observation", file.RelPath)
 		}
 		embedDirective, cgoImport := goSourceSpecialInputs(file.RelPath, content)
-		if embedDirective {
+		// The local embed transport observes every directive set it can parse
+		// with the embed import (assets hashed into the resolver input plan and
+		// re-derived each scan). Only directives it cannot handle keep the
+		// conservative reason: parse failures, a missing embed import, or no
+		// valid pattern arguments. Other uncertified inputs (workspace, cgo,
+		// external caches) block no-op through their own reasons.
+		if embedDirective && len(goEmbedPatterns(file.RelPath, content)) == 0 {
 			reasons["go-embed-inputs-unobserved"] = true
 		}
 		if cgoImport {

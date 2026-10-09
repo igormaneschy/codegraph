@@ -44,12 +44,18 @@ type GoDependencyInputs struct {
 func observeGoDependencyInputs(ctx context.Context, root string, goEnvironment map[string]string) (*GoDependencyInputs, error) {
 	enumerate := true
 	if !goVendorModulesPresent(root) {
-		modules, err := goListDependencyModules(ctx, root, goEnvironment)
-		if err != nil {
-			return nil, err
+		// The module-list probe is opportunistic: `go list -m all` needs the
+		// complete module graph (including modules only required, never
+		// imported), which an offline cache may not have. A probe failure falls
+		// through to the authoritative per-package enumeration instead of
+		// blocking reuse; the enumeration fails closed on its own.
+		modules, probeErr := goListDependencyModules(ctx, root, goEnvironment)
+		switch {
+		case probeErr == nil:
+			enumerate = len(modules) != 0
+		case ctx.Err() != nil:
+			return nil, probeErr
 		}
-		// A dependency-free repository needs no per-package enumeration.
-		enumerate = len(modules) != 0
 	}
 	var files []string
 	if enumerate {

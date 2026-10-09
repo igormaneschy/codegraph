@@ -115,7 +115,11 @@ func TestGoEnvironment_ModifiedGlobalConfigInvalidatesIdentity(t *testing.T) {
 func TestGoEnvironment_UnobservedExternalDependenciesCannotCertifyReuse(t *testing.T) {
 	root := securityPhysicalTempDir(t)
 	writeSecurityFile(t, root, "go.mod", "module example.test/external\ngo 1.26\nrequire example.test/unobserved v1.0.0\n")
-	writeSecurityFile(t, root, "main.go", "package external\nfunc Run() {}\n")
+	// The dependency is imported, so its bytes are a real build input; an
+	// offline cache cannot enumerate them and reuse stays blocked. (A require
+	// that is never imported no longer blocks: the per-package enumeration
+	// proves it is not a build input; see the probe-fallback test.)
+	writeSecurityFile(t, root, "main.go", "package external\n\nimport _ \"example.test/unobserved\"\n\nfunc Run() {}\n")
 	original := goCallEdges
 	t.Cleanup(func() { goCallEdges = original })
 	invocations := 0
