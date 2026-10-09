@@ -11,7 +11,7 @@ import (
 	"github.com/Lordymine/codegraph/internal/securefile"
 )
 
-const resolverInputVersion = "resolver-inputs-v3"
+const resolverInputVersion = "resolver-inputs-v4"
 
 // ResolverInputPlan describes admitted bytes and topology, not a live tree to
 // rediscover during staging. NoReuseReasons makes incomplete input coverage

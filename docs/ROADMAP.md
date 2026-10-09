@@ -28,8 +28,17 @@ See [the review](CODE_REVIEW_2026-10-07.md) for findings and validation contract
       every SCIP scope, re-hash before/after invocation, explicit failure when
       Node is absent, and `ts-runtime-inputs-unobserved` disabling TS no-op/CALLS
       reuse so refresh retries the resolvers.
-    - [ ] Complete external/auxiliary coverage, workspace support, and the external
-      npm/SCIP runtime closure. Local gates passed; remote CI pending.
+    - [x] Go external-control admission — proper GOFLAGS quoting/`--` grammar,
+      rejection of overlay/modfile/`-C`, finite value-validated identity allowlist,
+      and explicit uncertified flags/external cache reasons. Effective controls
+      are probed before costly Go environment observation; admission errors are
+      redacted, old certificates rebuild (`resolver-inputs-v4`). Real same-path
+      wrapper edits and unrelated-language edits never reuse Go CALLS; reference
+      rebuilds and unchanged admitted tag-only fixtures retain their contracts.
+      See VALIDATION_GO_INPUT_ADMISSION.md. No external reuse is newly enabled.
+    - [ ] Complete external/auxiliary/workspace input closure and external npm/SCIP
+      runtime closure. Local go.work loading already works; full certification
+      remains separate from the earlier merged bounded deliveries.
 - [x] Delivery 3 — R01/R07/R08/R14/R15: operational support and language fixtures.
   - [x] R01 — Windows is no longer a published release asset, and the runtime
     limitation is documented (README, CONTRIBUTING). Re-adding it requires a

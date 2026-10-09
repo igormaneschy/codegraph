@@ -76,3 +76,7 @@
 ## Change reproducible-production-matrix
 - [pattern] [production-matrix-not-forced-noop](learned/production-matrix-not-forced-noop.md)
 - [pattern] [arm-restoration-before-edit](learned/arm-restoration-before-edit.md)
+
+## Change go-input-admission (2026-10-09)
+- [anti-pattern] [go-flags-not-shell-fields](learned/go-flags-not-shell-fields.md)
+- [pattern] [go-env-control-probe-before-costly-observation](learned/go-env-control-probe-before-costly-observation.md)
