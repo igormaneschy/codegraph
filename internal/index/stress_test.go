@@ -100,10 +100,15 @@ func TestStress_Go_VTA_LargeModule(t *testing.T) {
 	if res.Nodes < nFiles {
 		t.Fatalf("expected at least %d nodes, got %d", nFiles, res.Nodes)
 	}
-	// VTA must have produced some CALLS edges in a connected module.
-	if res.EdgesKept < nFiles {
-		t.Fatalf("expected meaningful CALLS/DEFINES volume, edges_kept=%d", res.EdgesKept)
+	// Oracle reads stay outside PeakHeap so the indexing memory budget is unchanged.
+	callCount, err := validateGoStressCalls(res, store, nFiles)
+	if err != nil {
+		t.Fatal(err)
 	}
+	if err := store.ValidateIntegrity(); err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("Go stress verified CALLS: %d", callCount)
 }
 
 func TestStress_CodegraphSelf_GoAndTS(t *testing.T) {
