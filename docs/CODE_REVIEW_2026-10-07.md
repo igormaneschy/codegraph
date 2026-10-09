@@ -1186,3 +1186,20 @@ PASS após os ajustes. O probe acrescenta um subprocesso Go por observação —
 de segurança explícito, sem claim de performance. R04/R05 continuam abertos para
 program-input closure e transporte verificado externo; P2 search/P5 profundo,
 Windows e a matriz Linux/grande continuam separados. CI remoto é gate de merge.
+
+## Priorização vigente — uso pessoal no macOS (2026-10-09)
+
+Decisão confirmada pelo usuário: `PERSONAL_MACOS_SCOPE.md` governa os próximos
+milestones. Windows e benchmarks Linux/Windows ficam fora do escopo atual; manter
+CI Linux e invariantes existentes não implica ampliar cobertura de produto.
+R01 continua mitigado pela ausência de asset/promessa de suporte, não implementado.
+R04/R05 mantêm limitações honestas e rebuild/no-reuse conservador; closure completa
+não é requisito para uso pessoal nem autorização para remover gates.
+
+Validação do fluxo no Mac foi executada com fixtures isoladas: Go real, refresh e
+coordenação de sessão, cursores/snippets, recuperação e quatro oráculos SCIP reais.
+Default/race focado/build/vet/modules/format/lint e 26 testes Node PASS; detalhes em
+`VALIDATION_MACOS_WORKFLOW.md`. Não é benchmark dos repositórios do usuário.
+Escolher o workload com o usuário antes de medir; search keyset, staging profundo,
+matrizes grandes e RSS dos filhos no Mac dependem de necessidade demonstrada.
+Prioridade alterada não fecha findings nem muda algoritmo/runtime/schema/CI.
