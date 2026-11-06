@@ -204,7 +204,9 @@ func pythonImportEdgesForFile(project, relPath string, data []byte, exists map[s
 // resolvePyImportTargets maps one pyImport to the repository-relative files the
 // import executes, proven by the indexed file set. Absolute modules claim every
 // dotted prefix that resolves to a module file or package (`import a.b.c`
-// executes a/__init__.py, a/b/__init__.py, and a/b/c.py); `from . import sym`
+// executes a/__init__.py, a/b/__init__.py, and a/b/c.py); when a prefix misses
+// at the repository root, a src-layout fallback re-probes it under src/
+// (winning root-level hits are kept, never duplicated). `from . import sym`
 // resolves each symbol as a sibling module or package of the importing file's
 // directory; relative dots climb from that directory, and an import that needs
 // to escape the repository resolves to nothing.
@@ -237,7 +239,16 @@ func resolvePyImportTargets(importerRel string, imp pyImport, exists map[string]
 	}
 	var out []string
 	for _, mod := range pyModulePrefixes(imp.module) {
+		before := len(out)
 		out = appendPyTarget(out, path.Join(baseDir, mod), exists)
+		if len(out) == before && baseDir == "" {
+			// src-layout fallback: packaging conventions commonly expose
+			// importable packages under src/ (pyproject `packages = ["src/pkg"]`),
+			// so a repository-root miss re-probes the dotted prefix there. Every
+			// claim stays proven against the indexed file set; when both
+			// locations exist the root-level hit wins and src/ is not duplicated.
+			out = appendPyTarget(out, path.Join("src", mod), exists)
+		}
 	}
 	return out
 }
