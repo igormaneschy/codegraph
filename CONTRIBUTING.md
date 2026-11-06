@@ -53,7 +53,9 @@ go test -race -tags integration ./internal/index \
   must never be sent the wrong way.
 - **Delegate to the type checker.** Call resolution is delegated to scip-typescript
   (TS/JS) and go/packages (Go), not re-implemented. New language support should follow
-  the same bet.
+  the same bet: Ruby resolves calls only through its certified static subset
+  (`ruby-static`) and Python ships structural-only until an optional resolver passes
+  the resolver-to-QN-map oracle gate (see `docs/ARCHITECTURE.md`).
 - **Storage is trivial on purpose.** The value is in the edges and the compact-ref
   protocol, not the database.
 - **Token-efficient by construction.** Queries return compact refs, never source;

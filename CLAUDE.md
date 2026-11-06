@@ -31,7 +31,9 @@ Indexa um repo → grafo SQLite de símbolos + relações; o agente consulta o g
    linguagem — `scip-typescript` (TS/JS) e `go/packages` + `go/callgraph` (Go, as
    libs que o próprio gopls usa) — lidos in-process. Mesma precisão de type-checker
    real, num passe só, sem servidor LSP vivo pra babá. Pulamos a parte mais difícil
-   do port.
+   do port. Cobertura hoje: resolver completo em TS/JS e Go; Ruby só no subconjunto
+   estático verificado (`ruby-static`); Python ainda **sem** CALLS (estrutural
+   apenas) até o resolver passar no oracle.
 4. **Precisão honesta** — aresta não resolvida é descartada (endpoints precisam
    existir no grafo). Melhor aresta faltando que aresta errada.
 5. **Poucas dependências** — SQLite puro-Go (`modernc.org/sqlite`), MCP server em
@@ -39,13 +41,17 @@ Indexa um repo → grafo SQLite de símbolos + relações; o agente consulta o g
    `CGO_ENABLED=1` + gcc. scip-typescript entra como ferramenta de build (Node), não
    liga no binário.
 
-## Estado atual — M0–M5 fechados
+## Estado atual
 
 - Store SQLite 2 tabelas + FTS5 espelhando o upstream (`internal/graph`).
-- Discover (hard-ignores + **`.gitignore`** + `.cbmignore`) + detecção de linguagem (Go/TS/JS).
+- Discover (hard-ignores + **`.gitignore`** + `.cbmignore`) + detecção de linguagem
+  (Go/TS/JS/Ruby/Python; árvores de ferramentas Python como `__pycache__`/`venv`/`.venv`
+  também são ignoradas).
 - **M1** — definições via **tree-sitter** (`internal/index/treesitter.go`): nós
   File/Function/Method/Class/Interface/Type/Enum/Variable + edges DEFINES, com
-  `end_line` real, `is_exported` e decorators (NestJS etc.). Edges IMPORTS (TS/JS).
+  `end_line` real, `is_exported` e decorators (NestJS etc.). Edges IMPORTS (TS/JS;
+  Ruby só `require*` literal comprovado; Python só imports de nível de módulo do
+  próprio repo).
   Paralelo (NumCPU goroutines).
 - **M2** — edges **CALLS** com precisão de type-checker: `scip-typescript` (TS/JS,
   `internal/scip`) + `go/packages` + CHA (Go, `internal/gocalls`), costurados em
@@ -67,6 +73,19 @@ Indexa um repo → grafo SQLite de símbolos + relações; o agente consulta o g
   (`internal/memory`, batched defs, streaming imports); reuse CALLS via 2º Store +
   `BeginReadSnapshot`; MCP fecha DB antes do index (Windows), reabre em falha e prepende
   status de erro nas tools; `Store`/`Engine` `Reopen`.
+- **Ruby/Rails** — defs (Module/Class/Constant/Method) + rotas Rails em
+  `config/routes.rb` (`Route`/`HANDLES`) + `require_relative`/autoload → IMPORTS +
+  `ruby-static` CALLS (singleton de constante absoluta) com oracle fixture
+  (`internal/index/ruby.go`, `ruby_calls.go`; plano em `docs/RUBY_ROADMAP.md`).
+- **Python estrutural (PR #29, 2026-11)** — defs (Function/Method/Class/Constant,
+  incl. nested/dunder/private/decoradores), IMPORTS de nível de módulo
+  (`import a.b.c` → cadeia de prefixos como arquivo ou `__init__.py`; `from . import x`
+  → irmãos), complexidade ciclomática, `python_analysis_version` (upgrade sem edit +
+  reuse de CALLS de outras linguagens) e `test_*.py` pytest. Sem resolver CALLS —
+  `scip-python` condicionado ao dogfood real do dono.
+- **Escopo pessoal macOS** — decisão vigente em `docs/PERSONAL_MACOS_SCOPE.md`
+  (2026-10-09, com emenda de 2026-11 sobre linguagens): Windows fora de escopo;
+  expansão de linguagem condicionada a uso real do dono.
 - Query engine (`internal/query`): search / callers / callees / neighbors / similar /
   dead_code / get_architecture / snippet / detect_changes.
 - MCP stdio JSON-RPC (`internal/mcp`); CLI (`cmd/codegraph`): `index | stats | changes |
@@ -108,6 +127,10 @@ Store: `~/.cache/codegraph/<project>.db`. Original clonado (shallow) em
 - **M4** ✅ SIMILAR_TO (MinHash/LSH) + `similar`/`dead_code` + complexidade ciclomática.
 - **M5** ✅ auto-index no serve + `codegraph install` (Claude Code/Codex/opencode) +
   `get_architecture` + Route nodes NestJS. Dogfooded (registrado e usado de verdade).
+- **Ruby/Rails** ✅ — M1 estrutural + rotas + `ruby-static` CALLS verificados por
+  oracle (`docs/RUBY_ROADMAP.md`).
+- **Python** ✅ estrutural (PR #29, 2026-11) — defs/IMPORTS/complexidade; resolver
+  CALLS ⬜ condicionado ao dogfood em repo real.
 - **M6 (próximo)** ⬜ `HTTP_CALLS` (deferido — heurística de string, não type-checked;
   ver ROADMAP) + opcional `graph.db.zst`.
 - **Qualidade Go ≥85%** ✅ — VTA (substituiu CHA) + arquivos de teste + recall de

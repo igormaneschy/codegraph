@@ -8,7 +8,7 @@
 ## Contexto
 - Módulo único Go `github.com/Lordymine/codegraph`, Go 1.26. Tree-sitter usa cgo: build requer `CGO_ENABLED=1` e gcc/clang (MinGW no Windows).
 - `cmd/codegraph` hospeda CLI/MCP; `internal/index` faz descoberta e indexação; `internal/graph` mantém SQLite/FTS5; `internal/query` define consultas/paginação; `internal/mcp` implementa JSON-RPC sobre stdio.
-- Resolução `CALLS` é delegada ao SCIP (`internal/scip`, TS/JS) e `go/packages`/VTA (`internal/gocalls`, Go). Arestas sem endpoints reais são descartadas; não substitua isso por heurísticas que inventem chamadas.
+- Resolução `CALLS` é delegada ao SCIP (`internal/scip`, TS/JS), ao `go/packages`/VTA (`internal/gocalls`, Go) e ao subconjunto estático verificado `ruby-static` (`internal/index/ruby_calls.go`, Ruby). Python ainda não tem resolver CALLS: indexação é estrutural (defs + IMPORTS) e o resolver opcional (`scip-python`) fica para trás de um oracle de mapeamento QN. Arestas sem endpoints reais são descartadas; não substitua isso por heurísticas que inventem chamadas.
 - Use `index.RunAtomic` para indexar/reindexar: o banco e o manifest são preparados e validados antes da troca atômica. Em mudanças de sessão MCP, serialize a consulta inteira — não apenas o gate — contra `Engine.Close/Reopen`.
 - Snapshot de resolvers deve consumir o plano observado de inputs, nunca redescobrir dependências no staging. Ambiente Go efetivo é injetado em `packages.Config.Env`; inputs não certificados não autorizam no-op/reuso de CALLS. Não leia `.env` sem admissão explícita.
 - Consultas expõem refs compactas; conteúdo-fonte só deve sair por `snippet`. Não execute `codegraph index <repo>` enquanto o MCP estiver servindo o mesmo repositório.
