@@ -4,6 +4,11 @@ Decision: 2026-10-09, confirmed by Igor after PR #23. This fork is currently a
 personal tool used exclusively on macOS. This decision governs the next milestones;
 it is not a redesign, new platform-support promise or waiver of correctness.
 
+Amendment (2026-11-06): language expansion re-opened under the same owner-use gate.
+Python structural indexing (`.py`/`.pyi` defs + repo-local imports) merged via PR
+#29; the optional Python CALLS resolver (`scip-python`) and any Rust support remain
+deferred until a real repository the owner uses justifies them.
+
 ## Priorities
 
 1. Validate the daily query → edit → refresh → query workflow on macOS: expected
@@ -29,6 +34,8 @@ it is not a redesign, new platform-support promise or waiver of correctness.
 | Search `(rank, id)` keyset | Conditional, not the automatic next implementation | Deep search paging is measurably costly in use |
 | Deep staging/content reuse | Conditional, with an input-identity proof | Measured staging cost warrants the complexity |
 | Full Go/npm/SCIP external-input closure | Incremental, demand-driven backlog | A bounded subset has demonstrated benefit or correctness need |
+| Python CALLS resolver (`scip-python`) | Conditional; structural indexing shipped first | Python becomes part of the owner's daily workflow |
+| Rust language support | Deferred | Owner has a real Rust repository to dogfood |
 
 Reclassification is not closure: Windows support and complete R04/R05 coverage
 have **not** been implemented. Existing benchmark artifacts retain their original

@@ -35,12 +35,31 @@ versions may include breaking changes).
   `::Payments::Gateway.authorize` emit `CALLS` only when exactly one repository
   singleton-method declaration exists. Dynamic, lexical, instance, and ambiguous
   receivers remain excluded.
+- **Python structural indexing** - discovery includes `.py` and `.pyi` (with
+  hard-ignores for `__pycache__`, `venv`, `.venv`, `.mypy_cache`, and `.tox`); the
+  official tree-sitter Python grammar extracts module/class-level functions (async
+  included), methods, nested classes, and `UPPER_SNAKE_CASE` constants, applying the
+  leading-underscore export convention with dunders exported, cyclomatic complexity
+  on functions/methods, and pytest `test_*.py` file detection.
+- **Python repo-local imports** - module-level import statements emit `IMPORTS`
+  edges: absolute `import a.b.c` claims every resolvable dotted prefix as a module
+  file or `__init__.py` package; `from x import sym` claims only the module chain;
+  `from . import sym` resolves sibling submodules. Conditional imports and relative
+  dots that would escape the repository claim nothing.
+- **Python analysis migration** - Python File nodes carry `python_analysis_version`
+  (one Python-rebuild refresh on upgrade, without a source edit), and `.py` edits
+  reuse other languages' CALLS; no Python CALLS resolver ships - an optional
+  `scip-python` integration stays interim-gated on dogfooding Python on a real
+  owner repository.
 
 ### Changed
 
 - **Roadmap priority** - Ruby and Rails support is now the active roadmap focus;
   its staged plan, quality gates, and explicit non-goals live in
   [`docs/RUBY_ROADMAP.md`](docs/RUBY_ROADMAP.md).
+- **Language expansion re-opened (2026-11)** - Python structural indexing merged
+  under the owner-use gate of `docs/PERSONAL_MACOS_SCOPE.md`; semantic language
+  work (resolvers) stays conditioned on dogfooding a real repository.
 - **Ruby analysis cache migration** - parser and resolver upgrades now refresh an
   unchanged Ruby repository on its next index, without requiring a source edit.
 

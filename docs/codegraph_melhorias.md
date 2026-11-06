@@ -30,7 +30,7 @@
 
 Objetivo: servir de entrada para pedir um plano de implementação detalhado a um agente de código, diretamente no repositório `igormaneschy/codegraph`.
 
-Contexto: codegraph é um servidor MCP em Go que indexa repositórios Go e TS/JS num grafo (SQLite + FTS5), com arestas CALLS resolvidas por type checkers (go/packages + VTA; scip-typescript). Ferramentas atuais: get_architecture, search, callers, callees, neighbors, similar, dead_code, detect_changes, snippet. Roadmap M0–M5 concluído; M6 (HTTP_CALLS e artefato graph.db.zst) pendente.
+Contexto: codegraph é um servidor MCP em Go que indexa repositórios Go, TS/JS, Ruby (estrutural + subconjunto estático `ruby-static` de CALLS) e Python (estrutural; sem resolver CALLS ainda) num grafo (SQLite + FTS5), com arestas CALLS resolvidas por indexadores dedicados (go/packages + VTA; scip-typescript). Ferramentas atuais: get_architecture, search, callers, callees, neighbors, similar, dead_code, detect_changes, snippet. Roadmap M0–M5 concluído; M6 (HTTP_CALLS e artefato graph.db.zst) pendente.
 
 Referências de inspiração (design apenas, NÃO copiar código):
 - CKB (SimplyLiz/ckb) — licença com restrições comerciais; usar só como ideia de design.
@@ -120,6 +120,12 @@ Critérios: cálculo incremental; limites de histórico configuráveis (ex.: úl
 
 Proposta: abstrair "indexador SCIP" (comando, pré-requisitos, mapeamento de símbolos → nodes/edges) para adicionar Python, Rust, Java etc. com pouco código por linguagem, reutilizando a integração do scip-typescript.
 Critérios: interface `Indexer` documentada; uma linguagem-piloto (sugestão: Python ou Rust) com testes e benchmark.
+
+Status (2026-11): Python entrou como suporte **estrutural** via walker próprio do
+tree-sitter (PR #29), sem a abstração SCIP — o gatilho da abstração continua sendo a
+segunda linguagem baseada em SCIP. O resolver opcional de Python via `scip-python`
+(regeneração CALLS com mapeamento QN provado por oracle, padrão do spike Ruby) é o
+candidato natural e fica condicionado ao dogfooding real do dono.
 
 ## 11. Revisão de PR sem LLM
 

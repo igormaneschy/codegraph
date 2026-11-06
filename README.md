@@ -14,7 +14,7 @@ what's the shape of this codebase?* — in **one query, compact refs, a fraction
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Go](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go)](go.mod)
 
-`Go` · `SQLite (pure-Go)` · `MCP-native` · **Go + TypeScript/JavaScript** · status: **M0–M5 done — dogfooded on real repos**
+`Go` · `SQLite (pure-Go)` · `MCP-native` · **Go + TS/JS + Ruby + Python** · status: **M0–M5 done — dogfooded on real repos**
 
 </div>
 
@@ -95,13 +95,15 @@ Two rules keep it honest:
 
 ## Languages supported (today)
 
-Scoped deliberately to one stack done well, not 158 done shallowly.
+Scoped deliberately to a few stacks done well, not 158 done shallowly.
 
 | Language | Definitions | `CALLS` resolution | Extras |
 |---|---|---|---|
 | **Go** | tree-sitter | `go/packages` + **VTA** call graph (in-process) | closure & recursive-call recall; ~100% intra-repo callers |
 | **TypeScript / TSX** | tree-sitter | **scip-typescript** per `tsconfig` (monorepo-aware) | `IMPORTS`; NestJS `@Controller/@Get` → HTTP `Route` nodes |
 | **JavaScript / JSX** | tree-sitter | scip-typescript | parsed via the TSX grammar |
+| **Ruby** | tree-sitter | `ruby-static`: only absolute-constant singleton calls, tags `resolver=ruby-static`, `confidence=high` | Rails `Route` nodes + `HANDLES`; literal `require_relative`/autoload-proven `require` → `IMPORTS` |
+| **Python** | tree-sitter | — (structural only; an optional `scip-python` resolver stays gated on owner dogfooding) | `IMPORTS` for repo-local, module-level imports; pytest `test_*.py` flagged as test files |
 
 Generated/built code committed to a repo (vendored module caches, minified bundles,
 Prisma clients) is kept out via `.gitignore` (honored automatically) and `.cbmignore`.

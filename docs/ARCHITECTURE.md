@@ -124,7 +124,7 @@ prepareIndexingAtRoot(store, repositoryRoot, strict)
 runPipelineContext(store, in)
   ReplaceProject                wipe project nodes/edges/FTS on the .building store
   → indexDefinitionsBatched     tree-sitter defs in bounded batches (memory.MaxWorkers)
-  → collectImportsStreaming     IMPORTS edges flushed per file (TS/JS)
+  → collectImportsStreaming     IMPORTS edges flushed per file (TS/JS, Ruby, Python)
   → resolveTSCalls              scip-typescript for changed tsconfig scopes
   → resolveGoCalls              go/packages + VTA for the changed Go scope
   → resolveRubyCalls            ruby-static literal subset for the changed Ruby scope
@@ -686,7 +686,7 @@ from the Node-independent default Go suite.
 ```
 cmd/codegraph/        CLI entrypoint + subcommands (index/stats/mcp/bench/quality/cli)
 internal/graph/       model.go (Node/Edge/labels/edge-types) + store.go (SQLite)
-internal/index/       discover.go, path.go, manifest.go, resolver.go, lock.go (+ platform files), atomic_helpers.go, definitions.go + treesitter.go + complexity.go + routes.go, imports.go, calls.go, ruby_calls.go, similar.go, incremental.go, prepare.go, pipeline.go, tsdeps.go
+internal/index/       discover.go, path.go, manifest.go, resolver.go, lock.go (+ platform files), atomic_helpers.go, definitions.go + treesitter.go + complexity.go + routes.go + python.go, imports.go, calls.go, ruby_calls.go, similar.go, incremental.go, prepare.go, pipeline.go, tsdeps.go
 internal/memory/      auto-tuned indexing RAM budget + Gate() between phases
 internal/scip/        scip-typescript runner + SCIP→CALLS attribution (TS/JS, M2)
 internal/gocalls/     go/packages + VTA call graph → CALLS (Go, M2; cha.go = generics-safe)
