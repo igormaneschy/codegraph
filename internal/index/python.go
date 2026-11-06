@@ -12,7 +12,9 @@ import (
 // import analysis changes its output for unchanged source. It forces one full
 // Python rebuild so existing repositories receive the new analysis without an
 // edit — the same mechanism as Ruby's ruby_analysis_version.
-const pythonAnalysisVersion = 1
+// 2: src-layout fallback for absolute IMPORTS (existing stores regenerate the
+// missing src/ edges without a source edit).
+const pythonAnalysisVersion = 2
 
 // walkPyDefs extracts declarations that are explicit in Python source:
 // module- and class-level functions (async included), classes (nested

@@ -489,7 +489,9 @@ as runtime entry points. Cyclomatic complexity counts `if_statement`, `elif_clau
 full-subtree semantic TypeScript closures already set. Literal repo-local imports
 claim `IMPORTS` edges against the indexed file set: absolute `import a.b.c` claims
 every resolvable dotted prefix as module file or `__init__.py` package (both shapes
-resolve modules); `from x import sym` claims only the module chain, because the
+resolve modules), re-probing prefixes under `src/` when they miss at the repository
+root (packaging src-layout; root-level hits are kept, never duplicated);
+`from x import sym` claims only the module chain, because the
 symbol may equally be an attribute; `from . import sym` resolves sibling submodules
 of the importing file's package; and only module-level statements claim files —
 conditional imports and relative dots that climb above the repository claim nothing

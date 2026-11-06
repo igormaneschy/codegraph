@@ -277,6 +277,76 @@ from .. import up
 	}
 }
 
+func TestImports_Python_SrcLayoutFallbackClaimsUnderSrc(t *testing.T) {
+	// A src-layout repository ships its importable package as src/pkg: an
+	// absolute import misses at the repository root and is re-probed under
+	// src/. Claims stay proven by the indexed file set; from-import symbols
+	// remain attribute-only claims.
+	edges := resolveImports("p", []fileSrc{
+		{RelPath: "src/app/use.py", Lang: LangPython, Data: []byte(`
+import omqs.config
+from omqs.runtime import actor
+`)},
+		{RelPath: "src/omqs/__init__.py", Lang: LangPython, Data: []byte("")},
+		{RelPath: "src/omqs/config.py", Lang: LangPython, Data: []byte("")},
+		{RelPath: "src/omqs/runtime/__init__.py", Lang: LangPython, Data: []byte("")},
+		{RelPath: "src/omqs/runtime/actor.py", Lang: LangPython, Data: []byte("")},
+	})
+	abs := "p:src/app/use.py"
+	for _, tgt := range []string{
+		"p:src/omqs/__init__.py",
+		"p:src/omqs/config.py",
+		"p:src/omqs/runtime/__init__.py",
+	} {
+		if !hasImport(edges, abs, tgt) {
+			t.Errorf("missing src-layout IMPORTS use.py -> %s; got %+v", tgt, edges)
+		}
+	}
+	if hasImport(edges, abs, "p:src/omqs/runtime/actor.py") {
+		t.Error("from-import symbol may be an attribute, so the module file stays unclaimed")
+	}
+	if hasImport(edges, abs, "p:omqs/config.py") {
+		t.Error("root probe missed, so no phantom root-level claim may appear")
+	}
+}
+
+func TestImports_Python_SrcLayoutRootHitWins(t *testing.T) {
+	// When a dotted prefix resolves at the repository root, the src/ fallback
+	// stays dormant: one proven location per prefix, never a duplicate edge.
+	edges := resolveImports("p", []fileSrc{
+		{RelPath: "svc.py", Lang: LangPython, Data: []byte("import hello.world\n")},
+		{RelPath: "hello/__init__.py", Lang: LangPython, Data: []byte("")},
+		{RelPath: "hello/world.py", Lang: LangPython, Data: []byte("")},
+		{RelPath: "src/hello/__init__.py", Lang: LangPython, Data: []byte("")},
+		{RelPath: "src/hello/world.py", Lang: LangPython, Data: []byte("")},
+	})
+	abs := "p:svc.py"
+	for _, tgt := range []string{"p:hello/__init__.py", "p:hello/world.py"} {
+		if !hasImport(edges, abs, tgt) {
+			t.Errorf("missing root-level IMPORTS svc.py -> %s; got %+v", tgt, edges)
+		}
+	}
+	if hasImport(edges, abs, "p:src/hello/__init__.py") || hasImport(edges, abs, "p:src/hello/world.py") {
+		t.Errorf("root-level hit must not be duplicated by the src/ fallback: %+v", edges)
+	}
+}
+
+func TestImports_Python_ExplicitSrcImportUsesRootLevel(t *testing.T) {
+	// Imports that genuinely spell the src package out (`import src.helper`)
+	// keep resolving at the repository root: the fallback only fires on misses.
+	edges := resolveImports("p", []fileSrc{
+		{RelPath: "app.py", Lang: LangPython, Data: []byte("import src.helper\n")},
+		{RelPath: "src/__init__.py", Lang: LangPython, Data: []byte("")},
+		{RelPath: "src/helper.py", Lang: LangPython, Data: []byte("")},
+	})
+	abs := "p:app.py"
+	for _, tgt := range []string{"p:src/__init__.py", "p:src/helper.py"} {
+		if !hasImport(edges, abs, tgt) {
+			t.Errorf("missing explicit src-package IMPORTS app.py -> %s; got %+v", tgt, edges)
+		}
+	}
+}
+
 func TestImports_Python_ClaimsBothFileAndPackageModuleShapes(t *testing.T) {
 	// Both x.py and x/__init__.py model a resolvable module; Python executes
 	// whichever it finds, so both resolving shapes are claimed as written.

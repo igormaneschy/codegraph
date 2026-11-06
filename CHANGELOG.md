@@ -99,6 +99,11 @@ versions may include breaking changes).
   (not on resolver errors).
 - **Unified CALLS reuse path** — removed duplicate stash/slice loaders; `Run` and
   `RunAtomic` share `forEachReusableCallEdge` + `insertReusedCallEdges`.
+- **Python src-layout imports** - absolute imports resolve through the packaging
+  src-layout convention as well: when a dotted prefix misses at the repository
+  root, it is re-probed under `src/` (pyproject `packages = ["src/pkg"]` shape).
+  Every claim stays proven against the indexed file set, root-level wins are
+  never duplicated, and relative imports are unchanged.
 
 ### Changed
 
