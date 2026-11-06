@@ -245,6 +245,56 @@ func TestRubyAnalysisCurrent(t *testing.T) {
 	}
 }
 
+// TestPythonAnalysisCurrent pins the Python analysis-version gate that
+// RubyAnalysisCurrent introduced: a Python file without the current
+// python_analysis_version invalidates the graph exactly once, and the marker
+// of another language never satisfies the Python check.
+func TestPythonAnalysisCurrent(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	t.Run("no Python files", func(t *testing.T) {
+		current, err := s.PythonAnalysisCurrent("empty", 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !current {
+			t.Error("a project without Python files must not require a Python analysis migration")
+		}
+	})
+
+	if err := s.InsertNodes([]Node{{
+		Project: "old", Label: LabelFile, Name: "old.py", QualifiedName: "old:old.py", FilePath: "old.py",
+		Props: map[string]any{"lang": "python"},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	current, err := s.PythonAnalysisCurrent("old", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current {
+		t.Error("Python file without an analysis version must invalidate the old graph")
+	}
+
+	if err := s.InsertNodes([]Node{{
+		Project: "current", Label: LabelFile, Name: "current.py", QualifiedName: "current:current.py", FilePath: "current.py",
+		Props: map[string]any{"lang": "python", "python_analysis_version": 1},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	current, err = s.PythonAnalysisCurrent("current", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !current {
+		t.Error("Python file at the current analysis version must permit a no-op")
+	}
+}
+
 // TestStore_ReadSnapshotPreservesPreWipeCalls pins the Run reuse path: a second
 // connection with an active read snapshot still sees CALLS edges after ReplaceProject
 // wipes them on the writer connection.

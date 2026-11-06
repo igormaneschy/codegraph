@@ -10,7 +10,7 @@ import (
 	"unicode/utf8"
 )
 
-var sourceBoundary = regexp.MustCompile(`(?i)\.(?:go|tsx?|jsx?|mjs|cjs|rb|rake|ru|rbi)(?:\.|$)`)
+var sourceBoundary = regexp.MustCompile(`(?i)\.(?:go|tsx?|jsx?|mjs|cjs|rb|rake|ru|rbi|pyi?)(?:\.|$)`)
 
 // Identity is deliberately not normalized. The oracle derives declarations from
 // source; accepting a bare name/project prefix and guessing its identity would

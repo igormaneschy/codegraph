@@ -6,7 +6,7 @@ import (
 )
 
 func TestQualifiedIdentityIsCanonicalWithoutFolding(t *testing.T) {
-	for _, qn := range []string{"src/a.go.Box.Run", "src/A.GO.Box.Run", "src/a.spec.ts.Owner.method", "lib/a.rb.Owner#[]=", "lib/a.rb.Outer::Inner.method", "src/a.go", "dir with spaces/a.ts.Owner.method", `src/a.ts.Owner."foo/bar"`, `src/a.ts.Owner["method with spaces"]`, "src/dotted.ts.dir/a.ts.Owner.method"} {
+	for _, qn := range []string{"src/a.go.Box.Run", "src/A.GO.Box.Run", "src/a.spec.ts.Owner.method", "lib/a.rb.Owner#[]=", "lib/a.rb.Outer::Inner.method", "app/main.py.Account.handle", "app/stubs.pyi.Foo.T", "src/a.go", "dir with spaces/a.ts.Owner.method", `src/a.ts.Owner."foo/bar"`, `src/a.ts.Owner["method with spaces"]`, "src/dotted.ts.dir/a.ts.Owner.method"} {
 		if err := validateQualifiedName(qn); err != nil {
 			t.Errorf("valid qn %q: %v", qn, err)
 		}

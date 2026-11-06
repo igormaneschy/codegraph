@@ -122,13 +122,15 @@ func resolveImports(project string, files []fileSrc) []graph.Edge {
 // Unsupported languages have no IMPORTS model; opening their source adds work
 // without evidence. Definitions and other source consumers still validate them.
 func supportsImports(lang Lang) bool {
-	return lang == LangTS || lang == LangTSX || lang == LangJS || lang == LangRuby
+	return lang == LangTS || lang == LangTSX || lang == LangJS || lang == LangRuby || lang == LangPython
 }
 
 func importEdgesForSource(project string, f fileSrc, exists map[string]bool, rubyLoadPaths []string) []graph.Edge {
 	switch f.Lang {
 	case LangRuby:
 		return rubyImportEdgesForFile(project, f.RelPath, f.Data, exists, rubyLoadPaths)
+	case LangPython:
+		return pythonImportEdgesForFile(project, f.RelPath, f.Data, exists)
 	case LangTS, LangTSX, LangJS:
 		return importEdgesForFile(project, f.RelPath, f.Lang, f.Data, exists)
 	default:
@@ -163,7 +165,187 @@ func rubyImportEdgesForFile(project, relPath string, data []byte, exists map[str
 	return edges
 }
 
-// Ruby imports are parsed in their own bounded pass, keeping no AST across files.
+// pythonImportEdgesForFile resolves repo-local, source-level Python imports to
+// importer File -> imported File edges. Only module-level statements claim
+// files: a conditional import inside try/except is runtime-dependent, so it
+// claims nothing rather than guessing. Absolute `import a.b.c` claims the full
+// dotted chain (each prefix is a module Python executes on import, resolved
+// against the indexed file set); `from a.b import sym` claims only the module
+// chain because the symbol may equally be an attribute; and `from . import sym`
+// (empty module inside a package) resolves each symbol as a sibling submodule
+// file of the importing file's directory, proven by file existence. unresolved
+// specifiers are skipped — the store would drop the edge anyway, but resolving
+// in-memory keeps the pass honest about what it claimed.
+type pyImport struct {
+	dots    int      // leading dots of a relative import (0 = absolute)
+	module  string   // dotted module path without the dots; "" for `from . import x`
+	symbols []string // sibling submodules, only meaningful when module == ""
+	spec    string   // dotted specifier, e.g. "services.auth" or ".auth"
+}
+
+func pythonImportEdgesForFile(project, relPath string, data []byte, exists map[string]bool) []graph.Edge {
+	fileQN := project + ":" + relPath
+	var edges []graph.Edge
+	seen := map[string]bool{}
+	for _, imp := range extractPyImports(data) {
+		for _, target := range resolvePyImportTargets(relPath, imp, exists) {
+			if target == relPath || seen[target] {
+				continue
+			}
+			seen[target] = true
+			edges = append(edges, graph.Edge{Project: project, SourceQN: fileQN,
+				TargetQN: project + ":" + target, Type: graph.EdgeImports,
+				Props: map[string]any{"specifier": imp.spec}})
+		}
+	}
+	return edges
+}
+
+// resolvePyImportTargets maps one pyImport to the repository-relative files the
+// import executes, proven by the indexed file set. Absolute modules claim every
+// dotted prefix that resolves to a module file or package (`import a.b.c`
+// executes a/__init__.py, a/b/__init__.py, and a/b/c.py); `from . import sym`
+// resolves each symbol as a sibling module or package of the importing file's
+// directory; relative dots climb from that directory, and an import that needs
+// to escape the repository resolves to nothing.
+func resolvePyImportTargets(importerRel string, imp pyImport, exists map[string]bool) []string {
+	if imp.dots == 0 && imp.module == "" {
+		return nil
+	}
+	baseDir := path.Dir(importerRel)
+	if imp.dots == 0 {
+		baseDir = "" // absolute modules resolve from the repository root
+	}
+	for i := 1; i < imp.dots; i++ { // one dot stays inside the importing directory
+		parent := path.Dir(baseDir)
+		if parent == baseDir {
+			return nil // the import climbs above the repository root
+		}
+		baseDir = parent
+	}
+	if imp.module == "" {
+		// Empty module means `from . import sym`: each symbol is a sibling
+		// module or package of the importing file's directory.
+		var out []string
+		for _, sym := range imp.symbols {
+			if sym == "*" {
+				continue
+			}
+			out = appendPyTarget(out, path.Join(baseDir, sym), exists)
+		}
+		return out
+	}
+	var out []string
+	for _, mod := range pyModulePrefixes(imp.module) {
+		out = appendPyTarget(out, path.Join(baseDir, mod), exists)
+	}
+	return out
+}
+
+// pyModulePrefixes expands "a.b.c" into its executable import chain
+// ("a", "a/b", "a/b/c").
+func pyModulePrefixes(module string) []string {
+	parts := strings.Split(module, ".")
+	out := make([]string, 0, len(parts))
+	parent := ""
+	for _, part := range parts {
+		parent = path.Join(parent, part)
+		out = append(out, parent)
+	}
+	return out
+}
+
+// appendPyTarget claims one module reference (rel without extension) as either
+// its module file or its package initializer, both of which Python executes.
+func appendPyTarget(out []string, rel string, exists map[string]bool) []string {
+	if exists[rel+".py"] {
+		out = append(out, rel+".py")
+	}
+	if exists[rel+"/"+"__init__.py"] {
+		out = append(out, rel+"/"+"__init__.py")
+	}
+	return out
+}
+
+func extractPyImports(data []byte) []pyImport {
+	parser := tree_sitter.NewParser()
+	defer parser.Close()
+	if err := parser.SetLanguage(langFor(LangPython)); err != nil {
+		return nil
+	}
+	tree := parser.Parse(data, nil)
+	if tree == nil {
+		return nil
+	}
+	defer tree.Close()
+	root := tree.RootNode()
+	var out []pyImport
+	for i := uint(0); i < root.NamedChildCount(); i++ {
+		n := root.NamedChild(i)
+		switch n.Kind() {
+		case "import_statement":
+			for j := uint(0); j < n.NamedChildCount(); j++ {
+				if name := pyImportedModuleName(n.NamedChild(j), data); name != "" {
+					out = append(out, pyImport{module: name, spec: name})
+				}
+			}
+		case "import_from_statement":
+			if imp, ok := pyImportFrom(n, data); ok {
+				out = append(out, imp)
+			}
+		}
+	}
+	return out
+}
+
+// pyImportedModuleName reduces an `import` argument (dotted_name or an
+// aliased `module as alias` wrapper) to the module being imported.
+func pyImportedModuleName(n *tree_sitter.Node, data []byte) string {
+	switch n.Kind() {
+	case "dotted_name":
+		return n.Utf8Text(data)
+	case "aliased_import":
+		if name := n.ChildByFieldName("name"); name != nil {
+			return name.Utf8Text(data)
+		}
+	}
+	return ""
+}
+
+// pyImportFrom reduces `from MODULE import SYMBOLS` to its module reference and
+// imported symbols. The module part is the first dotted_name/relative_import
+// child; each later imported symbol contributes its name, and a wildcard
+// import contributes none (a star import claims attributes, not files).
+func pyImportFrom(n *tree_sitter.Node, data []byte) (pyImport, bool) {
+	var imp pyImport
+	for j := uint(0); j < n.NamedChildCount(); j++ {
+		c := n.NamedChild(j)
+		switch c.Kind() {
+		case "dotted_name":
+			if imp.module == "" && imp.dots == 0 && imp.spec == "" {
+				imp.module = c.Utf8Text(data)
+				imp.spec = imp.module
+				continue
+			}
+			imp.symbols = append(imp.symbols, c.Utf8Text(data))
+		case "relative_import":
+			text := c.Utf8Text(data)
+			imp.dots = len(text) - len(strings.TrimLeft(text, "."))
+			imp.module = strings.TrimLeft(text, ".")
+			imp.spec = text
+		case "aliased_import", "import_as_name":
+			if name := c.ChildByFieldName("name"); name != nil {
+				imp.symbols = append(imp.symbols, name.Utf8Text(data))
+			}
+		case "wildcard_import":
+			// from x import *: no single symbol, nothing resolvable to claim.
+		}
+	}
+	if imp.dots == 0 && imp.module == "" {
+		return pyImport{}, false
+	}
+	return imp, true
+}
 func extractRubyRequireRelativeSpecifiers(data []byte) []string {
 	return extractRubyCallSpecifiers(data, "require_relative")
 }

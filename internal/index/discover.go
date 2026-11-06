@@ -17,11 +17,12 @@ import (
 type Lang string
 
 const (
-	LangGo   Lang = "go"
-	LangTS   Lang = "ts"
-	LangTSX  Lang = "tsx"
-	LangJS   Lang = "js"
-	LangRuby Lang = "ruby"
+	LangGo     Lang = "go"
+	LangTS     Lang = "ts"
+	LangTSX    Lang = "tsx"
+	LangJS     Lang = "js"
+	LangRuby   Lang = "ruby"
+	LangPython Lang = "python"
 )
 
 // SourceFile is a discovered file worth indexing.
@@ -43,6 +44,8 @@ var langByExt = map[string]Lang{
 	".rake": LangRuby,
 	".ru":   LangRuby,
 	".rbi":  LangRuby,
+	".py":   LangPython,
+	".pyi":  LangPython,
 }
 
 // hardcoded ignores, same spirit as upstream (.git, node_modules, build dirs).
@@ -50,6 +53,10 @@ var hardIgnoreDir = map[string]bool{
 	".git": true, "node_modules": true, "dist": true, "build": true,
 	".next": true, ".expo": true, "coverage": true, "vendor": true,
 	".cache": true, "_upstream": true, "android": true, "ios": true,
+	// Python tooling and environment trees: compiled caches and (committed)
+	// interpreters hold no source worth indexing and dwarf the graph otherwise.
+	"__pycache__": true, "venv": true, ".venv": true,
+	".mypy_cache": true, ".tox": true,
 }
 
 // Discover walks root and returns indexable source files. It honors directory

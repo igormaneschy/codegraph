@@ -7,6 +7,7 @@ import (
 
 	tree_sitter "github.com/tree-sitter/go-tree-sitter"
 	tree_sitter_go "github.com/tree-sitter/tree-sitter-go/bindings/go"
+	tree_sitter_python "github.com/tree-sitter/tree-sitter-python/bindings/go"
 	tree_sitter_ruby "github.com/tree-sitter/tree-sitter-ruby/bindings/go"
 	tree_sitter_ts "github.com/tree-sitter/tree-sitter-typescript/bindings/go"
 
@@ -19,6 +20,7 @@ import (
 // optimization if profiling shows churn.
 var (
 	goLang   = tree_sitter.NewLanguage(tree_sitter_go.Language())
+	pyLang   = tree_sitter.NewLanguage(tree_sitter_python.Language())
 	rubyLang = tree_sitter.NewLanguage(tree_sitter_ruby.Language())
 	tsLang   = tree_sitter.NewLanguage(tree_sitter_ts.LanguageTypescript())
 	tsxLang  = tree_sitter.NewLanguage(tree_sitter_ts.LanguageTSX())
@@ -31,6 +33,8 @@ func langFor(lang Lang) *tree_sitter.Language {
 	switch lang {
 	case LangGo:
 		return goLang
+	case LangPython:
+		return pyLang
 	case LangRuby:
 		return rubyLang
 	case LangTS:

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/Lordymine/codegraph/internal/securefile"
@@ -61,6 +62,38 @@ func TestDiscover_RubyExtensions(t *testing.T) {
 		}
 		if !found {
 			t.Errorf("Ruby source %q was not discovered as LangRuby: %+v", path, files)
+		}
+	}
+}
+
+func TestDiscover_PythonExtensions(t *testing.T) {
+	dir := t.TempDir()
+	for _, path := range []string{"app/main.py", "types/stubs.pyi", "tests/test_main.py"} {
+		writeFile(t, dir, path, "# python source")
+	}
+	// Python tooling trees hold no source worth indexing even though their
+	// contents carry a .py extension (a committed venv, a bytecode cache).
+	writeFile(t, dir, "__pycache__/mod.py", "x = 1")
+	writeFile(t, dir, "venv/lib/mod.py", "x = 1")
+
+	files, err := Discover(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"app/main.py", "types/stubs.pyi", "tests/test_main.py"} {
+		found := false
+		for _, file := range files {
+			if file.RelPath == path && file.Lang == LangPython {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("Python source %q was not discovered as LangPython: %+v", path, files)
+		}
+	}
+	for _, f := range files {
+		if strings.HasPrefix(f.RelPath, "__pycache__/") || strings.HasPrefix(f.RelPath, "venv/") {
+			t.Errorf("Python tooling tree %q was indexed", f.RelPath)
 		}
 	}
 }

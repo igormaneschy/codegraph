@@ -430,6 +430,17 @@ the staged implementation plan, evaluation gates, and non-goals are maintained i
 [`RUBY_ROADMAP.md`](RUBY_ROADMAP.md). M6 remains deferred until that roadmap reaches
 its release gate.
 
+### Python (structural) ✅ 2026-11
+
+Following the same precision-first play: Python source (`.py`, `.pyi`) is structurally
+indexed with the official tree-sitter Python grammar — module/class-level
+`Function`/`Method`/`Class`/`Constant` definitions plus repo-local literal `IMPORTS`
+(see `docs/ARCHITECTURE.md`). No Python CALLS resolver ships yet: an optional
+`scip-python`-based resolver stays conditional on the owner dogfooding Python on a
+real repository first, with the source-pattern certification the Ruby semantic-resolver
+spike established (prove the resolver-to-QN mapping and a call oracle before any
+semantic edges land).
+
 ## M6 — deferred from M5 (do when proven)
 
 - ⬜ **`HTTP_CALLS`** (client call-site → `Route`). Deferred deliberately: unlike the

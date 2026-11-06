@@ -51,6 +51,9 @@ func extractDefsFromSource(project, relPath string, lang Lang, data []byte) ([]g
 	if lang == LangRuby {
 		fileNode.Props["ruby_analysis_version"] = rubyAnalysisVersion
 	}
+	if lang == LangPython {
+		fileNode.Props["python_analysis_version"] = pythonAnalysisVersion
+	}
 	nodes := []graph.Node{fileNode}
 	var edges []graph.Edge
 
@@ -90,6 +93,8 @@ func extractDefsFromSource(project, relPath string, lang Lang, data []byte) ([]g
 	switch lang {
 	case LangGo:
 		walkGoDefs(root, data, add)
+	case LangPython:
+		walkPyDefs(root, data, add)
 	case LangRuby:
 		walkRubyDefs(root, data, add)
 		walkRubyRoutes(root, data, relPath, project, add, func(routeSuffix, targetQN string) {
@@ -116,9 +121,13 @@ func baseName(p string) string {
 
 // IsTestFile reports whether a repo-relative path is a test file, by the naming
 // conventions of the supported stacks (Go `_test.go`, JS/TS `.test.`/`.spec.`,
-// and `__tests__` dirs). Exported so the query layer can exclude test functions
-// from the dead-code hint — they're invoked by the test runner, not by code.
+// `__tests__` dirs, and pytest `test_`-prefix `.py` files). Exported so the
+// query layer can exclude test functions from the dead-code hint — they're
+// invoked by the test runner, not by code.
 func IsTestFile(p string) bool {
+	if strings.HasSuffix(p, ".py") && strings.HasPrefix(baseName(p), "test_") {
+		return true
+	}
 	return strings.Contains(p, "_test.") || strings.Contains(p, ".test.") ||
 		strings.Contains(p, ".spec.") || strings.Contains(p, "/__tests__/")
 }

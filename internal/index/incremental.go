@@ -142,7 +142,10 @@ func detectChangesCanonicalContext(ctx context.Context, store *graph.Store, proj
 // scopeOf returns the CALLS scope a repo-relative file belongs to. Go files share
 // the one "go" scope (go/packages + VTA is whole-module); a TS/JS file belongs to
 // the tsconfig-project directory that most tightly encloses it, or "" (the repo-root
-// scip run) when no subproject does. Scopes are the unit of incremental re-resolution.
+// scip run) when no subproject does; Ruby and Python files share one language
+// scope each (ruby-static resolves all Ruby calls; Python has no resolver yet,
+// and its scope must keep .py edits out of the "" root TS scope). Scopes are the
+// unit of incremental re-resolution.
 func scopeOf(rel string, tsconfigDirs []string) string {
 	ext := strings.ToLower(filepath.Ext(rel))
 	if ext == ".go" {
@@ -151,6 +154,8 @@ func scopeOf(rel string, tsconfigDirs []string) string {
 	switch ext {
 	case ".rb", ".rake", ".ru", ".rbi":
 		return "ruby"
+	case ".py", ".pyi":
+		return "python"
 	}
 	best, bestLen := "", -1
 	for _, d := range tsconfigDirs {

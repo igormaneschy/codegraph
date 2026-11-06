@@ -27,7 +27,7 @@ const (
 	manifestVersion        = 3
 	graphSchemaVersion     = "nodes-edges-fts5-v1"
 	analysisVersion        = "analysis-v3"
-	discoveryRuleVersion   = "discovery-v2"
+	discoveryRuleVersion   = "discovery-v3"
 	manifestFileSuffix     = ".manifest.json"
 	manifestBuildingSuffix = ".manifest.building"
 )

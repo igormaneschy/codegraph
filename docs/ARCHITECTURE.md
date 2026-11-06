@@ -379,6 +379,9 @@ indices. Unchanged TS/JS inputs can still reuse CALLS during other-language edit
 Config/analysis identity changes continue to invalidate all resolvers. Ruby File nodes carry a
 `ruby_analysis_version`; changing it forces one full Ruby analysis rebuild even when source
 hashes are unchanged, so parser/resolver upgrades are visible without requiring an edit.
+Python File nodes carry a `python_analysis_version` with the same one-rebuild semantics;
+because no Python CALLS resolver exists yet, its outdated state invalidates the Python
+structural analysis without dropping CALLS reuse for other scopes.
 
 ### Memory budget (internal/memory)
 
@@ -471,6 +474,28 @@ conventionally located controller methods. Literal root targets and hash-rocket 
 targets use the same mapping. Namespace and `scope module:` blocks retain their route
 nodes but drop `HANDLES` until their controller context is modeled; the same applies
 to `scope controller:`. Missing, dynamic, and malformed targets drop.
+
+Python source (`.py`, `.pyi`) uses the official tree-sitter Python grammar. The
+definitions pass emits module/class-level `Function` (async included), `Method`,
+`Class` (nested classes stay in scope), and `Constant` nodes: only assignments to
+`UPPER_SNAKE_CASE` identifiers claim constants, and attribute/tuple targets claim
+nothing. Declaration wrappers are descended — a `TYPE_CHECKING` guard or module-level
+try/with block still declares real symbols — but function bodies are never descended:
+a `def` nested inside another `def` is runtime-composed, not a stable module member.
+`is_exported` follows the leading-underscore convention, with dunder names exported
+as runtime entry points. Cyclomatic complexity counts `if_statement`, `elif_clause`,
+`while_statement`, `for_statement`, `except_clause`, `conditional_expression`,
+`boolean_operator`, `case_clause`, and match `if_clause` guards over the same
+full-subtree semantic TypeScript closures already set. Literal repo-local imports
+claim `IMPORTS` edges against the indexed file set: absolute `import a.b.c` claims
+every resolvable dotted prefix as module file or `__init__.py` package (both shapes
+resolve modules); `from x import sym` claims only the module chain, because the
+symbol may equally be an attribute; `from . import sym` resolves sibling submodules
+of the importing file's package; and only module-level statements claim files —
+conditional imports and relative dots that climb above the repository claim nothing
+instead of guessing. Python has no CALLS resolver yet: `.py` edits invalidate the
+"python" CALLS scope (inert until a resolver lands) rather than the root TS scope,
+and an optional scip-python resolver is conditional on demonstrated owner use.
 
 ## Query layer (internal/query)
 

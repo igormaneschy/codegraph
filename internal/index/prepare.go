@@ -71,7 +71,7 @@ func prepareIndexingAtRoot(ctx context.Context, store *graph.Store, repository r
 			return pipelineInput{}, nil, err
 		}
 		scan.sourceObservations = nil
-		recordIndexDecision(ctx, freshnessDecision{graphUnreadable: true, rubyCurrent: true, uncertified: scan.manifest.ResolverInputs.NoReuseReasons})
+		recordIndexDecision(ctx, freshnessDecision{graphUnreadable: true, rubyCurrent: true, pythonCurrent: true, uncertified: scan.manifest.ResolverInputs.NoReuseReasons})
 		return pipelineInput{
 			project: project, repository: repository, changed: allResolverScopesChanged(scan.tsdirs),
 			files: scan.files, tsdirs: scan.tsdirs,
@@ -102,6 +102,14 @@ func prepareIndexingAtRoot(ctx context.Context, store *graph.Store, repository r
 	rubyAnalysisCurrent := false
 	if !graphFreshnessMiss {
 		rubyAnalysisCurrent, err = store.RubyAnalysisCurrent(project, rubyAnalysisVersion)
+		if err != nil {
+			graphFreshnessMiss = true
+			existingGraph = true
+		}
+	}
+	pythonAnalysisCurrent := false
+	if !graphFreshnessMiss {
+		pythonAnalysisCurrent, err = store.PythonAnalysisCurrent(project, pythonAnalysisVersion)
 		if err != nil {
 			graphFreshnessMiss = true
 			existingGraph = true
@@ -162,11 +170,12 @@ func prepareIndexingAtRoot(ctx context.Context, store *graph.Store, repository r
 			manifestFresh = false
 		}
 	}
-	fresh := !graphFreshnessMiss && !changes.Any() && rubyAnalysisCurrent && manifestFresh
+	fresh := !graphFreshnessMiss && !changes.Any() && rubyAnalysisCurrent && pythonAnalysisCurrent && manifestFresh
 	recordIndexDecision(ctx, freshnessDecision{
 		unchanged: fresh, existingGraph: existingGraph, graphUnreadable: graphFreshnessMiss,
 		manifestTrusted: manifestFresh, rubyCurrent: rubyAnalysisCurrent,
-		changes: changes, uncertified: currentManifest.ResolverInputs.NoReuseReasons,
+		pythonCurrent: pythonAnalysisCurrent,
+		changes:       changes, uncertified: currentManifest.ResolverInputs.NoReuseReasons,
 	})
 	if fresh {
 		return pipelineInput{}, &Result{
