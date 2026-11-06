@@ -847,6 +847,23 @@ func (s *Store) RubyAnalysisCurrent(project string, version int) (bool, error) {
 	return rubyFiles == current, nil
 }
 
+// PythonAnalysisCurrent reports whether every indexed Python File node was built
+// with the requested Python analysis version. It lets Python parser upgrades
+// invalidate an otherwise hash-identical Python graph exactly once, mirroring
+// RubyAnalysisCurrent.
+func (s *Store) PythonAnalysisCurrent(project string, version int) (bool, error) {
+	var pyFiles, current int
+	err := s.db.QueryRow(`SELECT
+		COUNT(*),
+		COALESCE(SUM(CASE WHEN json_extract(properties, '$.python_analysis_version')=? THEN 1 ELSE 0 END), 0)
+		FROM nodes
+		WHERE project=? AND label='File' AND json_extract(properties, '$.lang')='python'`, version, project).Scan(&pyFiles, &current)
+	if err != nil {
+		return false, err
+	}
+	return pyFiles == current, nil
+}
+
 // InsertEdges resolves source/target qualified names to node IDs and inserts.
 // QN→id resolution is done once in memory (was one correlated subquery per edge —
 // O(edges) two-table lookups). Edges whose endpoints don't exist are dropped.

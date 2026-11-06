@@ -133,8 +133,8 @@ func cmdVersion() {
 		}
 		fmt.Println(line)
 	}
-	// Capability fingerprint: Ruby/Rails static CALLS landed in this fork.
-	fmt.Println("  features: ruby-static-calls, rails-routes, go-vta, scip-typescript")
+	// Capability fingerprint: language/resolver features this fork ships.
+	fmt.Println("  features: ruby-static-calls, rails-routes, go-vta, scip-typescript, python-structure")
 }
 
 func storePath(repoRoot string) (string, error) {

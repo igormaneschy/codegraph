@@ -98,6 +98,7 @@ type freshnessDecision struct {
 	graphUnreadable bool
 	manifestTrusted bool
 	rubyCurrent     bool
+	pythonCurrent   bool
 	changes         Changes
 	uncertified     []string
 }
@@ -129,6 +130,9 @@ func recordIndexDecision(ctx context.Context, decision freshnessDecision) {
 	}
 	if decision.existingGraph && !decision.rubyCurrent {
 		reasons = append(reasons, "ruby-analysis-outdated")
+	}
+	if decision.existingGraph && !decision.pythonCurrent {
+		reasons = append(reasons, "python-analysis-outdated")
 	}
 	slices.Sort(reasons)
 	metrics.InvalidationReasons = slices.Compact(reasons)

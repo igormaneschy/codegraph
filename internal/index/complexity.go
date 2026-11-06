@@ -22,8 +22,19 @@ var tsDecisionKinds = map[string]bool{
 	"&&": true, "||": true, "??": true,
 }
 
+// Python: boolean_operator wraps and/or chains (its anonymous tokens are not
+// separately visitable), elif is its own elif_clause kind, and match statements
+// count case_clause (each arm) plus its if_clause guard. Kinds verified against
+// tree-sitter-python v0.25 in python_test.go.
+var pyDecisionKinds = map[string]bool{
+	"if_statement": true, "elif_clause": true, "while_statement": true,
+	"for_statement": true, "except_clause": true, "conditional_expression": true,
+	"boolean_operator": true, "case_clause": true, "if_clause": true,
+}
+
 func goCyclomatic(n *tree_sitter.Node) int { return 1 + countDecisions(n, goDecisionKinds) }
 func tsCyclomatic(n *tree_sitter.Node) int { return 1 + countDecisions(n, tsDecisionKinds) }
+func pyCyclomatic(n *tree_sitter.Node) int { return 1 + countDecisions(n, pyDecisionKinds) }
 
 // countDecisions walks the whole subtree — including anonymous token nodes, so the
 // boolean operators count — and tallies the nodes whose kind is a decision point.
